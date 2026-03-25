@@ -1,0 +1,113 @@
+<template>
+    <template if:true={log}>
+
+        <!-- =========================
+             상단 에러 요약
+        ========================== -->
+        <lightning-card class="card">
+            <div class="card-inner summary-box">
+                <div class="summary-header">
+                    <span class={statusBadgeClass}>{log.Status__c}</span>
+                    <span class="summary-code">{log.ErrorCode__c}</span>
+                </div>
+
+                <p class="summary-message">
+                    {log.ErrorMessage__c}
+                </p>
+
+                <p class="summary-time">
+                    발생 시각: {requestDateTimeFormatted}
+                </p>
+            </div>
+        </lightning-card>
+
+        <!-- =========================
+             요청 / 응답 요약 (한 줄)
+        ========================== -->
+        <lightning-card class="card">
+            <div class="card-inner">
+                <lightning-layout class="two-col-full">
+
+                    <!-- 요청 정보 -->
+                    <lightning-layout-item size="6">
+                        <div class="info-header">요청 정보</div>
+                        <div class="rr-content">
+                            <p><span class="label">URL</span>{log.RequestUrl__c}</p>
+                            <p><span class="label">Class</span>{log.ApexClass__c}</p>
+                            <p><span class="label">Method</span>{log.Method__c}</p>
+                        </div>
+                    </lightning-layout-item>
+
+                    <!-- 응답 정보 -->
+                    <lightning-layout-item size="6">
+                        <div class="info-header">응답 정보</div>
+                        <div class="rr-content">
+                            <p><span class="label">HTTP Status</span>{log.HttpStatusCode__c}</p>
+                            <p><span class="label">응답 시각</span>{requestDateTimeFormatted}</p>
+                        </div>
+                    </lightning-layout-item>
+
+                </lightning-layout>
+            </div>
+        </lightning-card>
+
+        <!-- =========================
+             개발자용 상세 정보 (접힘)
+        ========================== -->
+        <lightning-card class="card">
+            <div class="card-inner">
+
+                <details class="developer-details">
+                    <summary class="developer-summary">
+                        ▶ 개발자용 상세 정보
+                    </summary>
+
+                    <!-- Stack Trace -->
+                    <template if:true={hasStackTrace}>
+                        <div class="developer-section">
+                            <div class="info-header">Stack Trace</div>
+                            <pre class="stack-trace-box">{log.StackTrace__c}</pre>
+                        </div>
+                    </template>
+
+                    <template if:false={hasStackTrace}>
+                        <div class="no-stack-box">
+                            Stack Trace 정보가 없습니다.
+                        </div>
+                    </template>
+
+                    <!-- Request / Response Raw -->
+                    <div class="developer-section">
+                        <div class="info-header">Request Body</div>
+                        <pre class="body-box">{log.RequestBody__c}</pre>
+                    </div>
+
+                    <div class="developer-section">
+                        <div class="info-header">Response Body</div>
+                        <pre class="body-box">{log.ResponseBody__c}</pre>
+                    </div>
+
+                    <template if:true={hasFailedIds}>
+                        <div class="fail-section">
+                            <div class="info-header">
+                                실패 레코드 ({failedIds.length})
+                            </div>
+
+                            <template for:each={failedIds} for:item="rid">
+                                <button key={rid} data-id={rid} class="record-link" type="button" onclick={handleGoToRecord}>
+                                    {rid}
+                                </button>
+
+                            </template>
+                        </div>
+                    </template>
+
+
+
+                </details>
+
+            </div>
+        </lightning-card>
+
+    </template>
+</template>

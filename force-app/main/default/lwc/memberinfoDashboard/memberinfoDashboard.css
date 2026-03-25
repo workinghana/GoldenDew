@@ -1,0 +1,86 @@
+/* 전체 컨테이너 */
+.dashboard-container {
+  padding: 12px 16px 16px 16px;
+}
+
+/* 2컬럼 레이아웃 (회원 정보 오른쪽 영역과 동일) */
+.grid-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+/* 좌/우 컬럼 */
+.left-column,
+.right-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: stretch;
+}
+
+/* 카드 (member-area와 동일 스타일) */
+.card {
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  border-radius: 12px;
+  padding: 12px 16px 16px 16px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* 카드 제목 (회원 정보 타이틀 하위 레벨) */
+.card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #111;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 제목 하단 divider (완전 동일) */
+.divider {
+  height: 1px;
+  background-color: #d8dde6;
+  margin: 8px 0 12px 0;
+}
+
+/* 기본 항목 (info-grid item 느낌) */
+.item {
+  display: flex;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #111;
+  margin-bottom: 6px;
+}
+
+/* 값 강조 */
+.item span {
+  font-weight: 600;
+}
+
+/* 변경 일시 등 서브 정보 */
+.sub-item {
+  font-size: 12px;
+  color: #6b6b6b;
+  margin-left: 6px;
+  margin-bottom: 6px;
+}
+
+/* 등급 업데이트 일시 */
+.card-title span {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b6b6b;
+}
+
+/* 반응형: 화면 좁아지면 세로 */
+@media (max-width: 1200px) {
+  .grid-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}

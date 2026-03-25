@@ -1,0 +1,503 @@
+/* =========================
+   Container
+========================= */
+
+.container {
+  padding: 20px;
+}
+
+/* =========================
+   Point Summary Outer Frame
+========================= */
+
+.coupon-card {
+  border: 1px solid #d8dde6; /* 외곽 테두리 */
+  border-radius: 14px;
+  padding: 16px;
+  background: #ffffff;
+}
+.coupon-card-box {
+  padding: 8px 4px 4px 4px;
+}
+
+/* =========================
+   Title Area
+========================= */
+
+.title-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.title-area h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #1f1f1f;
+  margin: 0;
+}
+
+.sub-title {
+  font-size: 16px;
+  color: #666;
+  margin-left: 8px;
+  font-weight: 500;
+}
+
+/* =========================
+   Card Header
+========================= */
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  padding: 16px 20px;
+
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.card-header-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1f1f1f;
+}
+
+.card-header-action {
+  display: flex;
+  align-items: center;
+}
+
+.hidden-file-input {
+  display: none;
+}
+/* =========================
+   Coupon Header
+========================= */
+
+.coupon-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.coupon-header-left {
+  display: flex;
+  flex-direction: column;
+}
+
+.header-action {
+  display: flex;
+  align-items: center;
+}
+
+/* =========================
+   Card Layout
+========================= */
+
+.info-card {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 24px;
+  min-height: 210px;
+
+  display: flex;
+  flex-direction: column;
+
+  box-shadow:
+    0 6px 18px rgba(0, 0, 0, 0.08),
+    0 2px 6px rgba(0, 0, 0, 0.04);
+
+  transition: all 0.25s ease;
+  position: relative;
+}
+
+.info-card:hover {
+  transform: translateY(-4px);
+
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.14),
+    0 6px 14px rgba(0, 0, 0, 0.08);
+}
+
+/* =========================
+   Card Color Variants
+========================= */
+
+.card-point {
+  border-top: 6px solid #0176d3;
+  background: linear-gradient(#ffffff, #f7fbff);
+}
+
+.card-operation {
+  border-top: 6px solid #2e844a;
+  background: linear-gradient(#ffffff, #f6fbf8);
+}
+
+.card-admin {
+  border-top: 6px solid #9050e9;
+  background: linear-gradient(#ffffff, #faf7ff);
+}
+
+/* =========================
+   Card Title
+========================= */
+
+.card-title {
+  font-size: 16px;
+  font-weight: 700;
+
+  margin-bottom: 18px;
+  padding-bottom: 8px;
+
+  color: #2e2e2e;
+
+  border-bottom: 1px solid #eeeeee;
+}
+
+/* =========================
+   Field Layout
+========================= */
+
+.field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  margin-bottom: 14px;
+
+  font-size: 14px;
+}
+
+.label {
+  color: #777;
+}
+
+.value {
+  font-weight: 600;
+  color: #222;
+}
+
+/* =========================
+   Center Card
+========================= */
+
+.center-card {
+  align-items: center;
+  text-align: center;
+}
+
+/* Priority */
+
+.priority {
+  font-size: 54px;
+  font-weight: 700;
+
+  color: #2e844a;
+
+  margin-top: 6px;
+}
+
+.priority-label {
+  font-size: 13px;
+  color: #666;
+
+  margin-bottom: 18px;
+}
+
+/* =========================
+   Cost Highlight
+========================= */
+
+.cost {
+  color: #0176d3;
+  font-weight: 700;
+}
+
+/* =========================
+   Upload Modal Summary
+========================= */
+
+.upload-summary {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* 성공 badge */
+
+.success-badge {
+  background: #e8f5e9;
+  color: #2e7d32;
+
+  padding: 6px 14px;
+  border-radius: 16px;
+
+  font-weight: 600;
+}
+
+/* 실패 badge */
+
+.fail-badge {
+  background: #ffebee;
+  color: #c62828;
+
+  padding: 6px 14px;
+  border-radius: 16px;
+
+  font-weight: 600;
+}
+
+/* =========================
+   Table Scroll
+========================= */
+
+.table-scroll {
+  max-height: 420px;
+  overflow: auto;
+}
+
+/* =========================
+   Success Message
+========================= */
+
+.success-message {
+  color: #2e7d32;
+}
+
+.success-icon {
+  color: #2e7d32;
+}
+
+.slds-modal__content {
+  overflow: hidden;
+}
+
+/* =========================
+   Issue Button
+========================= */
+
+.issue-btn {
+  margin-left: 8px;
+}
+
+.issue-btn button {
+  transition: all 0.15s ease;
+}
+
+.issue-btn button:hover {
+  transform: translateY(-1px);
+}
+
+.issue-btn button:active {
+  transform: translateY(0px);
+}
+
+/* =========================
+   Section Title
+========================= */
+
+.coupon-info {
+  font-size: 20px; /* 글씨 크게 */
+  font-weight: 700; /* 굵게 */
+  color: #1f1f1f;
+
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  letter-spacing: 0.3px;
+}
+
+/* 우선순위 숫자 */
+
+.priority {
+  font-size: 48px;
+  font-weight: 700;
+  color: #2e844a;
+}
+
+.priority-label {
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 10px;
+}
+
+.cost {
+  color: #0176d3;
+  font-weight: 700;
+}
+
+.point-summary-box {
+  background: #dddfeb;
+  border-radius: 12px;
+  padding: 18px;
+  height: 100%;
+}
+/* =========================
+   Info List Layout
+========================= */
+
+.info-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Row */
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+
+  padding: 10px 12px;
+
+  border-radius: 8px;
+
+  background: #ffffff;
+
+  border: 1px solid #f1f1f1;
+
+  transition: all 0.15s ease;
+}
+
+/* Hover */
+
+.info-row:hover {
+  background: #f8fafc;
+  border-color: #e5e7eb;
+}
+
+/* Label */
+
+.info-label {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+/* Value */
+
+.info-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+/* =========================
+   Responsive - Tablet
+========================= */
+
+@media (max-width: 1200px) {
+  .container {
+    padding: 16px;
+  }
+
+  .title-area h1 {
+    font-size: 24px;
+  }
+
+  .sub-title {
+    font-size: 14px;
+  }
+
+  .info-card {
+    padding: 20px;
+    min-height: 180px;
+  }
+
+  .priority {
+    font-size: 40px;
+  }
+}
+
+/* =========================
+   Responsive - Tablet Grid
+========================= */
+
+@media (max-width: 1024px) {
+  /* 카드 2열 */
+
+  .point-summary-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+}
+
+/* =========================
+   Responsive - Mobile
+========================= */
+
+@media (max-width: 768px) {
+  .container {
+    padding: 12px;
+  }
+
+  .title-area {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .title-area h1 {
+    font-size: 20px;
+  }
+
+  .sub-title {
+    font-size: 13px;
+  }
+
+  /* 카드 1열 */
+
+  .point-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .info-card {
+    padding: 18px;
+    min-height: auto;
+  }
+
+  .card-title {
+    font-size: 15px;
+  }
+
+  .field {
+    font-size: 13px;
+  }
+
+  .priority {
+    font-size: 36px;
+  }
+}
+
+/* =========================
+   Responsive - Small Mobile
+========================= */
+
+@media (max-width: 480px) {
+  .container {
+    padding: 10px;
+  }
+
+  .title-area h1 {
+    font-size: 18px;
+  }
+
+  .card-title {
+    font-size: 14px;
+  }
+
+  .priority {
+    font-size: 30px;
+  }
+
+  .field {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+}

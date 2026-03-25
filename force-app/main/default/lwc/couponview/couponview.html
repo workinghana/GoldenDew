@@ -1,0 +1,535 @@
+<template>
+  <template if:true={isLoading}>
+    <lightning-spinner alternative-text="Loading"></lightning-spinner>
+  </template>
+
+  <template if:true={hasError}>
+    <div class="slds-p-around_medium slds-text-color_error">{errorMessage}</div>
+  </template>
+
+  <template if:true={hasCoupon}>
+    <section class="page-title">
+      <div class="page-title-icon">
+        <lightning-icon class="page-title-icon-svg" icon-name="utility:collection_alt" size="small"></lightning-icon>
+      </div>
+      <h1>쿠폰 요약</h1>
+    </section>
+
+    <section class="coupon-grid">
+      <article class="coupon-card-box">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle purple">
+              <lightning-icon icon-name="utility:note" size="small"></lightning-icon>
+            </div>
+            <div class="coupon-header-left">
+              <div class="card-title">쿠폰 정보</div>
+            </div>
+          </div>
+          <div class="header-right">
+            <lightning-button label="지급 대상 업로드" onclick={handleUploadClick}></lightning-button>
+          </div>
+        </div>
+
+        <div class="coupon-divider"></div>
+
+        <div class="detail-grid">
+          <div class="detail-row detail-row--summary">
+            <div class="detail-label">쿠폰명</div>
+            <div class="detail-value">{voucherDefinitionName}</div>
+          </div>
+          <div class="detail-row detail-row--summary">
+            <div class="detail-label">쿠폰 관리 코드</div>
+            <div class="detail-value">{couponNumText}</div>
+          </div>
+          <div class="detail-row detail-row--summary">
+            <div class="detail-label">사용 기간</div>
+            <div class="detail-value">{couponPeriodText}</div>
+          </div>
+          <div class="detail-row detail-row--summary">
+            <div class="detail-label">쿠폰 유형</div>
+            <div class="detail-value">{couponTypeLabel}</div>
+          </div>
+          <div class="detail-row detail-row--summary">
+            <div class="detail-label">혜택</div>
+            <div class="detail-value">{vouchervalue}</div>
+          </div>
+          <div class="detail-row detail-row--summary">
+            <div class="detail-label">상태</div>
+            <div class="detail-value"><span class={couponStatusClass}>{couponStatus}</span></div>
+          </div>
+        </div>
+
+        <input class="hidden-file-input coupon-upload-file-input" type="file" accept=".csv" onchange={handleFileChange} />
+      </article>
+
+      <article class="coupon-card-box">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle green">
+              <lightning-icon icon-name="utility:lock" size="small"></lightning-icon>
+            </div>
+            <div class="card-title">제약 조건</div>
+          </div>
+          <div class="header-right">
+            <lightning-button label="쿠폰 사용 정책 설정" variant="neutral" onclick={handleIssueCouponLimitSet}></lightning-button>
+          </div>
+        </div>
+
+        <div class="coupon-divider"></div>
+
+        <div class="constraint-grid">
+          <template for:each={limitItems} for:item="item">
+            <div class="detail-row detail-row--constraint" key={item.type}>
+              <div class="detail-label">{item.label}</div>
+              <div class={item.valueClass}>
+                {item.displayText}
+                <template if:true={item.hasMore}>
+                  <button class="more-btn" data-type={item.type} onclick={handleToggleMore}>[더보기]</button>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+      </article>
+    </section>
+  </template>
+
+  <template if:true={isPolicyModalOpen}>
+    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+      <div class="slds-modal__container policy-modal-container">
+        <header class="slds-modal__header">
+          <button class="slds-button slds-button_icon slds-modal__close" title="닫기" onclick={closePolicyModal}>
+            <lightning-icon icon-name="utility:close" alternative-text="닫기" size="small"></lightning-icon>
+          </button>
+          <h2 class="slds-text-heading_medium">쿠폰 사용 정책 설정</h2>
+        </header>
+
+        <div class="slds-modal__content slds-p-around_large policy-modal-content">
+          <template if:true={isPolicyLoading}>
+            <lightning-spinner alternative-text="Loading"></lightning-spinner>
+          </template>
+
+          <template if:false={isPolicyLoading}>
+            <div class="policy-section-grid">
+              <template for:each={policySections} for:item="section">
+                <div class="policy-card" key={section.key}>
+                  <div class="policy-card-header">
+                    <h3>{section.title}</h3>
+                    <template if:true={section.canUpload}>
+                      <button class="policy-action-btn" data-section={section.key} onclick={openPolicyUploadModal}>{section.uploadLabel}</button>
+                    </template>
+                  </div>
+
+                  <div class="policy-search-row">
+                    <lightning-input
+                      type="text"
+                      label="검색어"
+                      variant="label-hidden"
+                      data-section={section.key}
+                      value={section.keyword}
+                      placeholder={section.placeholder}
+                      onchange={handlePolicyKeywordChange}
+                      onkeydown={handlePolicyKeywordEnter}
+                    ></lightning-input>
+                    <lightning-button label="검색" variant="neutral" data-section={section.key} onclick={handlePolicySearch}></lightning-button>
+                  </div>
+
+                  <template if:true={section.hasSelectedItems}>
+                    <div class={section.selectedClass}>
+                      <template for:each={section.selectedItems} for:item="item">
+                        <div class={item.pillClass} key={item.id}>
+                          <span class={item.textClass}>{item.displayText}</span>
+                          <button class="policy-pill-remove" data-section={section.key} data-id={item.id} onclick={handlePolicyRemoveSelected}>
+                            제거
+                          </button>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+
+                  <template if:true={section.isCategorySection}>
+                    <div class="category-help">대분류, 중분류, 소분류를 펼쳐서 선택할 수 있습니다. 검색 결과에서 바로 추가하는 것도 가능합니다.</div>
+
+                    <template if:true={section.hasResultTree}>
+                      <div class="category-tree">
+                        <template for:each={section.resultTree} for:item="largeNode">
+                          <div class={largeNode.levelClass} key={largeNode.id}>
+                            <div class="category-node">
+                              <button class="category-toggle" data-section={section.key} data-id={largeNode.id} onclick={handleCategoryToggle}>
+                                <span class="category-toggle-main">
+                                  <span class={largeNode.badgeClass}>대분류</span>
+                                  <span>{largeNode.displayText}</span>
+                                </span>
+                                <span class="category-toggle-meta">
+                                  <span class="category-code-path">{largeNode.codePath}</span>
+                                  <span class="category-toggle-text">{largeNode.toggleText}</span>
+                                </span>
+                              </button>
+                              <button class="policy-action-btn" data-section={section.key} data-id={largeNode.id} onclick={handlePolicyAddResult}>
+                                추가
+                              </button>
+                            </div>
+
+                            <template if:true={largeNode.expanded}>
+                              <div class="category-children">
+                                <template for:each={largeNode.children} for:item="mediumNode">
+                                  <div class={mediumNode.levelClass} key={mediumNode.id}>
+                                    <div class="category-node">
+                                      <button
+                                        class="category-toggle"
+                                        data-section={section.key}
+                                        data-id={mediumNode.id}
+                                        onclick={handleCategoryToggle}
+                                      >
+                                        <span class="category-toggle-main">
+                                          <span class={mediumNode.badgeClass}>중분류</span>
+                                          <span>{mediumNode.displayText}</span>
+                                        </span>
+                                        <span class="category-toggle-meta">
+                                          <span class="category-code-path">{mediumNode.codePath}</span>
+                                          <span class="category-toggle-text">{mediumNode.toggleText}</span>
+                                        </span>
+                                      </button>
+                                      <button
+                                        class="policy-action-btn"
+                                        data-section={section.key}
+                                        data-id={mediumNode.id}
+                                        onclick={handlePolicyAddResult}
+                                      >
+                                        추가
+                                      </button>
+                                    </div>
+
+                                    <template if:true={mediumNode.expanded}>
+                                      <div class="category-children">
+                                        <template for:each={mediumNode.children} for:item="smallNode">
+                                          <div class={smallNode.levelClass} key={smallNode.id}>
+                                            <div class="category-node">
+                                              <div class="category-leaf">{smallNode.displayText}</div>
+                                              <button
+                                                class="policy-action-btn"
+                                                data-section={section.key}
+                                                data-id={smallNode.id}
+                                                onclick={handlePolicyAddResult}
+                                              >
+                                                추가
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </template>
+                                      </div>
+                                    </template>
+                                  </div>
+                                </template>
+                              </div>
+                            </template>
+                          </div>
+                        </template>
+                      </div>
+                    </template>
+                  </template>
+
+                  <template if:true={section.hasFlatResults}>
+                    <div class="policy-result-list">
+                      <template for:each={section.results} for:item="item">
+                        <div class="policy-result-item" key={item.id}>
+                          <div class="policy-result-text">{item.displayText}</div>
+                          <button class="policy-action-btn" data-section={section.key} data-id={item.id} onclick={handlePolicyAddResult}>추가</button>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+
+                  <template if:true={section.hasNoResult}>
+                    <div class="policy-empty-text">검색 결과가 없습니다.</div>
+                  </template>
+                </div>
+              </template>
+
+              <div class="policy-card policy-card--full">
+                <div class="policy-card-header"><h3>사용 가능 매장 구분</h3></div>
+                <div class="policy-checkbox-grid">
+                  <template for:each={policyStoreTypeOptions} for:item="option">
+                    <lightning-input
+                      key={option.value}
+                      type="checkbox"
+                      label={option.label}
+                      value={option.value}
+                      checked={option.checked}
+                      onchange={handleStoreTypeToggle}
+                    ></lightning-input>
+                  </template>
+                </div>
+              </div>
+
+              <div class="policy-card policy-card--full">
+                <div class="policy-card-header"><h3>사용 가능 주문 구분</h3></div>
+                <div class="policy-checkbox-grid">
+                  <template for:each={policyOrderTypeOptions} for:item="option">
+                    <lightning-input
+                      key={option.value}
+                      type="checkbox"
+                      label={option.label}
+                      value={option.value}
+                      checked={option.checked}
+                      onchange={handleOrderTypeToggle}
+                    ></lightning-input>
+                  </template>
+                </div>
+              </div>
+
+              <div class="policy-card policy-card--full">
+                <div class="policy-card-header"><h3>판매 조건</h3></div>
+                <div class="policy-number-grid">
+                  <lightning-combobox
+                    name="discountRateOperator"
+                    label="비교 조건"
+                    value={policyForm.discountRateOperator}
+                    options={comparisonOperatorOptions}
+                    onchange={handlePolicyNumberChange}
+                  ></lightning-combobox>
+                  <lightning-input
+                    type="number"
+                    name="discountRate"
+                    label="적용 가능 최대 할인율"
+                    value={policyForm.discountRate}
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    disabled={isDiscountRateDisabled}
+                    oninput={handlePolicyNumberChange}
+                    onchange={handlePolicyNumberChange}
+                  ></lightning-input>
+                  <div></div>
+
+                  <lightning-combobox
+                    name="totalQuantityOperator"
+                    label="비교 조건"
+                    value={policyForm.totalQuantityOperator}
+                    options={comparisonOperatorOptions}
+                    onchange={handlePolicyNumberChange}
+                  ></lightning-combobox>
+                  <lightning-input
+                    type="number"
+                    name="totalQuantity"
+                    label="사용 가능 최소 수량"
+                    value={policyForm.totalQuantity}
+                    min="0"
+                    step="1"
+                    disabled={isTotalQuantityDisabled}
+                    oninput={handlePolicyNumberChange}
+                    onchange={handlePolicyNumberChange}
+                  ></lightning-input>
+                  <div></div>
+
+                  <lightning-combobox
+                    name="salesAmountOperator"
+                    label="비교 조건"
+                    value={policyForm.salesAmountOperator}
+                    options={comparisonOperatorOptions}
+                    onchange={handlePolicyNumberChange}
+                  ></lightning-combobox>
+                  <lightning-input
+                    type="number"
+                    name="salesAmount"
+                    label="사용 가능 최소 금액"
+                    value={policyForm.salesAmount}
+                    min="0"
+                    step="1"
+                    disabled={isSalesAmountDisabled}
+                    oninput={handlePolicyNumberChange}
+                    onchange={handlePolicyNumberChange}
+                  ></lightning-input>
+                  <div></div>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <footer class="slds-modal__footer">
+          <lightning-button label="닫기" variant="neutral" onclick={closePolicyModal}></lightning-button>
+          <lightning-button label={policySaveButtonLabel} variant="brand" onclick={handlePolicySave}></lightning-button>
+        </footer>
+      </div>
+    </section>
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+
+  <template if:true={isPolicyErrorModalOpen}>
+    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+      <div class="slds-modal__container">
+        <header class="slds-modal__header"><h2 class="slds-text-heading_medium">정책 저장 실패</h2></header>
+        <div class="slds-modal__content slds-p-around_large"><div class="issue-error-message">{policyErrorMessage}</div></div>
+        <footer class="slds-modal__footer">
+          <lightning-button label="닫기" variant="neutral" onclick={closePolicyErrorModal}></lightning-button>
+        </footer>
+      </div>
+    </section>
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+
+  <template if:true={isPolicyUploadModalOpen}>
+    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open policy-upload-entry-modal">
+      <div class="slds-modal__container policy-upload-entry-container">
+        <header class="slds-modal__header"><h2 class="slds-text-heading_medium">{policyUploadTitle}</h2></header>
+        <div class="slds-modal__content slds-p-around_large policy-upload-entry-content">
+          <template if:true={isPolicyUploadLoading}>
+            <lightning-spinner alternative-text="Loading"></lightning-spinner>
+          </template>
+
+          <div
+            class={policyUploadDropzoneClass}
+            ondragenter={handlePolicyUploadDragEnter}
+            ondragover={handlePolicyUploadDragOver}
+            ondragleave={handlePolicyUploadDragLeave}
+            ondrop={handlePolicyUploadDrop}
+          >
+            <lightning-icon icon-name="utility:upload" size="large" class="policy-upload-dropzone-icon"></lightning-icon>
+            <div class="policy-upload-dropzone-title">CSV 파일 업로드</div>
+            <div class="policy-upload-dropzone-text">{policyUploadGuideText}</div>
+            <template if:true={policyUploadFileName}>
+              <div class="policy-upload-file-name">{policyUploadFileName}</div>
+            </template>
+            <lightning-button label="파일 선택" variant="brand" onclick={handlePolicyUploadClick}></lightning-button>
+            <input class="hidden-file-input policy-upload-file-input" type="file" accept=".csv" onchange={handlePolicyUploadFileChange} />
+          </div>
+
+          <div class="policy-upload-block">
+            <div class="upload-summary">
+              <div class="upload-summary-card upload-summary-card--success">
+                <div class="upload-summary-label">정상 건수</div>
+                <div class="upload-summary-value">{policyUploadSuccessCount}</div>
+              </div>
+              <div class="upload-summary-card upload-summary-card--error">
+                <div class="upload-summary-label">오류 건수</div>
+                <div class="upload-summary-value">{policyUploadFailCount}</div>
+              </div>
+            </div>
+          </div>
+
+          <template if:true={hasPolicyUploadPreviewRows}>
+            <div class="policy-upload-block">
+              <div class="policy-upload-title">업로드 미리보기</div>
+              <div class="policy-upload-table-wrap">
+                <div class="policy-upload-table-inner">
+                  <lightning-datatable
+                    key-field="id"
+                    data={policyUploadPreviewRows}
+                    columns={policyUploadColumns}
+                    hide-checkbox-column
+                  ></lightning-datatable>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <template if:true={hasPolicyUploadErrors}>
+            <div class="policy-upload-block">
+              <div class="policy-upload-title">오류 목록</div>
+              <div class="policy-upload-table-wrap">
+                <div class="policy-upload-table-inner">
+                  <lightning-datatable
+                    key-field="rowNumber"
+                    data={policyUploadErrors}
+                    columns={policyUploadErrorColumns}
+                    hide-checkbox-column
+                  ></lightning-datatable>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+        <footer class="slds-modal__footer">
+          <lightning-button label="닫기" variant="neutral" onclick={closePolicyUploadModal}></lightning-button>
+          <lightning-button label="선택 목록에 반영" variant="brand" onclick={applyPolicyUploadRows}></lightning-button>
+        </footer>
+      </div>
+    </section>
+    <div class="slds-backdrop slds-backdrop_open policy-upload-backdrop"></div>
+  </template>
+
+  <template if:true={isLimitModalOpen}>
+    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+      <div class="slds-modal__container">
+        <header class="slds-modal__header"><h2 class="slds-text-heading_medium">{selectedLimitLabel}</h2></header>
+        <div class="slds-modal__content slds-p-around_large">
+          <div class="limit-modal-meta">{selectedLimitCountText}</div>
+          <div class="limit-modal-table-wrap">
+            <div class="limit-modal-table">
+              <div class="limit-modal-head">
+                <template if:true={showSelectedLimitCodeColumn}>
+                  <div class="limit-modal-cell">{selectedLimitCodeHeader}</div>
+                </template>
+                <div class="limit-modal-cell">{selectedLimitNameHeader}</div>
+              </div>
+              <div class="limit-modal-body">
+                <template for:each={selectedLimitPageItems} for:item="value">
+                  <div class="limit-modal-row" key={value.key}>
+                    <template if:true={showSelectedLimitCodeColumn}>
+                      <div class="limit-modal-cell">{value.code}</div>
+                    </template>
+                    <div class="limit-modal-cell">{value.name}</div>
+                  </div>
+                </template>
+              </div>
+            </div>
+          </div>
+          <div class="limit-modal-pagination">
+            <button class="limit-page-nav" onclick={handleLimitPageGroupPrev} disabled={isLimitPageGroupPrevDisabled}>이전</button>
+            <div class="limit-page-list">
+              <template for:each={selectedLimitPageNumbers} for:item="page">
+                <button key={page.key} class={page.className} data-page={page.number} onclick={handleLimitPageClick}>{page.number}</button>
+              </template>
+            </div>
+            <button class="limit-page-nav" onclick={handleLimitPageGroupNext} disabled={isLimitPageGroupNextDisabled}>다음</button>
+          </div>
+        </div>
+        <footer class="slds-modal__footer"><lightning-button label="닫기" variant="neutral" onclick={closeLimitModal}></lightning-button></footer>
+      </div>
+    </section>
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+
+  <template if:true={isUploadModalOpen}>
+    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+      <div class="slds-modal__container">
+        <header class="slds-modal__header"><h2 class="slds-text-heading_medium">지급 대상 확인</h2></header>
+        <div class="slds-modal__content slds-p-around_large">
+          <div class="upload-summary">
+            <div class="upload-summary-card upload-summary-card--success">
+              <div class="upload-summary-label">정상 건수</div>
+              <div class="upload-summary-value">{successCount}</div>
+            </div>
+            <div class="upload-summary-card upload-summary-card--error">
+              <div class="upload-summary-label">오류 건수</div>
+              <div class="upload-summary-value">{failCount}</div>
+            </div>
+          </div>
+          <template if:true={hasPreviewMembers}>
+            <lightning-datatable key-field="memberNo" data={previewMembers} columns={columns} hide-checkbox-column></lightning-datatable>
+          </template>
+        </div>
+        <footer class="slds-modal__footer">
+          <lightning-button label="닫기" variant="neutral" onclick={closeUploadModal}></lightning-button>
+          <lightning-button label={issueButtonLabel} variant="brand" onclick={handleIssueCoupon}></lightning-button>
+        </footer>
+      </div>
+    </section>
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+
+  <template if:true={isIssueErrorModalOpen}>
+    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+      <div class="slds-modal__container">
+        <header class="slds-modal__header"><h2 class="slds-text-heading_medium">지급 실패</h2></header>
+        <div class="slds-modal__content slds-p-around_large"><div class="issue-error-message">{issueErrorMessage}</div></div>
+        <footer class="slds-modal__footer">
+          <lightning-button label="닫기" variant="neutral" onclick={closeIssueErrorModal}></lightning-button>
+        </footer>
+      </div>
+    </section>
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+</template>

@@ -1,0 +1,116 @@
+/**
+ * ERP Member API Client
+ * - CommonApiClient 기반
+ * - 토큰 캐시/401 갱신 로직은 CommonApiClient + NamedCredentialTokenRefresher에 위임
+ *
+ * @author Changhwan Kim
+ * @since 2026-02-23
+ */
+public with sharing class ErpMemberApiClient {
+  // =========================
+  // Config
+  // =========================
+  private static final String ERP_NC = 'GoldenDewApiNC';
+  private static final String TOKEN_CACHE_KEY = 'GOLDENDEW';
+  private static final Integer DEFAULT_TIMEOUT_MS = 60000;
+
+  // =========================
+  // API Paths
+  // =========================
+  private static final String UPDATE_MEMBERS_BULK_PATH = '/Crm/Members/bulk'; // 회원정보 수정 (등급용 벌크)
+  private static final String UPDATE_MEMBER_PATH = '/Crm/Member'; // 회원정보 수정
+
+  // =========================
+  // Public Methods
+  // =========================
+
+  /** 회원정보 수정 (등급용 벌크) */
+  public static ErpApiResponseDto updateGrade(ErpMemberReqDto.UpdateGradeRequest req) {
+    if (req == null) {
+      throw new IllegalArgumentException('Request body is required.');
+    }
+
+    CommonApiClient.RequestOptions opt = baseOptions('PATCH', ncEndpoint(UPDATE_MEMBERS_BULK_PATH));
+    opt.body = req; // DTO 그대로 넘기면 CommonApiClient가 JSON.serialize 처리
+
+    DebugUtil.pretty('opt', opt);
+
+    // CommonApiClient.ResponseWrapper res = CommonApiClient.send(opt); // todo: 실제 호출 시 주석 해제
+    CommonApiClient.ResponseWrapper res = new CommonApiClient.ResponseWrapper();
+
+    return ErpApiResponseDto.fromWrapper(res);
+  }
+
+  /** 회원 매거진 구독 정보 변경 (벌크) */
+  public static ErpApiResponseDto updateMemberMagazineSubscription(ErpMemberReqDto.UpdateMagazineSubscriptionRequest req) {
+    System.debug('updateMemberMagazineSubscription 진입. req=' + JSON.serialize(req));
+    if (req == null) {
+      throw new IllegalArgumentException('Request body is required.');
+    }
+
+    CommonApiClient.RequestOptions opt = baseOptions('PATCH', ncEndpoint(UPDATE_MEMBERS_BULK_PATH));
+    opt.body = req; // DTO 그대로 넘기면 CommonApiClient가 JSON.serialize 처리
+
+    DebugUtil.pretty('opt', opt);
+    CommonApiClient.ResponseWrapper res = CommonApiClient.send(opt); // todo: 실제 호출 시 주석 해제
+    // CommonApiClient.ResponseWrapper res = new CommonApiClient.ResponseWrapper();
+
+    return ErpApiResponseDto.fromWrapper(res);
+  }
+
+  /** 회원 SMS 수신 여부 변경 */
+  public static ErpApiResponseDto updateMemberSmsReceive(ErpMemberReqDto.UpdateMemberSmsReceiveRequest req) {
+    System.debug('updateMemberSmsReceive 진입. req=' + JSON.serialize(req));
+    if (req == null) {
+      throw new IllegalArgumentException('Request body is required.');
+    }
+
+    CommonApiClient.RequestOptions opt = baseOptions('PATCH', ncEndpoint(UPDATE_MEMBER_PATH));
+    opt.body = req; // DTO 그대로 넘기면 CommonApiClient가 JSON.serialize 처리
+
+    DebugUtil.pretty('opt', opt);
+    // CommonApiClient.ResponseWrapper res = CommonApiClient.send(opt); // todo: 실제 호출 시 주석 해제
+    CommonApiClient.ResponseWrapper res = new CommonApiClient.ResponseWrapper();
+
+    return ErpApiResponseDto.fromWrapper(res);
+  }
+
+  // =========================
+  // Internal Helpers
+  // =========================
+
+  /** 공통 옵션 생성 */
+  private static CommonApiClient.RequestOptions baseOptions(String method, String endpoint) {
+    CommonApiClient.RequestOptions opt = new CommonApiClient.RequestOptions();
+    opt.method = method;
+    opt.endpoint = endpoint;
+
+    opt.timeoutMs = DEFAULT_TIMEOUT_MS;
+
+    // CommonApiClient의 while 조건이 attempt <= maxRetries 라면,
+    // maxRetries=1일 때 1회만 수행될 수 있습니다(구현 확인 필요).
+    opt.maxRetries = 2; // 재시도 최대 횟수
+
+    opt.throwOnHttpError = true;
+    opt.parseJson = true;
+
+    // 토큰 캐시 사용
+    opt.tokenCacheKey = TOKEN_CACHE_KEY;
+    opt.tokenSkewSeconds = 60;
+
+    // 401 갱신은 CommonApiClient + TokenRefresher에 위임
+    // (현재 CommonApiClient 구현이 refreshTokenOn401==false 일 때 갱신 분기라면 그대로 false)
+    opt.refreshTokenOn401 = false;
+
+    // 기본 헤더
+    opt.headers.put('Accept', 'application/json');
+    opt.headers.put('Content-Type', 'application/json');
+
+    return opt;
+  }
+
+  /** Named Credential endpoint 생성 */
+  private static String ncEndpoint(String path) {
+    return 'callout:' + ERP_NC + path;
+  }
+}

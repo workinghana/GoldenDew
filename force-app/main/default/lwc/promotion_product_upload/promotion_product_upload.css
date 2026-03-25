@@ -1,0 +1,99 @@
+.file-input {
+  display: none;
+}
+
+.upload-card-body {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.product-upload-modal {
+  max-width: 64rem;
+  width: 92%;
+}
+
+.modal-content {
+  min-height: 18rem;
+  max-height: 70vh;
+}
+
+.upload-action-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.file-name {
+  color: #3e3e3c;
+  font-size: 0.875rem;
+  word-break: break-all;
+}
+
+.upload-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.upload-summary-card {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+  background: #f8fafc;
+}
+
+.upload-summary-card--success {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.upload-summary-card--error {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.upload-summary-label {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 2px;
+}
+
+.upload-summary-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.upload-summary-card--success .upload-summary-value {
+  color: #15803d;
+}
+
+.upload-summary-card--error .upload-summary-value {
+  color: #b91c1c;
+}
+
+.result-section-title {
+  margin-bottom: 8px;
+  color: #111827;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.empty-errors {
+  padding: 18px 0 6px;
+  color: #6b7280;
+  font-size: 0.875rem;
+}
+
+@media (max-width: 640px) {
+  .upload-action-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .upload-summary {
+    grid-template-columns: 1fr;
+  }
+}

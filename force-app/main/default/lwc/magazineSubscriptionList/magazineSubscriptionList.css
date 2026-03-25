@@ -1,0 +1,98 @@
+.page {
+  padding: 12px 14px;
+}
+
+/* Filters */
+.filterBox {
+  border: 1px solid var(--lwc-colorBorder, #dddbda);
+  border-radius: 12px;
+  background: var(--lwc-colorBackgroundAlt, #fafaf9);
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+
+/* ✅ 3열 2행 */
+.filterGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(240px, 1fr));
+  gap: 8px 10px; /* 간격 줄임 */
+  align-items: center;
+}
+
+/* 버튼줄 */
+.filterActions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--lwc-colorBorder, #dddbda);
+}
+
+.hint {
+  color: #706e6b;
+  font-size: 12px;
+}
+
+.btns {
+  display: flex;
+  align-items: center;
+}
+
+/* Table */
+.tableCard {
+  border: 1px solid var(--lwc-colorBorder, #dddbda);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.tableWrap {
+  max-height: 560px;
+  overflow: auto; /* 가로/세로 스크롤 */
+  padding: 8px; /* 너무 딱 붙는 느낌 해소 */
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-top: 1px solid var(--lwc-colorBorder, #dddbda);
+}
+
+.paging {
+  display: flex;
+  align-items: center;
+}
+
+.mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 헤더 줄바꿈 */
+:host ::deep .slds-table th .slds-truncate {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: unset !important;
+  line-height: 1.2;
+}
+:host ::deep .slds-table th {
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+:host ::deep .slds-table td {
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+@media (max-width: 1100px) {
+  .filterGrid {
+    grid-template-columns: repeat(2, minmax(260px, 1fr));
+  }
+}
+@media (max-width: 720px) {
+  .filterGrid {
+    grid-template-columns: 1fr;
+  }
+}

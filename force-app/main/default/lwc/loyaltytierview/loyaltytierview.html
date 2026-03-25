@@ -1,0 +1,126 @@
+<template>
+  <template if:true={tier}>
+    <!-- ================= 페이지 타이틀 ================= -->
+
+    <div class="page-title">
+      <lightning-icon icon-name="utility:diamond" size="small"></lightning-icon>
+      <h1>회원 등급</h1>
+    </div>
+
+    <!-- ================= GRID ================= -->
+
+    <section class="tier-grid">
+      <!-- ================= 등급 정보 ================= -->
+
+      <div class="tier-card">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle purple">
+              <lightning-icon icon-name="utility:favorite" size="small"></lightning-icon>
+            </div>
+
+            <div class="block-title">등급 정보</div>
+          </div>
+
+          <div class="header-right">
+            <lightning-button label="등급 쿠폰 지급" variant="outline-brand" onclick={handleIssueCoupon}> </lightning-button>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div class="detail-row">
+            <span class="label">회원 등급</span>
+
+            <span class="tier-name value">
+              {tierName}
+              <span class={tierStarClass}>★</span>
+            </span>
+          </div>
+
+          <div class="detail-row">
+            <span class="label">멤버 수</span>
+            <span class="value">{memberCountText}명</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= 회원 혜택 ================= -->
+
+      <div class="tier-card">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle blue">
+              <lightning-icon icon-name="utility:currency" size="small"></lightning-icon>
+            </div>
+
+            <div class="block-title">회원 혜택</div>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <template for:each={benefitViewList} for:item="b">
+            <div class="detail-row" key={b.benefitName}>
+              <span class="label">{b.displayName}</span>
+              <span class="value">{b.displayValue}</span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- ================= 등급 설명 ================= -->
+
+      <div class="tier-card">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle green">
+              <lightning-icon icon-name="utility:description" size="small"></lightning-icon>
+            </div>
+
+            <div class="block-title">등급 설명</div>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div class="detail-row">
+            <span class="label">설명</span>
+            <span class="value">{description}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </template>
+
+  <!-- ================= 쿠폰 지급 모달 ================= -->
+
+  <template if:true={isIssueModalOpen}>
+    <section role="dialog" class="slds-modal slds-fade-in-open">
+      <div class="slds-modal__container">
+        <!-- Header -->
+        <header class="slds-modal__header">
+          <h2 class="slds-text-heading_medium">등급 쿠폰 지급</h2>
+        </header>
+
+        <!-- Body -->
+        <div class="slds-modal__content slds-p-around_medium">
+          <lightning-combobox
+            name="coupon"
+            label="지급할 쿠폰"
+            value={selectedVoucherDefinitionId}
+            options={couponOptions}
+            onchange={handleCouponChange}
+          >
+          </lightning-combobox>
+        </div>
+
+        <!-- Footer -->
+        <footer class="slds-modal__footer">
+          <lightning-button label="취소" onclick={closeIssueModal}> </lightning-button>
+
+          <lightning-button variant="brand" label="지급" onclick={submitIssueCoupon}> </lightning-button>
+        </footer>
+      </div>
+    </section>
+
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+</template>

@@ -1,0 +1,150 @@
+:host {
+  display: block;
+  padding: 16px;
+}
+
+/* ================= 타이틀 ================= */
+
+.page-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 24px;
+}
+
+.page-title h1 {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+/* ================= GRID ================= */
+
+.promotion-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 18px;
+}
+
+/* ================= 카드 ================= */
+
+.promotion-card {
+  padding: 22px;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  background: white;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* ================= 헤더 ================= */
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.block-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #5f6368;
+}
+
+/* ================= 카드 내용 ================= */
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.detail-row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  align-items: center;
+}
+
+.label {
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.detail-row > span:last-child {
+  justify-self: end;
+  text-align: right;
+  min-width: 0;
+}
+
+/* ================= 아이콘 ================= */
+
+.icon-circle {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.purple {
+  background: #f3e8ff;
+}
+
+.blue {
+  background: #dbeafe;
+}
+
+.green {
+  background: #d1fae5;
+}
+
+/* ================= 상태 ================= */
+
+/* 🔹 상태 영역 width 제한 */
+.status-wrapper {
+  justify-self: end;
+  width: fit-content;
+}
+
+/* 🔹 badge는 글자 길이 기준 */
+.promotion-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  width: fit-content;
+}
+
+.status-active {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.status-inactive {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+/* ================= 반응형 ================= */
+
+@media (max-width: 1200px) {
+  .promotion-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .promotion-grid {
+    grid-template-columns: 1fr;
+  }
+}

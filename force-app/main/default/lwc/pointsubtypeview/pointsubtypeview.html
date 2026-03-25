@@ -1,0 +1,190 @@
+<template>
+  <template if:true={isLoading}>
+    <div class="slds-p-around_medium">데이터를 불러오는 중입니다.</div>
+  </template>
+
+  <template if:true={hasError}>
+    <div class="slds-p-around_medium slds-text-color_error">데이터를 불러오지 못했습니다.</div>
+  </template>
+
+  <template if:true={hasSubtype}>
+    <div class="page-title">
+      <lightning-icon icon-name="utility:layers" size="small"></lightning-icon>
+      <h1>포인트 정의 하위 유형</h1>
+      <span class="sub-title">{pointName}</span>
+    </div>
+
+    <section class="subtype-grid">
+      <div class="subtype-card">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle purple">
+              <lightning-icon icon-name="utility:info" size="small"></lightning-icon>
+            </div>
+            <div class="card-title">포인트 정보</div>
+          </div>
+
+          <div class="header-right">
+            <lightning-button label="지급 대상 업로드" variant="neutral" icon-name="utility:upload" onclick={handleUploadClick}></lightning-button>
+            <input class="hidden-file-input" type="file" accept=".csv" onchange={handleFileChange} />
+          </div>
+        </div>
+
+        <div class="card-divider"></div>
+
+        <div class="detail-grid">
+          <div class="detail-row">
+            <div class="detail-label">포인트명</div>
+            <div class="detail-value highlight">{pointName}</div>
+          </div>
+
+          <div class="detail-row">
+            <div class="detail-label">사용 우선순위</div>
+            <div class="detail-value">{priorityText}</div>
+          </div>
+
+          <div class="detail-row">
+            <div class="detail-label">단위당 비용</div>
+            <div class="detail-value">{costText}</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="subtype-card">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle green">
+              <lightning-icon icon-name="utility:favorite" size="small"></lightning-icon>
+            </div>
+            <div class="card-title">보상 정보</div>
+          </div>
+        </div>
+
+        <div class="card-divider"></div>
+
+        <template if:true={hasBenefits}>
+          <div class="reward-list">
+            <template for:each={benefits} for:item="benefit">
+              <article key={benefit.id} class="reward-item">
+                <div class="reward-item-header">
+                  <div class="reward-item-title">{benefit.name}<span class="reward-item-selection">({benefit.selectionText})</span></div>
+                  <span class={benefit.statusClass}>{benefit.statusLabel}</span>
+                </div>
+
+                <div class="reward-description">{benefit.descriptionText}</div>
+              </article>
+            </template>
+          </div>
+        </template>
+
+        <template if:false={hasBenefits}>
+          <div class="empty-reward">
+            <div class="card-subtitle">연결된 보상이 없습니다.</div>
+            <div class="empty-reward-help">현재 포인트에 연결된 보상만 이 영역에 표시됩니다.</div>
+          </div>
+        </template>
+      </div>
+    </section>
+  </template>
+
+  <template if:true={isUploadModalOpen}>
+    <section role="dialog" class="slds-modal slds-fade-in-open">
+      <div class="slds-modal__container">
+        <header class="slds-modal__header">
+          <h2 class="slds-text-heading_medium">포인트 지급 업로드</h2>
+        </header>
+
+        <div class="slds-modal__content slds-p-around_medium">
+          <template if:true={showValidationPulse}>
+            <div class="validation-pulse" onanimationiteration={handleValidationPulse} aria-hidden="true"></div>
+          </template>
+
+          <template if:true={isValidationProcessing}>
+            <section class="validation-loading-card" aria-live="polite">
+              <lightning-spinner alternative-text="검증 중" size="medium"></lightning-spinner>
+              <div class="validation-loading-title">포인트 검증 진행 중</div>
+              <div class="validation-loading-text">잠시만 기다려주세요. 현재 파일을 업로드 중입니다. 새 파일을 업로드 하지 마십시오.</div>
+            </section>
+          </template>
+
+          <template if:false={isValidationProcessing}>
+            <div class="validation-status">{validationStatusLabel}</div>
+            <div class="validation-help">{validationStatusHelp}</div>
+          </template>
+
+          <template if:true={showValidationResults}>
+            <div class="upload-summary">
+              <div class="upload-summary-card upload-summary-card--success">
+                <div class="upload-summary-label">성공 회원 수</div>
+                <div class="upload-summary-value">{successCount}</div>
+              </div>
+
+              <div class="upload-summary-card upload-summary-card--error">
+                <div class="upload-summary-label">실패 회원 수</div>
+                <div class="upload-summary-value">{failCount}</div>
+              </div>
+            </div>
+
+            <div class="issue-form">
+              <lightning-input
+                type="number"
+                label="지급 포인트"
+                value={pointAmount}
+                min="1"
+                max="100000000"
+                onchange={handlePointChange}
+              ></lightning-input>
+
+              <lightning-radio-group
+                label="만료일 설정"
+                options={expireOptions}
+                value={expireType}
+                type="button"
+                onchange={handleExpireType}
+              ></lightning-radio-group>
+
+              <template if:false={isAutoExpire}>
+                <lightning-input type="date" label="만료일" value={expireDate} onchange={handleExpireDateChange}></lightning-input>
+              </template>
+
+              <template if:true={isAutoExpire}>
+                <div class="expire-help">기본값은 현재 기준 2년 후로 자동 설정됩니다.</div>
+              </template>
+            </div>
+
+            <template if:true={hasPreviewErrors}>
+              <lightning-datatable key-field="memberNo" data={previewMembers} columns={columns}></lightning-datatable>
+            </template>
+          </template>
+        </div>
+
+        <footer class="slds-modal__footer">
+          <lightning-button label="닫기" onclick={closeUploadModal} disabled={closeButtonDisabled}></lightning-button>
+          <lightning-button variant="brand" label={issueButtonLabel} onclick={handleIssuePoint} disabled={isIssueDisabled}></lightning-button>
+        </footer>
+      </div>
+    </section>
+
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+
+  <template if:true={isIssueErrorModalOpen}>
+    <section role="dialog" tabindex="-1" class="slds-modal slds-fade-in-open">
+      <div class="slds-modal__container">
+        <header class="slds-modal__header slds-theme_error">
+          <h2 class="slds-text-heading_medium">포인트 지급 실패</h2>
+        </header>
+
+        <div class="slds-modal__content slds-p-around_medium">
+          <div class="issue-error-message">{issueErrorMessage}</div>
+        </div>
+
+        <footer class="slds-modal__footer">
+          <lightning-button variant="brand" label="확인" onclick={closeIssueErrorModal}></lightning-button>
+        </footer>
+      </div>
+    </section>
+
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+</template>

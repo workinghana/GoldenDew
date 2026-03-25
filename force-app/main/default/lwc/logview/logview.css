@@ -1,0 +1,168 @@
+/* =========================
+   카드 공통
+========================= */
+.card {
+    margin-top: 16px;
+}
+
+.card-inner {
+    padding: 12px;
+}
+
+/* =========================
+   상단 에러 요약
+========================= */
+.summary-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+
+.summary-code {
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+}
+
+.summary-message {
+    font-size: 15px;
+    color: #8e030f;
+    font-weight: 500;
+    margin: 4px 0;
+}
+
+.summary-time {
+    font-size: 12px;
+    color: #666;
+}
+
+/* =========================
+   요청 / 응답
+========================= */
+.two-col-full {
+    width: 100%;
+    display: flex;
+    gap: 24px;
+}
+
+.rr-content p {
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 2px 0;
+}
+
+.label {
+    display: inline-block;
+    min-width: 90px;
+    color: #666;
+    font-weight: 500;
+}
+
+/* =========================
+   공통 헤더
+========================= */
+.info-header {
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+
+/* =========================
+   개발자용 details
+========================= */
+.developer-details {
+    margin-top: 4px;
+}
+
+.developer-summary {
+    cursor: pointer;
+    font-weight: 600;
+    user-select: none;
+    list-style: none;
+}
+
+.developer-summary::-webkit-details-marker {
+    display: none;
+    /* 기본 삼각형 제거 */
+}
+
+.developer-section {
+    margin-top: 12px;
+}
+
+/* =========================
+   Stack Trace
+========================= */
+.stack-trace-box {
+    margin-top: 6px;
+    padding: 8px;
+    font-size: 11px;
+    font-family: Consolas, Menlo, Monaco, monospace;
+    background: #111;
+    color: #eee;
+    border-radius: 6px;
+    max-height: 160px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.no-stack-box {
+    margin-top: 8px;
+    font-size: 13px;
+    color: #666;
+}
+
+/* =========================
+   Request / Response Body
+========================= */
+.body-box {
+    padding: 12px;
+    background: #fafafa;
+    border-radius: 6px;
+    font-size: 13px;
+    font-family: Consolas, Menlo, Monaco, monospace;
+    max-height: 260px;
+    overflow: auto;
+    margin: 0;
+}
+
+/* =========================
+   상태 배지
+========================= */
+.status-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 700;
+    border-radius: 12px;
+    color: #fff;
+}
+
+.status-badge.error {
+    background: #c23934;
+}
+
+.status-badge.success {
+    background: #0176d3;
+}
+
+.status-badge.partial {
+    background: #fe9339; /* Salesforce Lightning warning tone */
+}
+
+
+/* 실패 레코드 */
+.record-link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: #0176d3;
+    font-size: 12px;
+    cursor: pointer;
+    text-align: left;
+}
+
+.record-link:hover {
+    text-decoration: underline;
+}

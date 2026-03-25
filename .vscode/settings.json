@@ -1,0 +1,10 @@
+{
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/bower_components": true,
+    "**/.sf": true,
+    "**/.sfdx": true
+  },
+  "apex-ls-ts.logLevel": "error",
+  "xml.preferences.showSchemaDocumentationType": "none"
+}

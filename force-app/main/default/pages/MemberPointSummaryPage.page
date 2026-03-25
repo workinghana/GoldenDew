@@ -1,0 +1,121 @@
+<apex:page >
+
+<style>
+
+.card{
+border:1px solid #e5e7eb;
+border-radius:12px;
+padding:16px;
+margin-bottom:16px;
+}
+
+.summary-header{
+display:flex;
+justify-content:space-between;
+font-size:20px;
+font-weight:600;
+}
+
+.summary-grid{
+display:grid;
+grid-template-columns:repeat(3,1fr);
+gap:16px;
+margin-top:16px;
+}
+
+.summary-item{
+border:1px solid #e5e7eb;
+border-radius:8px;
+padding:12px;
+}
+
+.point-table{
+width:100%;
+border-collapse:collapse;
+}
+
+.point-table th,
+.point-table td{
+padding:8px;
+border-bottom:1px solid #eee;
+}
+
+.right{
+text-align:right;
+}
+
+</style>
+
+
+<div class="card">
+
+<h2>포인트 상세 내역</h2>
+
+<table class="point-table">
+
+<tr>
+<th>하위 포인트 유형</th>
+<th class="right">적립</th>
+<th class="right">사용</th>
+<th class="right">잔여</th>
+<th class="right">만료일</th>
+</tr>
+
+<tr>
+<td colspan="5" style="text-align:center;padding:20px;">
+이 페이지는 더 이상 사용되지 않습니다.
+</td>
+</tr>
+
+</table>
+
+</div>
+
+
+<div class="card">
+
+<div class="summary-header">
+
+<div>포인트 집계</div>
+
+<div>총 포인트 : 0</div>
+
+</div>
+
+<div class="summary-grid">
+
+<div class="summary-item">
+<div>기념일포인트</div>
+<div>0</div>
+</div>
+
+<div class="summary-item">
+<div>승급포인트</div>
+<div>0</div>
+</div>
+
+<div class="summary-item">
+<div>기타포인트</div>
+<div>0</div>
+</div>
+
+<div class="summary-item">
+<div>에코포인트</div>
+<div>0</div>
+</div>
+
+<div class="summary-item">
+<div>사은포인트</div>
+<div>0</div>
+</div>
+
+<div class="summary-item">
+<div>구매포인트</div>
+<div>0</div>
+</div>
+
+</div>
+
+</div>
+
+</apex:page>

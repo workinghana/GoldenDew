@@ -1,0 +1,106 @@
+<template>
+  <lightning-card>
+    <template if:true={isLoading}>
+      <div class="slds-p-around_medium">불러오는 중입니다.</div>
+    </template>
+
+    <template if:true={hasError}>
+      <div class="slds-p-around_medium slds-text-color_error">데이터를 불러오지 못했습니다.</div>
+    </template>
+
+    <template if:true={hasSourceRows}>
+      <div class="section-header-row">
+        <div class="section-title">포인트 사용/소멸 내역</div>
+        <div class="filter-bar">
+          <lightning-input type="date" label="사용/소멸 일자" value={filterDate} onchange={handleDateFilterChange}></lightning-input>
+        </div>
+      </div>
+
+      <template if:true={hasRows}>
+        <div class="ledger-scroll">
+          <table class="slds-table slds-table_cell-buffer slds-table_bordered redemption-table">
+            <thead>
+              <tr class="slds-line-height_reset">
+                <th scope="col">
+                  <div class="slds-truncate" title="사용/소멸일">사용/소멸일</div>
+                </th>
+                <th scope="col">
+                  <div class="slds-truncate" title="포인트구분">포인트구분</div>
+                </th>
+                <th scope="col">
+                  <div class="slds-truncate" title="소진구분">소진구분</div>
+                </th>
+                <th scope="col">
+                  <div class="slds-truncate" title="사용/소멸포인트">사용/소멸포인트</div>
+                </th>
+                <th scope="col">
+                  <div class="slds-truncate" title="판매번호">판매번호</div>
+                </th>
+                <th scope="col">
+                  <div class="slds-truncate" title="판매금액">판매금액</div>
+                </th>
+                <th scope="col">
+                  <div class="slds-truncate" title="적립판매번호">적립판매번호</div>
+                </th>
+                <th scope="col">
+                  <div class="slds-truncate" title="판매반품번호">판매반품번호</div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <template for:each={pagedRows} for:item="row">
+                <tr key={row.ledgerId} class={row.rowClass}>
+                  <td class="cell-center">
+                    <div class="slds-truncate" title={row.redemptionDateText}>{row.redemptionDateText}</div>
+                  </td>
+                  <td class="cell-center">
+                    <div class="slds-truncate" title={row.pointTypeName}>{row.pointTypeName}</div>
+                  </td>
+                  <td class="cell-center">
+                    <div class="slds-truncate" title={row.redemptionType}>{row.redemptionType}</div>
+                  </td>
+                  <td class="cell-center">
+                    <div class="slds-truncate" title={row.redemptionPointsText}>{row.redemptionPointsText}</div>
+                  </td>
+                  <td class="cell-center">
+                    <div class="slds-truncate" title={row.saleNo}>{row.saleNo}</div>
+                  </td>
+                  <td class="cell-center">
+                    <div class="slds-truncate" title={row.saleAmountText}>{row.saleAmountText}</div>
+                  </td>
+                  <td class="cell-center">
+                    <div class="slds-truncate" title={row.accrualSaleNo}>{row.accrualSaleNo}</div>
+                  </td>
+                  <td class="cell-center">
+                    <div class="slds-truncate" title={row.returnSaleNo}>{row.returnSaleNo}</div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <template if:true={hasPagination}>
+          <div class="pagination">
+            <button class="page-nav" onclick={handlePrevPage} disabled={isPrevDisabled}>이전</button>
+            <template for:each={pageItems} for:item="item">
+              <button key={item.key} class={item.className} data-page={item.number} onclick={handlePageClick}>{item.number}</button>
+            </template>
+            <button class="page-nav" onclick={handleNextPage} disabled={isNextDisabled}>다음</button>
+          </div>
+        </template>
+      </template>
+
+      <template if:false={hasRows}>
+        <div class="slds-p-around_medium slds-text-color_weak">검색 결과가 없습니다.</div>
+      </template>
+    </template>
+
+    <template if:false={isLoading}>
+      <template if:false={hasError}>
+        <template if:false={hasSourceRows}>
+          <div class="slds-p-around_medium slds-text-color_weak">표시할 사용/소멸 내역이 없습니다.</div>
+        </template>
+      </template>
+    </template>
+  </lightning-card>
+</template>

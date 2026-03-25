@@ -1,0 +1,105 @@
+<template>
+  <template if:true={promotion}>
+    <div class="page-title">
+      <lightning-icon icon-name="utility:campaign" size="small"></lightning-icon>
+      <h1>프로모션 요약</h1>
+    </div>
+
+    <section class="promotion-grid">
+      <div class="promotion-card">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle purple">
+              <lightning-icon icon-name="utility:announcement" size="small"></lightning-icon>
+            </div>
+
+            <div class="block-title"><span>{displayName}</span> 프로모션</div>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div class="detail-row">
+            <span class="label">프로모션 코드</span>
+            <span>{promotionCode}</span>
+          </div>
+
+          <div class="detail-row">
+            <span class="label">프로모션 명</span>
+            <span>{promotionName}</span>
+          </div>
+
+          <div class="detail-row">
+            <span class="label">상태</span>
+
+            <div class="status-wrapper">
+              <span class={activeStatusClass}>{activeText}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="promotion-card">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle blue">
+              <lightning-icon icon-name="utility:event" size="small"></lightning-icon>
+            </div>
+
+            <div class="block-title">프로모션 정보</div>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div class="detail-row">
+            <span class="label">기간</span>
+            <span>{periodText}</span>
+          </div>
+
+          <div class="detail-row">
+            <span class="label">게시기간</span>
+            <span>{publishPeriodText}</span>
+          </div>
+
+          <div class="detail-row">
+            <span class="label">매장(구분)</span>
+            <span>{storeGroupText}</span>
+          </div>
+
+          <div class="detail-row">
+            <span class="label">매장(계열)</span>
+            <span>{storeDetailText}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="promotion-card">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle green">
+              <lightning-icon icon-name="utility:moneybag" size="small"></lightning-icon>
+            </div>
+
+            <div class="block-title">프로모션 포인트 / 쿠폰 정보</div>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <div class="detail-row">
+            <span class="label">포인트 적립</span>
+            <span>{pointAccrualText}</span>
+          </div>
+
+          <div class="detail-row">
+            <span class="label">포인트 사용</span>
+            <span>{PointUsageAllowed}</span>
+          </div>
+
+          <div class="detail-row">
+            <span class="label">쿠폰 사용</span>
+            <span>{couponAvailableText}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </template>
+</template>

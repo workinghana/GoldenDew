@@ -1,0 +1,119 @@
+<template>
+    <div class="page-container">
+
+        <!-- ================= 상단 요약 카드 ================= -->
+        <section class="summary-card">
+            <div class="summary-name">포인트 명</div>
+            <div class="summary-title">구매 포인트</div>
+
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <div class="label">적립</div>
+                    <div class="value">구매 금액 1%
+                        <span class="dummy-badge">가데이터</span>
+                    </div>
+                </div>
+                <div class="summary-item">
+                    <div class="label">사용 기간</div>
+                    <div class="value">{expiryPolicy}</div>
+                </div>
+                <div class="summary-item">
+                    <div class="label">상태</div>
+                    <div class={currencyStatusClass}>
+                        {isActiveLabel}
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ================= 하단 2컬럼 ================= -->
+        <div class="content-grid">
+
+            <!-- 상세 정보 -->
+            <section class="info-card info-card--detail">
+
+                <div class="card-header">
+                    <span>상세 정보</span>
+
+                </div>
+
+
+                <!-- ================= 구분선 ================= -->
+                <div class="section-divider"></div>
+
+                <div class="info-list">
+                    <div class="info-row">
+                        <span class="label">포인트 코드</span>
+                        <span class="value">POINT00001
+                            <span class="dummy-badge">가데이터</span>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">적립 대상</span>
+                        <span class="value">적립 제외 품목 구매 고객
+                            <span class="dummy-badge">가데이터</span>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">정책</span>
+                        <span class="value">구매 시 구매 금액의 N% 적립
+                            <span class="dummy-badge">가데이터</span>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">우선 사용 순위</span>
+                        <span class="value">{usagePriority}</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 제약 조건 -->
+            <section class="info-card info-card--constraint">
+
+                <div class="card-header">
+                    <span>제약 조건</span>
+                </div>
+
+                <div class="section-divider"></div>
+
+                <div class="info-list">
+                    <div class="info-row">
+                        <span class="label">최소 주문 금액</span>
+                        <span class="value">10,000
+                            <span class="dummy-badge">가데이터</span>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">중복 사용 불가 쿠폰</span>
+                        <span class="value">없음
+                            <span class="dummy-badge">가데이터</span>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">제외 프로모션</span>
+                        <span class="value">없음
+                            <span class="dummy-badge">가데이터</span>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">제외 매장</span>
+                        <span class="value">없음
+                            <span class="dummy-badge">가데이터</span>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">제외 품목</span>
+                        <span class="value">골드바
+                            <span class="dummy-badge">가데이터</span>
+                        </span>
+                    </div>
+                    <div class="info-row">
+                        <span class="label">포인트 만료</span>
+                        <span class="value">{expiryPolicy}</span>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </div>
+</template>

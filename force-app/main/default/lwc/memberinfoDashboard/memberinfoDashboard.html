@@ -1,0 +1,84 @@
+<template>
+    <div class="dashboard-container">
+
+        <!-- 2컬럼 레이아웃 -->
+        <div class="grid-layout">
+
+            <!-- LEFT COLUMN -->
+            <div class="left-column">
+
+                <!-- 사용 가능 혜택 -->
+                <div class="card">
+                    <div class="card-title">사용 가능 혜택</div>
+                    <div class="divider"></div>
+
+                    <template if:true={benefit}>
+                        <p class="item">보유 포인트 : {benefit.ownedPoint}P</p>
+                        <p class="item">보유 쿠폰 : {benefit.ownedCoupon}장</p>
+                    </template>
+                </div>
+
+                <!-- 나의 등급 정보 (왼쪽 아래) -->
+                <div class="card">
+                    <div class="card-title">
+                        나의 등급 정보
+                        <template if:true={grade}>
+                            <span>(업데이트 일시 : {gradeUpdatedText})</span>
+                        </template>
+                    </div>
+                    <div class="divider"></div>
+
+                    <template if:true={grade}>
+                        <p class="item">현재 등급 : {grade.currentGrade}</p>
+                        <p class="item">누적 구매 : ₩ {grade.totalPurchaseAmount}</p>
+                        <p class="item">
+                            다음 등급까지 남은 금액 : ₩ {grade.remainAmount}
+                        </p>
+                    </template>
+                </div>
+
+            </div>
+
+            <!-- RIGHT COLUMN -->
+            <div class="right-column">
+
+                <!-- 마케팅 수신 동의 정보 -->
+                <div class="card">
+                    <div class="card-title">마케팅 수신 동의 정보</div>
+                    <div class="divider"></div>
+
+                    <template if:true={marketing}>
+                        <p class="item">
+                            이메일 수신 : <span>{emailConsentLabel}</span>
+                        </p>
+                        <template if:true={marketing.emailUpdatedDate}>
+                            <p class="sub-item">
+                                이메일 수신 변경 일시 : {marketing.emailUpdatedDate}
+                            </p>
+                        </template>
+
+                        <p class="item">
+                            SMS 수신 : <span>{smsConsentLabel}</span>
+                        </p>
+                        <template if:true={marketing.smsUpdatedDate}>
+                            <p class="sub-item">
+                                SMS 수신 변경 일시 : {marketing.smsUpdatedDate}
+                            </p>
+                        </template>
+
+                        <p class="item">
+                            매거진 구독 : <span>{magazinConsentLabel}</span>
+                        </p>
+                        <template if:true={marketing.magazineUpdatedDate}>
+                            <p class="sub-item">
+                                매거진 구독 변경 일시 : {marketing.magazineUpdatedDate}
+                            </p>
+                        </template>
+                    </template>
+                </div>
+
+            </div>
+
+        </div>
+    </div>
+</template>

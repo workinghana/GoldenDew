@@ -1,0 +1,116 @@
+<template>
+  <div class="point-detail-container">
+    <!-- 로딩 -->
+    <template if:true={isLoading}>
+      <div class="card">
+        <div class="loading">
+          <lightning-spinner size="small"></lightning-spinner>
+          <span class="loading-text">포인트 상세 정보를 불러오는 중입니다.</span>
+        </div>
+      </div>
+    </template>
+
+    <!-- 에러 -->
+    <template if:true={hasError}>
+      <div class="card">
+        <div class="empty-text">포인트 상세 정보를 불러오지 못했습니다.</div>
+      </div>
+    </template>
+
+    <!-- 데이터 -->
+    <template if:true={hasData}>
+      <!-- 상단 요약 카드 (주문 상세 스타일) -->
+      <div class="summary-card-main">
+        <div class="summary-top">
+          <div class="summary-title">포인트 집계</div>
+
+          <div class="total-point">
+            총 포인트
+            <span>{totalPoint}</span>
+          </div>
+        </div>
+
+        <div class="summary-grid">
+          <template for:each={pointSummary} for:item="item">
+            <div class="summary-box" key={item.name}>
+              <div class="summary-label">{item.name}</div>
+              <div class="summary-value">{item.points}</div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- 상세 테이블 카드 -->
+      <div class="card table-card">
+        <div class="table-header-bar">
+          <div class="section-title">포인트 상세 내역</div>
+
+          <div class="header-right">
+            <lightning-input
+              type="date"
+              label="만료 시작일"
+              value={expireFrom}
+              data-type="from"
+              onchange={handleExpireDateChange}
+              class="expire-input"
+            >
+            </lightning-input>
+
+            <lightning-input type="date" label="만료 종료일" value={expireTo} data-type="to" onchange={handleExpireDateChange} class="expire-input">
+            </lightning-input>
+          </div>
+        </div>
+
+        <div class="divider-full"></div>
+
+        <!-- 테이블 -->
+        <table class="point-table">
+          <thead>
+            <tr>
+              <th>하위 포인트 유형</th>
+              <th class="right">적립 포인트</th>
+              <th class="right">사용 포인트</th>
+              <th class="right">만료 포인트</th>
+              <th class="right">잔여 포인트</th>
+              <th class="right">만료일</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <template for:each={pagedPointDetails} for:item="row">
+              <tr key={row.ledgerId}>
+                <td class="point-type">{row.pointTypeName}</td>
+
+                <td class="right">{row.accruedPoints}</td>
+
+                <td class="right">{row.usedPoints}</td>
+
+                <td class="right">{row.expiredPoints}</td>
+
+                <td class="right">
+                  <span class={row.remainingClass}> {row.remainingPoints} </span>
+                </td>
+
+                <td class="right">{row.expirationDate}</td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 페이지네이션 -->
+      <div class="pagination">
+        <template for:each={pageList} for:item="item">
+          <button key={item.page} data-page={item.page} onclick={handlePageClick} class={item.className}>{item.page}</button>
+        </template>
+      </div>
+    </template>
+
+    <!-- 데이터 없음 -->
+    <template if:true={showEmpty}>
+      <div class="card">
+        <div class="empty-text">표시할 포인트 상세 내역이 없습니다.</div>
+      </div>
+    </template>
+  </div>
+</template>

@@ -1,0 +1,92 @@
+<template>
+  <div class="page">
+    <!-- Filters (compact) -->
+    <div class="filterBox">
+      <div class="filterGrid">
+        <lightning-input
+          type="search"
+          label="검색"
+          variant="label-hidden"
+          placeholder="이름/휴대폰/우편번호/UUID/주소"
+          value={keyword}
+          onchange={onKeywordChange}
+        >
+        </lightning-input>
+
+        <lightning-input type="date" label="From" variant="label-hidden" placeholder="구독일자 From" value={fromDate} onchange={onFromDateChange}>
+        </lightning-input>
+
+        <lightning-input type="date" label="To" variant="label-hidden" placeholder="구독일자 To" value={toDate} onchange={onToDateChange}>
+        </lightning-input>
+
+        <lightning-combobox
+          label="구독여부"
+          variant="label-hidden"
+          placeholder="구독여부"
+          value={isSubscribed}
+          options={subOptions}
+          onchange={onSubscribedChange}
+        >
+        </lightning-combobox>
+
+        <lightning-input
+          type="text"
+          label="관리매장코드"
+          variant="label-hidden"
+          placeholder="관리매장코드 (예: A001)"
+          value={storeManaCode}
+          onchange={onStoreChange}
+        >
+        </lightning-input>
+
+        <lightning-combobox
+          label="표시 건수"
+          variant="label-hidden"
+          placeholder="표시 건수"
+          value={pageSize}
+          options={pageSizeOptions}
+          onchange={onPageSizeChange}
+        >
+        </lightning-combobox>
+      </div>
+
+      <div class="filterActions">
+        <div class="hint">가로 스크롤로 전체 컬럼을 확인할 수 있습니다.</div>
+        <div class="btns">
+          <lightning-button variant="brand" label="조회" onclick={search}></lightning-button>
+          <lightning-button class="slds-m-left_x-small" label="초기화" onclick={reset}></lightning-button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="tableCard">
+      <template if:true={loading}>
+        <lightning-spinner alternative-text="Loading"></lightning-spinner>
+      </template>
+
+      <div class="tableWrap">
+        <lightning-datatable
+          key-field="Id"
+          data={rows}
+          columns={columns}
+          hide-checkbox-column
+          show-row-number-column
+          sorted-by={sortBy}
+          sorted-direction={sortDirection}
+          onsort={onSort}
+          onrowaction={onRowAction}
+        >
+        </lightning-datatable>
+      </div>
+
+      <div class="footer">
+        <div>총 <b>{total}</b>건 · {pageNumber} / {totalPages} 페이지</div>
+        <div class="paging">
+          <lightning-button label="이전" onclick={prev} disabled={prevDisabled}></lightning-button>
+          <lightning-button class="slds-m-left_x-small" label="다음" onclick={next} disabled={nextDisabled}></lightning-button>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>

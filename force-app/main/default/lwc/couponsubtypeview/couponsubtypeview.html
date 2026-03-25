@@ -1,0 +1,167 @@
+<template>
+  <div class="container">
+    <!-- 타이틀 -->
+    <div class="title-area">
+      <lightning-icon icon-name="utility:layers" size="small"></lightning-icon>
+      <h1>포인트 정의 하위 유형</h1>
+      <span class="sub-title">{pointName}</span>
+    </div>
+
+    <!-- ================= 포인트 요약 ================= -->
+
+    <section class="coupon-card">
+      <div class="coupon-card-box">
+        <!-- 헤더 -->
+        <div class="coupon-header">
+          <div class="coupon-header-left">
+            <div class="coupon-info">포인트 요약</div>
+          </div>
+
+          <!-- 엑셀 업로드 -->
+          <div class="header-action">
+            <lightning-button label="엑셀 업로드" variant="brand" icon-name="utility:upload" onclick={handleUploadClick}> </lightning-button>
+
+            <input type="file" accept=".csv" data-id="fileInput" class="hidden-file-input" onchange={handleFileChange} />
+          </div>
+        </div>
+
+        <div class="coupon-divider"></div>
+
+        <!-- 카드 3개 -->
+        <div class="slds-grid slds-gutters">
+          <!-- 포인트 정보 -->
+          <div class="slds-col slds-size_1-of-3">
+            <div class="point-summary-box">
+              <div class="card-title">포인트 정보</div>
+
+              <div class="info-list">
+                <div class="info-row">
+                  <span class="info-label">포인트 정의</span>
+                  <span class="info-value">{programName}</span>
+                </div>
+
+                <div class="info-row">
+                  <span class="info-label">포인트 구분</span>
+                  <span class="info-value">{pointType}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 운영 정보 -->
+          <div class="slds-col slds-size_1-of-3">
+            <div class="point-summary-box center-card">
+              <div class="card-title">운영 정보</div>
+
+              <div class="priority">{priority}</div>
+
+              <div class="priority-label">사용 우선순위</div>
+
+              <div class="detail-row center">
+                <div class="detail-label">단위당 비용</div>
+                <div class="detail-value cost">{cost}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 관리 정보 -->
+          <div class="slds-col slds-size_1-of-3">
+            <div class="point-summary-box">
+              <div class="card-title">관리 정보</div>
+
+              <div class="info-list">
+                <div class="info-row">
+                  <span class="info-label">작성자</span>
+                  <span class="info-value">{createdBy}</span>
+                </div>
+
+                <div class="info-row">
+                  <span class="info-label">작성일</span>
+                  <span class="info-value">{createdDate}</span>
+                </div>
+
+                <div class="info-row">
+                  <span class="info-label">최종 수정자</span>
+                  <span class="info-value">{modifiedBy}</span>
+                </div>
+
+                <div class="info-row">
+                  <span class="info-label">최종 수정일</span>
+                  <span class="info-value">{modifiedDate}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= 업로드 결과 모달 ================= -->
+
+    <template if:true={isUploadModalOpen}>
+      <section role="dialog" class="slds-modal slds-fade-in-open slds-modal_large">
+        <div class="slds-modal__container">
+          <!-- Header -->
+          <header class="slds-modal__header">
+            <lightning-button-icon icon-name="utility:close" alternative-text="닫기" class="slds-modal__close" onclick={closeUploadModal}>
+            </lightning-button-icon>
+
+            <h2 class="slds-text-heading_medium">포인트 업로드 결과</h2>
+
+            <p class="slds-text-body_small slds-m-top_x-small">업로드 파일 검증 결과입니다.</p>
+          </header>
+
+          <!-- Body -->
+          <div class="slds-modal__content slds-p-around_medium">
+            <!-- ================= 포인트 지급 설정 ================= -->
+
+            <div class="point-config">
+              <lightning-input type="number" label="지급 포인트" value={pointAmount} onchange={handlePointChange}> </lightning-input>
+
+              <lightning-input type="date" label="만료일" value={expireDate} disabled={isAutoExpire}> </lightning-input>
+
+              <lightning-radio-group label="만료일 설정" options={expireOptions} value={expireType} onchange={handleExpireType}>
+              </lightning-radio-group>
+            </div>
+
+            <!-- ================= 성공 / 실패 카운트 ================= -->
+
+            <div class="upload-summary">
+              <span class="success-badge"> 성공 {successCount} </span>
+
+              <span class="fail-badge"> 실패 {failCount} </span>
+            </div>
+
+            <!-- 실패 회원 테이블 -->
+
+            <template if:true={failCount}>
+              <div class="table-scroll">
+                <lightning-datatable key-field="memberNo" data={previewMembers} columns={columns}> </lightning-datatable>
+              </div>
+            </template>
+
+            <!-- 전부 성공 -->
+
+            <template if:false={failCount}>
+              <div class="slds-text-align_center slds-p-around_large success-message">
+                <lightning-icon icon-name="utility:success" size="large" class="success-icon"> </lightning-icon>
+
+                <div class="slds-text-heading_small slds-m-top_small">모든 회원이 정상입니다.</div>
+              </div>
+            </template>
+          </div>
+
+          <!-- Footer -->
+
+          <footer class="slds-modal__footer">
+            <lightning-button label="닫기" onclick={closeUploadModal}> </lightning-button>
+
+            <lightning-button label="포인트 지급" variant="brand" class="issue-btn" onclick={handleIssuePoint}> </lightning-button>
+          </footer>
+        </div>
+      </section>
+
+      <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+  </div>
+</template>

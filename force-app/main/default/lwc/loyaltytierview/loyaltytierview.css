@@ -1,0 +1,155 @@
+:host {
+  display: block;
+  padding: 16px;
+}
+
+/* ================= 타이틀 ================= */
+
+.page-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+.page-title h1 {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+/* ================= GRID ================= */
+
+.tier-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 32px; /* ⭐ 카드 간격 넓힘 */
+}
+
+/* ================= 카드 ================= */
+
+.tier-card {
+  padding: 24px;
+  border-radius: 16px;
+  border: 1px solid #e5e7eb;
+  background: white;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* ================= 카드 헤더 ================= */
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.block-title {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+/* ================= 카드 내용 ================= */
+
+.card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.detail-row {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ================= 라벨 ================= */
+
+.label {
+  color: #6b7280;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.value {
+  justify-self: end;
+  text-align: right;
+}
+
+/* ================= 아이콘 ================= */
+
+.icon-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.purple {
+  background: #f3e8ff;
+}
+
+.blue {
+  background: #dbeafe;
+}
+
+.green {
+  background: #d1fae5;
+}
+
+/* ================= 등급 ================= */
+
+.tier-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+}
+
+/* ================= 별 색상 ================= */
+
+.star-gray {
+  color: #e7e7e7;
+}
+
+.star-blue {
+  color: #297fff;
+}
+
+.star-purple {
+  color: #b429ff;
+}
+
+.star-gold {
+  color: #fef70e;
+}
+
+.star-default {
+  color: #9ca3af;
+}
+
+/* ================= 반응형 ================= */
+
+@media (max-width: 1200px) {
+  .tier-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .tier-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-row {
+    grid-template-columns: 120px 1fr;
+  }
+}

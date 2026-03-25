@@ -1,0 +1,292 @@
+/* ================= 타이틀 ================= */
+
+.title-area {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 20px;
+  padding-top: 16px;
+  margin-bottom: 12px;
+}
+
+.title-area h1 {
+  font-size: 26px;
+  font-weight: 700;
+}
+
+/* ================= GRID ================= */
+
+.member-summary-grid {
+  display: grid;
+  grid-template-columns: 2.2fr 1fr 1fr 1fr;
+  gap: 18px;
+  align-items: stretch;
+}
+
+/* ================= 카드 공통 ================= */
+
+.summary-card {
+  padding: 20px;
+  border-radius: 14px;
+  border: 1px solid #e5e7eb;
+  background: white;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+/* ================= 회원 카드 ================= */
+
+.member-card {
+  display: flex;
+  gap: 20px;
+}
+
+.member-right {
+  flex: 1;
+}
+
+.avatar-circle {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  background: #eef2ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.member-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.member-name {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+/* ================= 회원 정보 ================= */
+
+.member-info-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 10px;
+  gap: 40px;
+}
+
+.meta-col p {
+  margin: 6px 0;
+  font-size: 13px;
+}
+
+/* ================= 회원 상태 ================= */
+
+.member-status {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+/* 활성 */
+.member-status.active {
+  color: #15803d;
+  background: #dcfce7;
+}
+
+/* 비활성 */
+.member-status.inactive {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+/* ================= KPI 카드 ================= */
+
+.kpi-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  height: 100%;
+}
+
+/* ================= 카드 헤더 ================= */
+
+.card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #555;
+}
+
+/* ================= 아이콘 ================= */
+
+.icon-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.purple {
+  background: #f3e8ff;
+}
+
+.blue {
+  background: #dbeafe;
+}
+
+.green {
+  background: #d1fae5;
+}
+
+/* ================= 등급 ================= */
+
+.badge.grade {
+  font-size: 28px;
+  font-weight: 700;
+  background: none;
+}
+
+.badge.grade.gip {
+  color: #374151;
+}
+
+.badge.grade.vip {
+  color: #0369a1;
+}
+
+.badge.grade.vvip {
+  color: #6d28d9;
+}
+
+.badge.grade.svip {
+  color: #92400e;
+}
+
+/* ================= Divider ================= */
+
+.divider {
+  width: 70%;
+  height: 1px;
+  background: #e5e7eb;
+  margin: 12px 0;
+}
+
+/* ================= 구매 금액 ================= */
+
+.grade-money {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.grade-value {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.grade-label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* ================= 보유 혜택 (세로 구조) ================= */
+
+.benefit-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.benefit-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.benefit-label {
+  font-size: 12px;
+  color: #888;
+}
+
+.benefit-value {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.benefit-divider {
+  width: 70%;
+  height: 1px;
+  background: #e5e7eb;
+  margin: 10px 0;
+}
+
+/* ================= 마케팅 카드 ================= */
+
+.marketing-grid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.marketing-row {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.marketing-label {
+  width: 70px;
+  text-align: right;
+  color: #666;
+}
+
+.marketing-value {
+  text-align: left;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.marketing-date {
+  border-top: 1px solid #e5e7eb;
+  margin-top: 8px;
+  padding-top: 8px;
+}
+
+/* 쿠폰 지급, 포인트 지급 버튼*/
+.title-area {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+/*이메일*/
+.email-text {
+  white-space: pre-line;
+  margin-left: 4px;
+}

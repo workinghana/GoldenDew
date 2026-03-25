@@ -1,0 +1,374 @@
+<template>
+  <div class="page-title">
+    <lightning-icon icon-name="utility:cart" size="small"></lightning-icon>
+    <h1>주문 요약</h1>
+    <span class={orderProgressClass}>{orderProgressLabel}</span>
+  </div>
+
+  <section class="order-detail-card">
+    <div class="order-grid">
+      <div class="detail-card compact-detail-card order-detail-panel">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle blue">
+              <lightning-icon icon-name="utility:moneybag" size="small"></lightning-icon>
+            </div>
+            <div class="block-title">주문 상세</div>
+          </div>
+        </div>
+
+        <p class="number-row"><span>주문번호</span><span>{orderNo}</span></p>
+        <p><span>주문매장</span><span>{orderStoreName}</span></p>
+        <p><span>주문상태</span><span>{orderStatusLabel}</span></p>
+        <p><span>주문일시</span><span>{orderDateText}</span></p>
+        <p class="order-type-row"><span>주문유형</span><span>{orderTypeLabel}</span></p>
+      </div>
+
+      <div class="detail-card summary-info-card order-info-card">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle green">
+              <lightning-icon icon-name="utility:package" size="small"></lightning-icon>
+            </div>
+            <div class="block-title">주문 정보</div>
+          </div>
+        </div>
+
+        <div class="sale-detail-grid order-detail-grid">
+          <section class="info-section order-summary-section">
+            <p class="info-row sale-amount-row">
+              <span class="info-row-label">주문금액</span>
+              <span class="info-row-value">{totalAmountText}</span>
+            </p>
+
+            <div class="section-title-row">
+              <div class="sale-section-title">주문수량</div>
+              <div class="sale-quantity-inline">{orderQuantitySummaryText}</div>
+            </div>
+          </section>
+
+          <section class="info-section payment-section">
+            <div class="sale-section-title section-title-emphasis">입금금액</div>
+            <div class="value-row-list">
+              <template for:each={orderPaymentItems} for:item="item">
+                <p key={item.key} class="info-row">
+                  <span class="info-row-label">{item.label}</span>
+                  <span class="info-row-value">{item.value}</span>
+                </p>
+              </template>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div class="detail-card compact-detail-card customer-detail-card">
+        <div class="card-header space-between">
+          <div class="header-left">
+            <div class="icon-circle orange">
+              <lightning-icon icon-name="utility:user" size="small"></lightning-icon>
+            </div>
+            <div class="block-title">고객 정보</div>
+          </div>
+
+          <button class="pill-btn" onclick={handleCustomerDetail}>고객 상세</button>
+        </div>
+
+        <p><span>고객명</span><span>{customerName}</span></p>
+        <p><span>회원번호</span><span>{customerMemberNo}</span></p>
+        <p><span>연락처</span><span>{customerPhone}</span></p>
+        <p><span>회원등급</span><span>{customerGrade}</span></p>
+        <p><span>관리매장</span><span>{managedStoreName}</span></p>
+      </div>
+    </div>
+  </section>
+
+  <div class="section-divider"></div>
+
+  <div class="page-title">
+    <lightning-icon icon-name="utility:cart" size="small"></lightning-icon>
+    <h1>판매 요약</h1>
+    <span class={saleProgressClass}>{saleProgressLabel}</span>
+  </div>
+
+  <section class="order-detail-card">
+    <div class="section-grid">
+      <div class="detail-card compact-detail-card sale-detail-panel">
+        <div class="card-header space-between">
+          <div class="header-left">
+            <div class="icon-circle blue">
+              <lightning-icon icon-name="utility:moneybag" size="small"></lightning-icon>
+            </div>
+            <div class="block-title">판매 상세</div>
+          </div>
+
+          <template if:true={hasSaleRecordsButton}>
+            <button class="pill-btn" onclick={handleOpenSaleRecordsModal}>{saleRecordsButtonLabel}</button>
+          </template>
+        </div>
+
+        <div class="aligned-detail-body">
+          <p class="number-row"><span>판매번호</span><span>{saleNo}</span></p>
+          <p><span>판매매장</span><span>{saleStoreName}</span></p>
+          <p><span>판매상태</span><span>{saleStatusLabel}</span></p>
+          <p><span>판매일시</span><span>{saleDateText}</span></p>
+        </div>
+      </div>
+
+      <div class="detail-card summary-info-card sale-info-card">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle green">
+              <lightning-icon icon-name="utility:package" size="small"></lightning-icon>
+            </div>
+            <div class="block-title">판매 정보</div>
+          </div>
+        </div>
+
+        <div class="sale-detail-grid aligned-summary-grid sale-summary-grid">
+          <section class="info-section sale-products-section">
+            <p class="info-row sale-amount-row">
+              <span class="info-row-label">판매금액</span>
+              <span class="info-row-value">{saleAmountText}</span>
+            </p>
+
+            <div class="section-title-row sale-quantity-row">
+              <div class="sale-section-title">판매 수량</div>
+              <div class="sale-products-meta">
+                <div class="sale-quantity-inline">{saleQuantitySummaryText}</div>
+              </div>
+            </div>
+
+            <div class="sale-products-subtitle">판매 제품</div>
+
+            <template if:true={hasSaleItems}>
+              <div class="product-list">
+                <template for:each={visibleSaleItems} for:item="item">
+                  <p key={item.orderItemId} class="info-row">
+                    <span class="info-row-label">{item.productName}</span>
+                    <span class="info-row-value">{item.quantity}개</span>
+                  </p>
+                </template>
+              </div>
+
+              <template if:true={showSaleItemsButton}>
+                <div class="sale-items-button-row">
+                  <button class="pill-btn sale-items-btn" onclick={handleOpenSaleItemsModal}>모두 보기</button>
+                </div>
+              </template>
+            </template>
+
+            <template if:true={showSaleItemsEmptyState}>
+              <div class="empty-state">{saleEmptyText}</div>
+            </template>
+          </section>
+
+          <section class="info-section payment-section">
+            <div class="sale-section-title section-title-emphasis">입금금액</div>
+            <div class="value-row-list compact-row-list">
+              <template for:each={salePaymentItems} for:item="item">
+                <p key={item.key} class="info-row">
+                  <span class="info-row-label">{item.label}</span>
+                  <span class="info-row-value">{item.value}</span>
+                </p>
+              </template>
+            </div>
+          </section>
+
+          <section class="info-section sale-points-section">
+            <div class="sale-section-title">적립포인트</div>
+
+            <template if:true={hasSalePointItems}>
+              <div class="point-list-grid">
+                <template for:each={salePointItems} for:item="item">
+                  <p key={item.key} class="info-row point-row">
+                    <span class="info-row-label">{item.label}</span>
+                    <span class="info-row-value">{item.value}</span>
+                  </p>
+                </template>
+              </div>
+            </template>
+
+            <template if:false={hasSalePointItems}>
+              <div class="empty-state">{saleEmptyText}</div>
+            </template>
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="section-divider"></div>
+
+  <div class="page-title">
+    <lightning-icon icon-name="utility:undo" size="small"></lightning-icon>
+    <h1>반품 요약</h1>
+    <span class={returnProgressClass}>{returnProgressLabel}</span>
+  </div>
+
+  <section class="order-detail-card">
+    <div class="section-grid">
+      <div class="detail-card compact-detail-card return-detail-panel">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle blue">
+              <lightning-icon icon-name="utility:moneybag" size="small"></lightning-icon>
+            </div>
+            <div class="block-title">반품 상세</div>
+          </div>
+        </div>
+
+        <div class="aligned-detail-body">
+          <p class="number-row"><span>반품번호</span><span>{returnNo}</span></p>
+          <p><span>반품매장</span><span>{returnStoreName}</span></p>
+          <p><span>반품상태</span><span>{returnStatusLabel}</span></p>
+          <p><span>반품일시</span><span>{returnDateText}</span></p>
+        </div>
+      </div>
+
+      <div class="detail-card summary-info-card return-info-card">
+        <div class="card-header">
+          <div class="header-left">
+            <div class="icon-circle green">
+              <lightning-icon icon-name="utility:package" size="small"></lightning-icon>
+            </div>
+            <div class="block-title">반품 정보</div>
+          </div>
+        </div>
+
+        <div class="sale-detail-grid return-detail-grid aligned-summary-grid return-summary-grid">
+          <section class="info-section return-summary-section">
+            <div class="section-title-row">
+              <div class="sale-section-title">반품수량</div>
+              <div class="sale-quantity-inline">총 {returnQuantityText}개</div>
+            </div>
+          </section>
+
+          <section class="info-section payment-section">
+            <div class="sale-section-title section-title-emphasis">환불금액</div>
+            <div class="value-row-list">
+              <template for:each={returnPaymentItems} for:item="item">
+                <p key={item.key} class="info-row">
+                  <span class="info-row-label">{item.label}</span>
+                  <span class="info-row-value">{item.value}</span>
+                </p>
+              </template>
+            </div>
+          </section>
+
+          <section class="info-section return-point-section">
+            <div class="sale-section-title">복원포인트</div>
+            <div class="point-list-grid">
+              <template for:each={restoredPointItems} for:item="item">
+                <p key={item.key} class="info-row point-row">
+                  <span class="info-row-label">{item.label}</span>
+                  <span class="info-row-value">{item.value}</span>
+                </p>
+              </template>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <template if:true={isSaleItemsModalOpen}>
+    <section role="dialog" class="slds-modal slds-fade-in-open">
+      <div class="slds-modal__container">
+        <header class="slds-modal__header">
+          <lightning-button-icon
+            icon-name="utility:close"
+            alternative-text="닫기"
+            variant="bare"
+            onclick={handleCloseSaleItemsModal}
+            class="slds-modal__close"
+          ></lightning-button-icon>
+          <h2 class="slds-text-heading_medium">판매 상품 전체 목록</h2>
+        </header>
+
+        <div class="slds-modal__content slds-p-around_medium sale-items-modal-content">
+          <table class="item-table">
+            <thead>
+              <tr>
+                <th>상품명</th>
+                <th>수량</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template for:each={pagedSaleItems} for:item="item">
+                <tr key={item.orderItemId}>
+                  <td>{item.productName}</td>
+                  <td>{item.quantity}</td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <footer class="slds-modal__footer sale-items-modal-footer">
+          <div class="sale-items-pagination">
+            <button class="page-nav-btn" onclick={handlePreviousSaleItemsPageGroup} disabled={disablePreviousSaleItemsPageGroup}>이전</button>
+            <div class="page-number-list">
+              <template for:each={saleItemsPageNumbers} for:item="pageItem">
+                <button key={pageItem.key} class={pageItem.className} data-page={pageItem.number} onclick={handleSaleItemsPageClick}>
+                  {pageItem.number}
+                </button>
+              </template>
+            </div>
+            <button class="page-nav-btn" onclick={handleNextSaleItemsPageGroup} disabled={disableNextSaleItemsPageGroup}>다음</button>
+          </div>
+          <lightning-button label="닫기" onclick={handleCloseSaleItemsModal}></lightning-button>
+        </footer>
+      </div>
+    </section>
+
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+
+  <template if:true={isSaleRecordsModalOpen}>
+    <section role="dialog" class="slds-modal slds-fade-in-open">
+      <div class="slds-modal__container">
+        <header class="slds-modal__header">
+          <lightning-button-icon
+            icon-name="utility:close"
+            alternative-text="닫기"
+            variant="bare"
+            onclick={handleCloseSaleRecordsModal}
+            class="slds-modal__close"
+          ></lightning-button-icon>
+          <h2 class="slds-text-heading_medium">판매 전체 목록</h2>
+        </header>
+
+        <div class="slds-modal__content slds-p-around_medium sale-records-modal-content">
+          <table class="item-table">
+            <thead>
+              <tr>
+                <th>판매번호</th>
+                <th>상태</th>
+                <th>판매일시</th>
+                <th>판매매장</th>
+                <th>판매금액</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template for:each={saleRecordRows} for:item="item">
+                <tr key={item.key}>
+                  <td>{item.saleNo}</td>
+                  <td>{item.status}</td>
+                  <td>{item.saleDate}</td>
+                  <td>{item.storeName}</td>
+                  <td>{item.amount}</td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <footer class="slds-modal__footer">
+          <lightning-button label="닫기" onclick={handleCloseSaleRecordsModal}></lightning-button>
+        </footer>
+      </div>
+    </section>
+
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+</template>

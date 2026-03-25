@@ -1,0 +1,172 @@
+<template>
+  <!-- ================= 타이틀 ================= -->
+
+  <div class="title-area">
+    <!-- 좌측 타이틀 -->
+    <div class="title-left">
+      <lightning-icon icon-name="utility:user" size="small"></lightning-icon>
+      <h1>회원 요약</h1>
+    </div>
+
+    <!-- 우측 버튼 -->
+    <div class="action-buttons">
+      <lightning-button label="쿠폰 발급" variant="brand" onclick={handleIssueCoupon}></lightning-button>
+
+      <lightning-button label="포인트 지급" variant="neutral" onclick={handleCreditPoints}></lightning-button>
+    </div>
+  </div>
+
+  <!-- ================= 회원 요약 카드 ================= -->
+
+  <section class="member-summary-grid">
+    <!-- 회원 카드 -->
+
+    <div class="summary-card member-card">
+      <div class="avatar-circle">
+        <lightning-icon icon-name="standard:avatar" size="medium"></lightning-icon>
+      </div>
+
+      <div class="member-right">
+        <template if:true={member}>
+          <div class="member-name-row">
+            <span class="member-name">{member.name}</span>
+            <span class={memberStatusClass}>{memberStatusLabel}</span>
+          </div>
+
+          <div class="member-info-grid">
+            <div class="meta-col">
+              <p>회원번호 : {memberNumberText}</p>
+              <p>생년월일 : {birthdateText}</p>
+              <p>연락처 : {mobilePhoneText}</p>
+              <p>
+                이메일 :
+                <span class="email-text">{emailText}</span>
+              </p>
+              <p>주소 : {addressText}</p>
+            </div>
+
+            <div class="meta-col">
+              <p>가입일시 : {enrollmentDateText}</p>
+              <template if:true={showWithdrawDate}>
+                <p>탈퇴일시 : {withdrawDateText}</p>
+              </template>
+
+              <p>관리 매장 : {storeNameText}</p>
+              <p>가입 매장 : {signupStoreText}</p>
+              <p>결혼 유무 : {marriedText}</p>
+              <p>결혼 기념일 : {weddingDateText}</p>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- 보유 혜택 -->
+
+    <div class="summary-card kpi-card">
+      <div class="card-header">
+        <div class="icon-circle purple">
+          <lightning-icon icon-name="utility:currency" size="medium"></lightning-icon>
+        </div>
+        <div class="card-title">보유 혜택</div>
+      </div>
+
+      <div class="benefit-row">
+        <div class="benefit-item">
+          <div class="benefit-value">{ownedPointText}P</div>
+          <div class="benefit-label">포인트</div>
+        </div>
+
+        <div class="benefit-divider"></div>
+
+        <div class="benefit-item">
+          <div class="benefit-value">{ownedCouponText}장</div>
+          <div class="benefit-label">쿠폰</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 회원 등급 -->
+
+    <div class="summary-card kpi-card">
+      <div class="card-header">
+        <div class="icon-circle blue">
+          <lightning-icon icon-name="utility:favorite" size="small"></lightning-icon>
+        </div>
+        <div class="card-title">회원 등급</div>
+      </div>
+
+      <span class={gradeClass}>{currentGrade}</span>
+
+      <div class="divider"></div>
+
+      <div class="grade-detail">
+        <div class="grade-money">
+          <span class="grade-label">최근 3년 누적 구매금액 : </span>
+          <span class="grade-value">₩{totalPurchaseText}</span>
+        </div>
+
+        <div class="update-time">(최근 수정일자 : {gradeUpdatedText})</div>
+      </div>
+    </div>
+
+    <!-- 마케팅 수신 -->
+
+    <div class="summary-card kpi-card">
+      <div class="card-header">
+        <div class="icon-circle green">
+          <lightning-icon icon-name="utility:email" size="small"></lightning-icon>
+        </div>
+        <div class="card-title">마케팅 수신</div>
+      </div>
+
+      <div class="marketing-grid">
+        <div class="marketing-row">
+          <span class="marketing-label">Email</span>
+          <span class="marketing-value">{emailConsentLabel}</span>
+        </div>
+
+        <div class="marketing-row">
+          <span class="marketing-label">SMS</span>
+          <span class="marketing-value">{smsConsentLabel}</span>
+        </div>
+
+        <div class="marketing-row">
+          <span class="marketing-label">매거진</span>
+          <span class="marketing-value">{magazinConsentLabel}</span>
+        </div>
+
+        <div class="marketing-row marketing-date">
+          <span class="marketing-label">구독 날짜</span>
+          <span class="marketing-value">{magazineConsentDateText}</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= Flow Modal ================= -->
+
+  <template if:true={isFlowOpen}>
+    <section role="dialog" class="slds-modal slds-fade-in-open">
+      <div class="slds-modal__container">
+        <!-- Header -->
+
+        <header class="slds-modal__header">
+          <lightning-button-icon icon-name="utility:close" alternative-text="닫기" class="slds-modal__close" onclick={closeFlow}>
+          </lightning-button-icon>
+
+          <h2 class="slds-text-heading_medium">{flowTitle}</h2>
+        </header>
+
+        <!-- Body -->
+
+        <div class="slds-modal__content slds-p-around_medium">
+          <lightning-flow flow-api-name={flowApiName} flow-input-variables={flowInputVariables} onstatuschange={handleFlowStatusChange}>
+          </lightning-flow>
+        </div>
+      </div>
+    </section>
+
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+</template>

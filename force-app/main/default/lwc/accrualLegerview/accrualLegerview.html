@@ -1,0 +1,117 @@
+<template>
+  <lightning-card>
+    <template if:true={isLoading}>
+      <div class="slds-p-around_medium">불러오는 중입니다.</div>
+    </template>
+
+    <template if:true={hasError}>
+      <div class="slds-p-around_medium slds-text-color_error">데이터를 불러오지 못했습니다.</div>
+    </template>
+
+    <template if:true={hasSourceRows}>
+      <div class="section-header-row">
+        <div class="section-title">포인트 적립 내역</div>
+        <div class="filter-bar">
+          <lightning-input type="date" label="유효 종료일자" value={filterDate} onchange={handleDateFilterChange}></lightning-input>
+        </div>
+      </div>
+
+      <template if:true={hasRows}>
+        <div class="ledger-scroll">
+          <table class="slds-table slds-table_cell-buffer slds-table_bordered ledger-table">
+            <thead>
+              <tr class="slds-line-height_reset">
+                <th scope="col" rowspan="2">
+                  <div class="slds-truncate" title="포인트 구분">포인트 구분</div>
+                </th>
+                <th scope="colgroup" colspan="3" class="group-divider-right">
+                  <div class="slds-truncate group-title" title="적립">적립</div>
+                </th>
+                <th scope="colgroup" colspan="1" class="group-divider-right">
+                  <div class="slds-truncate group-title" title="유효기간">유효기간</div>
+                </th>
+                <th scope="colgroup" colspan="3">
+                  <div class="slds-truncate group-title" title="판매정보">판매정보</div>
+                </th>
+              </tr>
+              <tr class="slds-line-height_reset">
+                <th scope="col">
+                  <div class="slds-truncate" title="적립포인트">적립포인트</div>
+                </th>
+                <th scope="col">
+                  <div class="slds-truncate" title="사용포인트">사용포인트</div>
+                </th>
+                <th scope="col" class="group-divider-right">
+                  <div class="slds-truncate" title="소멸포인트">소멸포인트</div>
+                </th>
+                <th scope="col" class="group-divider-right">
+                  <div class="slds-truncate" title="종료일">종료일</div>
+                </th>
+                <th scope="col">
+                  <div class="slds-truncate" title="입금쿠폰금액">입금쿠폰금액</div>
+                </th>
+                <th scope="col">
+                  <div class="slds-truncate" title="입금포인트금액">입금포인트금액</div>
+                </th>
+                <th scope="col">
+                  <div class="slds-truncate" title="입금본사교환권금액">입금본사교환권금액</div>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <template for:each={pagedRows} for:item="row">
+                <tr key={row.ledgerId}>
+                  <td class="cell-center">
+                    <div class="slds-truncate" title={row.pointTypeName}>{row.pointTypeName}</div>
+                  </td>
+                  <td class="slds-text-align_right">
+                    <div class="slds-truncate" title={row.accruedPointsText}>{row.accruedPointsText}</div>
+                  </td>
+                  <td class="slds-text-align_right">
+                    <div class="slds-truncate" title={row.usedPointsText}>{row.usedPointsText}</div>
+                  </td>
+                  <td class="slds-text-align_right group-divider-right">
+                    <div class="slds-truncate" title={row.expiredPointsText}>{row.expiredPointsText}</div>
+                  </td>
+                  <td class="slds-text-align_right group-divider-right">
+                    <div class="slds-truncate" title={row.endDateText}>{row.endDateText}</div>
+                  </td>
+                  <td class="slds-text-align_right">
+                    <div class="slds-truncate" title={row.depositCouponAmountText}>{row.depositCouponAmountText}</div>
+                  </td>
+                  <td class="slds-text-align_right">
+                    <div class="slds-truncate" title={row.depositPointAmountText}>{row.depositPointAmountText}</div>
+                  </td>
+                  <td class="slds-text-align_right">
+                    <div class="slds-truncate" title={row.depositHqExchangeAmountText}>{row.depositHqExchangeAmountText}</div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+        <template if:true={hasPagination}>
+          <div class="pagination">
+            <button class="page-nav" onclick={handlePrevPage} disabled={isPrevDisabled}>이전</button>
+            <template for:each={pageItems} for:item="item">
+              <button key={item.key} class={item.className} data-page={item.number} onclick={handlePageClick}>{item.number}</button>
+            </template>
+            <button class="page-nav" onclick={handleNextPage} disabled={isNextDisabled}>다음</button>
+          </div>
+        </template>
+      </template>
+
+      <template if:false={hasRows}>
+        <div class="slds-p-around_medium slds-text-color_weak">검색 결과가 없습니다.</div>
+      </template>
+    </template>
+
+    <template if:false={isLoading}>
+      <template if:false={hasError}>
+        <template if:false={hasSourceRows}>
+          <div class="slds-p-around_medium slds-text-color_weak">표시할 적립 내역이 없습니다.</div>
+        </template>
+      </template>
+    </template>
+  </lightning-card>
+</template>

@@ -1,0 +1,219 @@
+/* ================= LWC 기본 ================= */
+:host {
+    display: block;
+    padding: 16px 16px 24px;
+    background: #f4f6f9;
+}
+
+/* ================= 상단 요약 카드 ================= */
+.summary-card {
+    margin-bottom: 24px;
+}
+
+.summary-card {
+    padding: 16px 20px;
+    background: #ffffff;
+    border-radius: 20px;
+    border: 1px solid #d1d5db;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* 상단 텍스트 */
+.summary-name {
+    font-size: 13px;
+    color: #111827;
+    margin-bottom: 4px;
+}
+
+.summary-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #111827;
+    margin-bottom: 16px;
+}
+
+
+
+/* 요약 그리드 */
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 32px;
+}
+
+.summary-item .label {
+    font-size: 11px;
+    color: #6b7280;
+    margin-bottom: 4px;
+}
+
+.summary-item .value {
+    font-size: 15px;
+    font-weight: 600;
+    color: #111827;
+}
+
+.summary-item .value.active {
+    color: #2563eb;
+}
+
+/* ================= 하단 2컬럼 ================= */
+.content-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+}
+
+/* ================= 공통 카드 ================= */
+.info-card {
+    padding: 16px 20px;
+    background: #ffffff;
+    border-radius: 20px;
+    border: 1px solid #d1d5db;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+/* 구분선 */
+.section-divider {
+    height: 1px;
+    background: #e5e7eb;
+    margin: 8px 0 4px;
+}
+
+/* 카드 헤더 */
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+
+    font-size: 18px;
+    font-weight: 700;
+    color: #111827;
+    margin-bottom: 12px;
+}
+
+/* ================= 정보 리스트 ================= */
+.info-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px 24px;
+    padding-top: 20px;
+    padding-left: 12px;
+}
+
+
+.info-row {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    font-size: 14px;
+}
+
+.info-row .label {
+    font-size: 13px;
+    color: #111827;
+}
+
+.info-row .value {
+    font-size: 13px;
+    color: #111827;
+}
+
+/* ================= 상세 정보 : 4행 1열 ================= */
+.info-card--detail .info-list {
+    grid-template-columns: 1fr;
+    gap: 12px;
+}
+
+.info-card--detail .info-row {
+    grid-template-columns: 120px 1fr;
+}
+
+/* 포인트 활성화 여부 css */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 999px;
+
+    font-size: 13px;
+    font-weight: 700;
+
+    border: 1px solid;
+}
+
+.status-badge--active {
+    background-color: #eff6ff;
+    color: #2563eb;
+    border-color: #93c5fd;
+}
+
+
+
+
+/* ================= 가데이터 표시 ================= */
+.dummy-badge {
+    margin-left: 6px;
+    padding: 2px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 6px;
+
+    background: #fff7ed;
+    color: #c2410c;
+    border: 1px dashed #fed7aa;
+}
+
+/* ================= 반응형 (promotionview 기준) ================= */
+@media (max-width: 1024px) {
+
+    :host {
+        padding: 12px 12px 20px;
+    }
+
+    /* 상단 요약 → 1컬럼 */
+    .summary-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    /* 하단 카드 → 1컬럼 */
+    .content-grid {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+
+    /* 카드 패딩 축소 */
+    .summary-card,
+    .info-card {
+        padding: 14px 16px;
+    }
+
+    .summary-title {
+        font-size: 18px;
+    }
+
+    .card-header {
+        font-size: 16px;
+    }
+
+    /* 정보 행 세로 스택 */
+    .info-list {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .info-row {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+
+    .info-row .label {
+        font-size: 12px;
+    }
+
+    .info-row .value {
+        font-size: 14px;
+    }
+
+
+}
