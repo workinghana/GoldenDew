@@ -5654,22 +5654,47 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       tj.Status = 'Processed';
       update tj;
 
-      // [Step 11.3] Trace 의 ActionType 을 'Debit' → 'CreditCancellation' 으로 사후 교체
-      // 트리거는 이미 'Debit' 시점에 Aggregate 갱신을 완료했으므로 영향 없음.
-      // 이후 회원 도움창의 buildAccrualExpiredPointMap (PT_DESTROY 집계) 가
-      // ActionType = 'CreditCancellation' 만 합산하므로 적립 취소를 PT_DESTROY 로 표시하려면 필수.
-      // 기존 cancelAccrualPointsBySubtype Flag OFF 경로 (line 5239) 와 동일한 패턴.
-      List<LoyaltyLedgerTraceability> tracesToUpdateAction = new List<LoyaltyLedgerTraceability>();
-      for (LoyaltyLedgerTraceability t : newTraceList) {
-        if (t.Id != null) {
-          tracesToUpdateAction.add(new LoyaltyLedgerTraceability(
-            Id = t.Id,
-            ActionType = LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION
-          ));
-        }
+      // [Step 11.3] Trace ActionType 'Debit' → 'CreditCancellation' 으로 교체
+      // ActionType 필드가 updateable=false (Salesforce 표준 제약) 이라 update 불가.
+      // 따라서 기존 cancelAccrualPointsBySubtype Flag OFF 경로 (line 5204-5239) 와 동일하게
+      // delete + 재 insert 패턴 사용.
+      //
+      // 이유:
+      //  - 트리거는 이미 'Debit' Trace 처리 완료 (Aggregate 갱신 끝남)
+      //  - 회원 도움창의 buildAccrualExpiredPointMap (PT_DESTROY 집계) 가
+      //    ActionType = 'CreditCancellation' 만 합산하므로 적립 취소를 소멸로 표시하려면 필수
+      //
+      // 안전성:
+      //  - 같은 트랜잭션 내 작업이라 외부 조회 시점에는 항상 일관된 상태
+      //  - TJ.Status 변경 없으므로 Aggregate 트리거 재발화 안 됨
+      //  - 만료일 매핑은 그대로 정확 (CreditLoyaltyLedgerId 동일)
+      List<LoyaltyLedgerTraceability> tracesToReplace = [
+        SELECT Id, LoyaltyProgramMemberId, LoyaltyProgramCurrencyId, LoyaltyPgmCurrencySubtypeId,
+               CreditLoyaltyLedgerId, DebitLoyaltyLedgerId, Points
+        FROM LoyaltyLedgerTraceability
+        WHERE Id IN :newTraceList
+      ];
+
+      // 새 Trace (CreditCancellation) 빌드
+      List<LoyaltyLedgerTraceability> replacementTraces = new List<LoyaltyLedgerTraceability>();
+      for (LoyaltyLedgerTraceability t : tracesToReplace) {
+        LoyaltyLedgerTraceability newT = new LoyaltyLedgerTraceability();
+        newT.LoyaltyProgramMemberId = t.LoyaltyProgramMemberId;
+        newT.LoyaltyProgramCurrencyId = t.LoyaltyProgramCurrencyId;
+        newT.LoyaltyPgmCurrencySubtypeId = t.LoyaltyPgmCurrencySubtypeId;
+        newT.CreditLoyaltyLedgerId = t.CreditLoyaltyLedgerId;
+        newT.DebitLoyaltyLedgerId = t.DebitLoyaltyLedgerId;
+        newT.Points = t.Points;
+        newT.ActionType = LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION;
+        replacementTraces.add(newT);
       }
-      if (!tracesToUpdateAction.isEmpty()) {
-        update tracesToUpdateAction;
+
+      // 기존 'Debit' Trace 삭제
+      Database.delete(tracesToReplace);
+
+      // 'CreditCancellation' Trace 재 insert
+      if (!replacementTraces.isEmpty()) {
+        insert replacementTraces;
       }
 
       // [Step 11.5] LMC.TotalPointsRedeemed 직접 갱신
@@ -5709,9 +5734,13 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       String memberNo = (!lpmList.isEmpty() && lpmList[0].Contact != null) ? lpmList[0].Contact.MemberNo__c : null;
 
       // 방금 생성한 Trace 를 Id 로 다시 조회하여 PointTypeCode 등 정보 확보
+      // 참고: Step 11.3 에서 'Debit' Trace 를 삭제하고 'CreditCancellation' Trace 로 재 insert 했으므로
+      //       응답 DTO 는 새 Trace (replacementTraces) 의 Id 기반으로 빌드
       Set<Id> newTraceIdSet = new Set<Id>();
-      for (LoyaltyLedgerTraceability t : newTraceList) {
-        newTraceIdSet.add(t.Id);
+      for (LoyaltyLedgerTraceability t : replacementTraces) {
+        if (t.Id != null) {
+          newTraceIdSet.add(t.Id);
+        }
       }
       List<LoyaltyLedgerTraceability> resultLltList = [
         SELECT
