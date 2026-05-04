@@ -109,22 +109,50 @@ global with sharing class GdMemberApiControllerV1 {
       // LoyaltyTier insert
       ApiResult loyaltyTierResult = getLoyaltyTierService().changeTier(reqData);
 
-      // 로열티 쿠폰 생성
-      // Voucher, TransactionJournal insert
-      ApiResult voucherResult = getVoucherService().issueSignupCoupon(reqData);
+      // [수정 전 - 무조건 쿠폰 발급]
+      // // 로열티 쿠폰 생성
+      // // Voucher, TransactionJournal insert
+      // ❌ SMS동의 여부 무시하고 무조건 발급
+      // ApiResult voucherResult = getVoucherService().issueSignupCoupon(reqData);
+      //
+      // if (voucherResult != null) {
+      //   // 쿠폰 개별 지급 비동기 처리 큐에 등록
+      //   List<Voucher> couponList = (List<Voucher>) voucherResult.data.get('CouponList');
+      //   if (couponList != null && !couponList.isEmpty()) {
+      //     ErpCouponReqDto.IssueRequest couponIssueReq = new ErpCouponReqDto.IssueRequest();
+      //     for (Voucher coupon : couponList) {
+      //       couponIssueReq.couponDetailModels.add(
+      //         new ErpCouponReqDto.CouponDetailModel(coupon.VoucherDefinition.CouponManNo__c, coupon.VoucherCode, c.MemberNo__c, UserInfo.getName())
+      //       );
+      //       System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), coupon.Id));
+      //     }
+      //   }
+      // }
 
-      if (voucherResult != null) {
-        // 쿠폰 개별 지급 비동기 처리 큐에 등록
-        List<Voucher> couponList = (List<Voucher>) voucherResult.data.get('CouponList');
-        if (couponList != null && !couponList.isEmpty()) {
-          ErpCouponReqDto.IssueRequest couponIssueReq = new ErpCouponReqDto.IssueRequest();
-          for (Voucher coupon : couponList) {
-            couponIssueReq.couponDetailModels.add(
-              new ErpCouponReqDto.CouponDetailModel(coupon.VoucherDefinition.CouponManNo__c, coupon.VoucherCode, c.MemberNo__c, UserInfo.getName())
-            );
-            System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), coupon.Id));
+      // [수정 후 - 2026-04-09 by wina]
+      // ✅ SMS동의 여부 확인 후 조건부 쿠폰 발급
+      if (c.IsSMSAgreed__c) {
+        // 로열티 쿠폰 생성 (SMS 동의한 회원만)
+        // Voucher, TransactionJournal insert
+        ApiResult voucherResult = getVoucherService().issueSignupCoupon(reqData);
+
+        if (voucherResult != null) {
+          // 쿠폰 개별 지급 비동기 처리 큐에 등록
+          List<Voucher> couponList = (List<Voucher>) voucherResult.data.get('CouponList');
+          if (couponList != null && !couponList.isEmpty()) {
+            ErpCouponReqDto.IssueRequest couponIssueReq = new ErpCouponReqDto.IssueRequest();
+            Set<Id> couponIds = new Set<Id>();
+            for (Voucher coupon : couponList) {
+              couponIssueReq.couponDetailModels.add(
+                new ErpCouponReqDto.CouponDetailModel(coupon.VoucherDefinition.CouponManNo__c, coupon.VoucherCode, c.MemberNo__c, UserInfo.getName())
+              );
+              couponIds.add(coupon.Id);
+            }
+            System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), couponIds));
           }
         }
+      } else {
+        // SMS 미동의: 쿠폰 발급 스킵
       }
 
       ApiResult result = ApiResult.ok(200, '회원 등록 성공.', resData);
@@ -238,8 +266,10 @@ global with sharing class GdMemberApiControllerV1 {
       logger.setRequestDatetime(Datetime.now()); // 요청 시간
 
       String memberNo = ValidationUtil.stringValidationEx(req.params.get('MemberNo__c'), 'MemberNo__c', true, false);
+      Date memberDropDate = resolveMemberDropDate(req.params.get('MemberDropDate__c'));
 
       resData.put('MemberNo__c', memberNo);
+      resData.put('MemberDropDate__c', memberDropDate);
 
       // String memberNo = ValidationUtil.stringValidation(reqData.get('MemberNo__c'), 'MemberNo__c', true);
       List<Contact> cList = [SELECT Id, IsWithdrawn__c, Email, MemberDropDate__c FROM Contact WHERE MemberNo__c = :memberNo LIMIT 1];
@@ -253,7 +283,7 @@ global with sharing class GdMemberApiControllerV1 {
         c.Email = 'del_' + DateTime.now().format('yyyyMMdd_HHmmss') + '_' + c.Email;
       }
       c.IsWithdrawn__c = true;
-      c.MemberDropDate__c = Date.today();
+      c.MemberDropDate__c = memberDropDate;
 
       Database.SaveResult cResult = Database.update(c);
       if (!cResult.isSuccess()) {
@@ -267,7 +297,7 @@ global with sharing class GdMemberApiControllerV1 {
         throw new CustomException(400, '로열티 멤버이 아닙니다. ' + memberNo);
       }
       LoyaltyProgramMember lpm = lpmList[0];
-      lpm.MembershipEndDate = System.today();
+      lpm.MembershipEndDate = memberDropDate;
       lpm.MemberStatus = 'Inactive';
       Database.SaveResult lpmResult = Database.update(lpm);
       if (!lpmResult.isSuccess()) {
@@ -307,6 +337,11 @@ global with sharing class GdMemberApiControllerV1 {
       logger.addLog(); // 개별 로그 저장
       ApexLogger.insertLogs(); // 실제 DB에 로그 인서트
     }
+  }
+
+  private static Date resolveMemberDropDate(String rawMemberDropDate) {
+    Date memberDropDate = ValidationUtil.dateValidation(rawMemberDropDate, 'MemberDropDate__c', false);
+    return memberDropDate == null ? Date.today() : memberDropDate;
   }
 
   /* 회원 탈퇴 복원 */

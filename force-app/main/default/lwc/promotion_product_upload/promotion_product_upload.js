@@ -28,6 +28,14 @@ export default class Promotion_product_upload extends LightningElement {
 
   errorColumns = ERROR_COLUMNS;
 
+  get uploadGuideText() {
+    return "코드 컬럼(ProductCode)이 포함된 CSV 파일을 업로드하면 선택 목록에 일괄 반영할 수 있습니다.";
+  }
+
+  get uploadWarningText() {
+    return "최대 5천건만 업로드하세요. 초과 시 업로드가 지연되거나 실패할 수 있습니다.";
+  }
+
   get hasFile() {
     return !!this.fileBody;
   }
@@ -100,6 +108,13 @@ export default class Promotion_product_upload extends LightningElement {
       await this.previewUploadFile();
     };
     reader.readAsDataURL(file);
+  }
+
+  handleClearFile() {
+    if (this.isParsing || this.isUploading) {
+      return;
+    }
+    this.resetState();
   }
 
   async previewUploadFile() {
@@ -181,7 +196,7 @@ export default class Promotion_product_upload extends LightningElement {
 
   translateErrorReason(message) {
     const translations = {
-      "ProductCode__c is required.": "제품 코드가 비어 있습니다.",
+      "ProductCode is required.": "제품 코드가 비어 있습니다.",
       "Duplicate product code in file.": "파일 내 제품 코드가 중복되었습니다.",
       "Product not found.": "일치하는 제품을 찾을 수 없습니다.",
       "PromotionProduct already exists.": "이미 적용 가능 품목에 등록된 제품입니다.",
@@ -197,8 +212,8 @@ export default class Promotion_product_upload extends LightningElement {
     }
 
     return message
-      .replaceAll("Required column ProductCode__c is missing.", '필수 컬럼 "제품 코드(ProductCode__c)"가 없습니다.')
-      .replaceAll("ProductCode__c is required.", "제품 코드가 비어 있습니다.")
+      .replaceAll("Required column ProductCode is missing.", '필수 컬럼 "제품 코드(ProductCode)"가 없습니다.')
+      .replaceAll("ProductCode is required.", "제품 코드가 비어 있습니다.")
       .replaceAll("Duplicate product code in file.", "파일 내 제품 코드가 중복되었습니다.")
       .replaceAll("Product not found.", "일치하는 제품을 찾을 수 없습니다.")
       .replaceAll("PromotionProduct already exists.", "이미 적용 가능 품목에 등록된 제품입니다.")

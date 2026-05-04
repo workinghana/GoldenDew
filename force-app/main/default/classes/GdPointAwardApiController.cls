@@ -1,5 +1,5 @@
 // ! 사용 X
-@RestResource(urlMapping='/gd/point/award')
+//@RestResource(urlMapping='/gd/point/award')
 global with sharing class GdPointAwardApiController {
   private static GdPointService pointService;
 
@@ -15,7 +15,7 @@ global with sharing class GdPointAwardApiController {
     return pointService;
   }
 
-  @HttpPost
+  //@HttpPost
   global static void rewardPoints() {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();

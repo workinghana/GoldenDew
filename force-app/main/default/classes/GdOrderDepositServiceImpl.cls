@@ -132,17 +132,56 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
 
       String type = ValidationUtil.stringValidation(reqData.get('Type'), 'Type', false); // 주문 구분 코드
       String storeTypeFour = ValidationUtil.stringValidation(reqData.get('storeTypeFour'), 'storeTypeFour', false); // 매장구분4
+      // 26.04.09 GD 계정 storeType 추가
+      String storeType = ValidationUtil.stringValidation(reqData.get('storeType'), 'storeType', false); // 매장 구분 코드
       Boolean isGoldenBar = ValidationUtil.booleanValidation(reqData.get('isGoldenBar'), 'isGoldenBar', false); // 골드바 상품 구매 여부
+
+      Decimal actualPaymentAmount = ValidationUtil.decimalValidation(reqData.get('ActualPaymentAmount__c'), 'ActualPaymentAmount__c', false); // 판매 금액
 
       Integer usedCouponCount = 0; // 쿠폰 사용 횟수
 
+      System.debug('storeType : ' + storeType);
+      System.debug('promotionNo : ' + promotionNo);
+      if (('08'.equals(storeType) || '09'.equals(storeType) || '11'.equals(storeType)) && String.isBlank(promotionNo)) {
+        throw new CustomException(400, '해당 매장 구분은 프로모션 번호가 필수입니다. storeType=' + storeType);
+      }
+
       Id promotionId;
-      if (promotionNo != null) {
-        List<Promotion> promotionList = [SELECT Id FROM Promotion WHERE PromotionNo__c = :promotionNo LIMIT 1];
+      if (!String.isEmpty(promotionNo)) {
+        // if (promotionNo != null) {
+        List<Promotion> promotionList = [
+          SELECT Id, IsActive, StartDate, EndDate
+          FROM Promotion
+          WHERE PromotionNo__c = :promotionNo
+          LIMIT 1
+        ];
         if (promotionList.isEmpty()) {
           throw new CustomException(400, '해당 프로모션이 없습니다. ' + promotionNo);
         }
-        promotionId = promotionList[0].Id;
+        if (promotionList[0].IsActive == false) {
+          throw new CustomException(400, '해당 프로모션은 비활성화 상태입니다. ' + promotionNo);
+        }
+        // [Promotion Date Validation 2026-04-28] 주문 등록일(= 오늘) 이 프로모션 적용 기간(StartDate ~ EndDate) 내인지 검증
+        //   - 주문은 별도 주문 일자를 받지 않으므로 등록 시점 Date.today() 를 기준으로 함.
+        //   - 범위 외이면 시작/종료일자를 함께 알리는 에러 메시지 반환. (판매 등록과 동일 패턴)
+        Promotion p = promotionList[0];
+        Date orderDate = Date.today();
+        if (p.StartDate != null && orderDate < p.StartDate) {
+          throw new CustomException(
+            400,
+            '주문 일자가 프로모션 적용 기간 이전입니다. (프로모션: ' + promotionNo +
+            ', 시작일: ' + String.valueOf(p.StartDate) + ', 종료일: ' + String.valueOf(p.EndDate) + ')'
+          );
+        }
+        if (p.EndDate != null && orderDate > p.EndDate) {
+          throw new CustomException(
+            400,
+            '주문 일자가 프로모션 적용 기간 이후입니다. (프로모션: ' + promotionNo +
+            ', 시작일: ' + String.valueOf(p.StartDate) + ', 종료일: ' + String.valueOf(p.EndDate) + ')'
+          );
+        }
+        promotionId = p.Id;
+        // }
       }
 
       Boolean isExclude = true; // 포인트 적립 제외 여부
@@ -193,6 +232,7 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
       List<GdSaleApiController.PointDebitDTO> debitPointList = new List<GdSaleApiController.PointDebitDTO>();
 
       Decimal totalPointsToUse = 0;
+      Decimal totalTransactionAmount = 0;
       List<TransactionJournal> tjList = new List<TransactionJournal>();
       for (Object v : depositList) {
         Map<String, Object> deposit = ValidationUtil.mapStrObjValidation(v, 'TransactionJournal', true);
@@ -204,6 +244,13 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
         String depositType = ValidationUtil.stringValidation(deposit.get('DepositType__c'), 'DepositType__c', true); // 입금 구분 코드
         Decimal transactionAmount = ValidationUtil.decimalValidation(deposit.get('TransactionAmount'), 'TransactionAmount', true); // 입금 금액
         String couponNo = ValidationUtil.stringValidationEx(deposit.get('CouponNo'), 'CouponNo', false, true); // 쿠폰 번호
+
+        // 고재성
+        if(depositType == '03' || depositType == '05') {
+          totalTransactionAmount -= transactionAmount;
+        } else {
+          totalTransactionAmount += transactionAmount;
+        }
 
         TransactionJournal tj = new TransactionJournal();
         tj.DepositNo__c = depositNo + '-' + deposiSeqNo;
@@ -252,13 +299,26 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
         // 포인트 사용 일 경우
         if ('81'.equals(paymentMethod)) {
           // '05' => 아울렛 | '15' => 면세
-          if (('05'.equals(storeTypeFour) && !'03'.equals(type))) {
+          // if (('05'.equals(storeTypeFour) && !'03'.equals(type))) {
+          //   throw new CustomException(400, '아울렛은 포인트 사용이 불가합니다. (수선 주문은 가능)');
+          // }
+          // if ('15'.equals(storeTypeFour)) {
+          //   throw new CustomException(400, '면세점은 포인트 사용이 불가합니다.');
+          // }
+          // if ('01'.equals(storeTypeFour) || '20'.equals(storeTypeFour)) {
+          //   if (isGoldenBar) {
+          //     throw new CustomException(400, '골드바 구매 시 포인트 사용이 불가합니다.');
+          //   }
+          // }
+
+          // 26.04.09 GD 수정 포인트 적립 매장 구분 코드 로직 수정
+          if ((('20'.equals(storeType) || '25'.equals(storeType)) && !'03'.equals(type))) {
             throw new CustomException(400, '아울렛은 포인트 사용이 불가합니다. (수선 주문은 가능)');
-          }
-          if ('15'.equals(storeTypeFour)) {
+          } 
+          if ('33'.equals(storeType)) {
             throw new CustomException(400, '면세점은 포인트 사용이 불가합니다.');
           }
-          if ('01'.equals(storeTypeFour) || '20'.equals(storeTypeFour)) {
+          if ('08'.equals(storeType) || '09'.equals(storeType) || '11'.equals(storeType)) {
             if (isGoldenBar) {
               throw new CustomException(400, '골드바 구매 시 포인트 사용이 불가합니다.');
             }
@@ -279,6 +339,15 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
           tj.Status = 'Processed';
           tjList.add(tj);
         }
+      }
+
+      // 고재성
+      if (totalTransactionAmount > actualPaymentAmount) {
+        // 총 입금 금액이 판매 금액보다 많을 경우 => 에러 처리
+        throw new CustomException(
+          400,
+          '총 입금 금액이 실제 결제해야 할 금액을 초과했습니다. 총 입금 금액 : ' + totalTransactionAmount + ' | 판매 금액 : ' + actualPaymentAmount
+        );
       }
 
       if (totalPointsToUse > earnableAmount) {
@@ -324,6 +393,7 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
       List<Object> transactionJournalList = ValidationUtil.listObjValidation(reqData.get('TransactionJournal'), 'TransactionJournal', true);
 
       String orderId = ValidationUtil.stringValidation(reqData.get('orderId'), 'orderId', true); // 주문 번호
+      Decimal actualPaymentAmount = ValidationUtil.decimalValidation(reqData.get('ActualPaymentAmount__c'), 'ActualPaymentAmount__c', false); // 판매 금액
 
       // 로열티 회원 체크
       List<LoyaltyProgramMember> lpmList = [
@@ -337,13 +407,15 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
       }
 
       Set<String> depositNoSet = new Set<String>();
+      Map<String, TransactionJournal> existingTjByDepositNo = new Map<String, TransactionJournal>();
 
       for (TransactionJournal tj : [
-        SELECT DepositNo__c
+        SELECT Id, DepositNo__c
         FROM TransactionJournal
         WHERE OrderId = :orderId AND DepositNo__c != NULL
       ]) {
         depositNoSet.add(tj.DepositNo__c);
+        existingTjByDepositNo.put(tj.DepositNo__c, tj);
       }
 
       List<GdSaleApiController.PointDebitDTO> debitPointList = new List<GdSaleApiController.PointDebitDTO>();
@@ -351,6 +423,7 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
       // 일반 결제 건 거래 이력(TransactionJournal) Upsert 객체
       List<TransactionJournal> tjList = new List<TransactionJournal>();
 
+      Decimal totalTransactionAmount = 0;
       for (Object v : transactionJournalList) {
         Map<String, Object> transactionJournal = ValidationUtil.mapStrObjValidation(v, 'TransactionJournal', true);
 
@@ -363,8 +436,27 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
         String couponNo = ValidationUtil.stringValidationEx(transactionJournal.get('CouponNo'), 'CouponNo', false, true); // 쿠폰 번호
 
         depositNo += '-' + deposiSeqNo;
+        // 고재성
+        if(depositType == '03' || depositType == '05') {
+          totalTransactionAmount -= transactionAmount;
+        } else {
+          totalTransactionAmount += transactionAmount;
+        }
+
+        // 26.04.13 GD 수정 신규 로직
+        if (!depositNoSet.isEmpty()) {
+          if (depositNoSet.contains(depositNo)) {
+            System.debug('기존 입금건');
+            if ('81'.equals(paymentMethod) || '90'.equals(paymentMethod)) {
+              continue;
+            }
+          }
+        }
 
         TransactionJournal tj = new TransactionJournal();
+        if (existingTjByDepositNo.containsKey(depositNo) && !'81'.equals(paymentMethod) && !'90'.equals(paymentMethod)) {
+          tj.Id = existingTjByDepositNo.get(depositNo).Id;
+        }
         tj.DepositNo__c = depositNo;
         tj.DeposiSeqNo__c = deposiSeqNo;
         tj.LoyaltyProgramId = lpmList[0].ProgramId;
@@ -379,13 +471,14 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
         tj.Status = 'Pending';
 
         // 쿠폰 사용/사용 취소 일 경우
-        if (String.isNotBlank(couponNo) || '90'.equals(depositType)) {
-          if (!depositNoSet.isEmpty()) {
-            if (depositNoSet.contains(depositNo)) {
-              // System.debug('존재함');
-              continue;
-            }
-          }
+        if (String.isNotBlank(couponNo) || '90'.equals(paymentMethod)) {
+          // 기존 26.04.13 GD 수정 전
+          // if (!depositNoSet.isEmpty()) {
+          //   if (depositNoSet.contains(depositNo)) {
+          //     // System.debug('존재함');
+          //     continue;
+          //   }
+          // }
 
           tj.VoucherCode = couponNo;
           tj.Status = 'Processed';
@@ -407,16 +500,47 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
           // 포인트 사용/사용 취소 일 경우
           '81'.equals(paymentMethod)
         ) {
-          if (!depositNoSet.isEmpty()) {
-            if (depositNoSet.contains(depositNo)) {
-              // System.debug('존재함');
-              continue;
-            }
-          }
+          // // 기존 26.04.13 GD 수정 전
+          // if (!depositNoSet.isEmpty()) {
+          //   if (depositNoSet.contains(depositNo)) {
+          //     // System.debug('존재함');
+          //     continue;
+          //   }
+          // }
           if ('03'.equals(depositType)) {
             // 포인트 사용 취소
+            // [기존 코드 시작] 2026-04-22
+            // Map<String, Object> cancelPointResult = getPointService().cancelPointRedemption(tj);
+            // data.put('CancelPointList', cancelPointResult);
+            // [기존 코드 끝] 2026-04-22
+
+            // [수정 코드 시작] 2026-04-22 - 포인트 사용 취소(PATCH /order PM=81 DT=03) 후, 원본 Debit TJ 의 AdditionalNotes__c 를 RESTORE_NOTE 로 UPDATE하여
+            //   후속 POST /return 의 차단 SOQL (GdReturnServiceImpl.cls:64-99) 에서 해당 LLT가 "이미 복구됨"으로 제외되도록 함.
+            //   DELETE /return-deposit 경로(GdReturnDepositServiceImpl.cls:534) 와 동일 시맨틱 정합성 확보.
+            //   안전성: 동일 OrderId + PM=81 + DT=01/02 + IsDeleted=FALSE + AdditionalNotes=NULL + TransactionAmount 일치 조건으로 좁혀 부분 취소 오판 방지.
             Map<String, Object> cancelPointResult = getPointService().cancelPointRedemption(tj);
             data.put('CancelPointList', cancelPointResult);
+
+            // 역입금이 성공적으로 처리된 경우에만 원본 Debit TJ 를 "이미 복구됨" 으로 마킹
+            // 금액 매칭 (reversal amount == original debit amount) 으로 부분 취소 케이스 보호
+            List<TransactionJournal> origDebitTjs = [
+              SELECT Id, AdditionalNotes__c
+              FROM TransactionJournal
+              WHERE OrderId = :orderId
+                AND PaymentMethod = '81'
+                AND DepositType__c IN ('01', '02')
+                AND IsDeleted__c = FALSE
+                AND AdditionalNotes__c = NULL
+                AND TransactionAmount = :tj.TransactionAmount
+              LIMIT 5
+            ];
+            if (!origDebitTjs.isEmpty()) {
+              for (TransactionJournal origTj : origDebitTjs) {
+                origTj.AdditionalNotes__c = '반품 입금 삭제로 인한 "포인트 사용" 내역 복구';
+              }
+              update origDebitTjs;
+            }
+            // [수정 코드 끝] 2026-04-22
           } else if ('01'.equals(depositType) || '02'.equals(depositType)) {
             // 포인트 사용
             debitPointList = getPointService().debitPoint(tj);
@@ -439,6 +563,16 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
         }
       }
 
+      // 고재성
+      if (totalTransactionAmount > actualPaymentAmount) {
+        // 총 입금 금액이 판매 금액보다 많을 경우 => 에러 처리
+        throw new CustomException(
+          400,
+          '총 입금 금액이 판매 금액을 초과했습니다. 총 입금 금액 : ' + totalTransactionAmount + ' | 판매 금액 : ' + actualPaymentAmount
+        );
+      }
+
+      // 기존 26.04.13 GD 수정 전
       List<Database.UpsertResult> resultList = Database.upsert(tjList, TransactionJournal.DepositNo__c);
 
       for (Database.UpsertResult result : resultList) {
@@ -447,6 +581,16 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
           throw new CustomException(400, err.getMessage());
         }
       }
+
+      // 26.04.13 GD 수정 주문 입금 이력 신규 로직
+      // List<Database.SaveResult> resultList = Database.insert(tjList);
+
+      // for (Database.SaveResult result : resultList) {
+      //   if (!result.isSuccess()) {
+      //     Database.Error err = result.getErrors()[0];
+      //     throw new CustomException(400, err.getMessage());
+      //   }
+      // }
 
       return ApiResult.ok(200, '주문 입금 이력 수정 완료.', data);
     } catch (ValidationException ve) {

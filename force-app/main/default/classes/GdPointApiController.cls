@@ -1,4 +1,4 @@
-@RestResource(urlMapping='/gd/point')
+//@RestResource(urlMapping='/gd/point')
 global with sharing class GdPointApiController {
   private static GdPointService pointService;
 
@@ -18,7 +18,7 @@ global with sharing class GdPointApiController {
   /**
    * [주문,판매] 포인트 적용 도움창 조회 API
    */
-  @HttpGet
+  //@HttpGet
   global static void getPointList() {
     RestRequest req = RestContext.request;
     try {
@@ -35,8 +35,8 @@ global with sharing class GdPointApiController {
         throw new CustomException(400, 'JSON 역직렬화 실패: ' + e.getMessage());
       }
 
-      Decimal points = getPointService().getPointApplyHelp(reqData);
-      resData.put('points', points);
+      ApiResult result = getPointService().getPointApplyHelp(reqData);
+      RestResponseUtil.handleSuccess(result);
 
       RestResponseUtil.handleSuccess(ApiResult.ok(200, '포인트 조회 성공', resData));
     } catch (CustomException ce) {

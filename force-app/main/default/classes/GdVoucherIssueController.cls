@@ -1,5 +1,5 @@
 // ! 사용 X
-@RestResource(urlMapping='/gd/issue/voucher')
+//@RestResource(urlMapping='/gd/issue/voucher')
 global with sharing class GdVoucherIssueController {
   private static GdVoucherService voucherService;
 
@@ -20,7 +20,7 @@ global with sharing class GdVoucherIssueController {
    * 쿠폰 개별 지급
    */
 
-  @HttpPost
+  //@HttpPost
   global static void issueSingleVoucher() {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();
@@ -48,7 +48,7 @@ global with sharing class GdVoucherIssueController {
     }
   }
 
-  @HttpPatch
+  //@HttpPatch
   global static void updateSingleVoucher() {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();
@@ -75,7 +75,7 @@ global with sharing class GdVoucherIssueController {
     }
   }
 
-  @HttpDelete
+  //@HttpDelete
   global static void deleteSingleVoucher() {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();

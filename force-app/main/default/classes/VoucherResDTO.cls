@@ -22,11 +22,20 @@ public with sharing class VoucherResDTO {
   public VoucherResDTO(Voucher v) {
     this.NM_COUPON = (v.VoucherDefinition.Name == null) ? '' : v.VoucherDefinition.Name;
     this.AM_DISC = (v.FaceValue == null) ? 0 : v.FaceValue;
-    this.TX_COUPON = (v.Reason == null) ? '' : v.Reason;
-    this.DT_STR_EXP = (v.EffectiveDate == null) ? '' : String.valueOf(v.EffectiveDate).replaceAll('-', '');
+    // 기존 - 26.04.29
+    // this.TX_COUPON = (v.Reason == null) ? '' : v.Reason;
+    // 신규 GD - 26.04.29
+    this.TX_COUPON = (v.VoucherDefinition.Description == null) ? '' : v.VoucherDefinition.Description;
+    // 기존 - 26.04.29
+    // this.DT_STR_EXP = (v.EffectiveDate == null) ? '' : String.valueOf(v.EffectiveDate).replaceAll('-', '');
+    // 신규 GD - 26.04.29
+    this.DT_STR_EXP = (v.VoucherDefinition.EffectiveDate == null) ? '' : String.valueOf(v.VoucherDefinition.EffectiveDate).replaceAll('-', '');
     this.DT_USE = (v.UseDate == null) ? '' : String.valueOf(v.UseDate).replaceAll('-', '');
     this.DT_END_EXP = (v.ExpirationDate == null) ? '' : String.valueOf(v.ExpirationDate).replaceAll('-', '');
-    this.DT_ISSUE = (v.CreatedDate == null) ? '' : v.CreatedDate.format('yyyyMMdd');
+    // 기존 - 26.04.29
+    // this.DT_ISSUE = (v.CreatedDate == null) ? '' : v.CreatedDate.format('yyyyMMdd');
+    // 신규 GD - 26.04.29
+    this.DT_ISSUE = (v.EffectiveDate == null) ? '' : String.valueOf(v.EffectiveDate).replaceAll('-', '');
     this.CD_BRAND = (v.VoucherDefinition.brand__c == null) ? '' : v.VoucherDefinition.brand__c;
     this.NO_MAN_COUPON = (v.VoucherDefinition.CouponManNo__c == null) ? '' : v.VoucherDefinition.CouponManNo__c;
     this.NO_COUPON = (v.VoucherCode == null) ? '' : v.VoucherCode;
@@ -38,9 +47,14 @@ public with sharing class VoucherResDTO {
     this.DS_MON_EXP = (v.VoucherDefinition.ExpirationPeriod == null) ? 0 : v.VoucherDefinition.ExpirationPeriod;
     this.RT_DISC = (v.DiscountPercent == null) ? 0 : v.DiscountPercent;
     this.NM_DEPT = (v.VoucherDefinition.ResponsibleDepartment__c == null) ? '' : v.VoucherDefinition.ResponsibleDepartment__c;
-    this.NM_RESPON = (v.CreatedBy.Name == null) ? '' : v.CreatedBy.Name;
+    // 기존 GD - 26.04.29
+    // this.NM_RESPON = (v.CreatedBy.Name == null) ? '' : v.CreatedBy.Name;
+    // 신규 GD - 26.04.29
+    this.NM_RESPON = (v.VoucherDefinition.ResponsiblePerson__c == null) ? '' : v.VoucherDefinition.ResponsiblePerson__c;
     this.DTS_INSERT = (v.CreatedDate == null) ? '' : v.CreatedDate.format('yyyyMMddHHmmss');
-    this.ID_INSERT = (v.VoucherDefinition.InsertId__c == null) ? '' : v.VoucherDefinition.InsertId__c;
+    // this.ID_INSERT = (v.VoucherDefinition.InsertId__c == null) ? '' : v.VoucherDefinition.InsertId__c;
+    // this.ID_INSERT = (v.InsertId__c == null) ? '' : v.InsertId__c;
+    this.ID_INSERT = (v.InsertId__c == null) ? UserInfo.getName() : v.InsertId__c;
   }
 
   @TestVisible

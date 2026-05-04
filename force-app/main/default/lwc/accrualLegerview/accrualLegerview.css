@@ -6,7 +6,7 @@
 }
 
 .ledger-table {
-  min-width: 1600px;
+  min-width: 1320px;
 }
 
 .ledger-table th,
@@ -15,6 +15,9 @@
 }
 
 .ledger-table tbody td {
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+  vertical-align: middle;
   text-align: center;
 }
 
@@ -22,36 +25,34 @@
   text-align: center;
 }
 
+.sale-link {
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.sale-link:hover,
+.sale-link:focus {
+  text-decoration: underline;
+  color: inherit;
+}
+
 .ledger-table thead th {
   background: #f3f3f3;
   font-weight: 700;
 }
 
-.ledger-table thead .group-title {
+.ledger-table thead th .slds-truncate {
   text-align: center;
 }
 
-.ledger-table thead tr:nth-child(2) th {
+.ledger-table td.cell-center {
   text-align: center;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
 }
 
-.ledger-table thead tr:nth-child(2) th .slds-truncate {
-  text-align: center;
-}
-
-.ledger-table .group-divider-right {
-  border-right: 2px solid #cfd6df;
-}
-
-.ledger-table thead tr:first-child .group-divider-right {
-  box-shadow: inset -1px 0 0 #cfd6df;
-}
-
-.ledger-table thead tr:first-child th {
-  border-bottom: 1px solid #d8dde6;
-}
-
-.ledger-table td.slds-text-align_right {
+.ledger-table td.cell-center .slds-truncate {
   text-align: center;
 }
 

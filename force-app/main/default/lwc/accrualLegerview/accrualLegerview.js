@@ -1,9 +1,10 @@
 import { LightningElement, api } from "lwc";
+import { NavigationMixin } from "lightning/navigation";
 import getPointLedgerRows from "@salesforce/apex/PointLedgerUIControllerV1.getPointLedgerRows";
 import resolveLoyaltyProgramMemberId from "@salesforce/apex/PointLedgerUIControllerV1.resolveLoyaltyProgramMemberId";
 import resolveOrderId from "@salesforce/apex/PointLedgerUIControllerV1.resolveOrderId";
 
-export default class AccrualLegerview extends LightningElement {
+export default class AccrualLegerview extends NavigationMixin(LightningElement) {
   pageSize = 7;
   visiblePageCount = 5;
   _recordId;
@@ -50,16 +51,19 @@ export default class AccrualLegerview extends LightningElement {
       }
 
       const data = await getPointLedgerRows({ loyaltyProgramMemberId: this.resolvedMemberId, orderId: this.resolvedOrderId });
-      this.rows = (data || []).map((row) => ({
-        ...row,
-        endDateText: this.formatDate(row.endDate),
-        accruedPointsText: this.formatNumber(row.accruedPoints),
-        usedPointsText: this.formatNumber(row.usedPoints),
-        expiredPointsText: this.formatNumber(row.expiredPoints),
-        depositCouponAmountText: this.formatNumber(row.depositCouponAmount),
-        depositPointAmountText: this.formatNumber(row.depositPointAmount),
-        depositHqExchangeAmountText: this.formatNumber(row.depositHqExchangeAmount)
-      }));
+      this.rows = (data || [])
+        .map((row) => ({
+          ...row,
+          saleNoText: row.saleNo || "-",
+          endDateText: this.formatDate(row.endDate),
+          accruedPointsText: this.formatNumber(row.accruedPoints),
+          usedPointsText: this.formatNumber(row.usedPoints),
+          expiredPointsText: this.formatNumber(row.expiredPoints),
+          depositCouponAmountText: this.formatNumber(row.depositCouponAmount),
+          depositPointAmountText: this.formatNumber(row.depositPointAmount),
+          depositHqExchangeAmountText: this.formatNumber(row.depositHqExchangeAmount)
+        }))
+        .sort((a, b) => this.compareDateAsc(a.endDate, b.endDate));
       this.currentPage = 1;
       this.error = undefined;
     } catch (error) {
@@ -144,6 +148,22 @@ export default class AccrualLegerview extends LightningElement {
     this.currentPage = Number(event.currentTarget.dataset.page);
   }
 
+  handleSaleNoClick(event) {
+    event.preventDefault();
+    const saleOrderId = event.currentTarget.dataset.id;
+    if (!saleOrderId) {
+      return;
+    }
+    this[NavigationMixin.Navigate]({
+      type: "standard__recordPage",
+      attributes: {
+        recordId: saleOrderId,
+        objectApiName: "Order",
+        actionName: "view"
+      }
+    });
+  }
+
   handleDateFilterChange(event) {
     this.filterDate = event.target.value;
     this.currentPage = 1;
@@ -166,5 +186,22 @@ export default class AccrualLegerview extends LightningElement {
       return "";
     }
     return String(value).slice(0, 10);
+  }
+
+  compareDateAsc(left, right) {
+    const leftDate = this.normalizeDate(left);
+    const rightDate = this.normalizeDate(right);
+
+    if (!leftDate && !rightDate) {
+      return 0;
+    }
+    if (!leftDate) {
+      return 1;
+    }
+    if (!rightDate) {
+      return -1;
+    }
+
+    return leftDate.localeCompare(rightDate);
   }
 }

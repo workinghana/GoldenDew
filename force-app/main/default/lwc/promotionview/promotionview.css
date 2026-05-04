@@ -81,6 +81,18 @@
   min-width: 0;
 }
 
+.status-text {
+  font-weight: 700;
+}
+
+.status-active {
+  color: #15803d;
+}
+
+.status-inactive {
+  color: #dc2626;
+}
+
 /* ================= 아이콘 ================= */
 
 .icon-circle {
@@ -102,37 +114,6 @@
 
 .green {
   background: #d1fae5;
-}
-
-/* ================= 상태 ================= */
-
-/* 🔹 상태 영역 width 제한 */
-.status-wrapper {
-  justify-self: end;
-  width: fit-content;
-}
-
-/* 🔹 badge는 글자 길이 기준 */
-.promotion-status-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 10px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  width: fit-content;
-}
-
-.status-active {
-  background: #ecfdf5;
-  color: #047857;
-}
-
-.status-inactive {
-  background: #fef2f2;
-  color: #b91c1c;
 }
 
 /* ================= 반응형 ================= */

@@ -1,40 +1,34 @@
 public with sharing class MemberHistoryUIController {
-  // FieldName 맵핑
   private static final Map<String, String> FIELD_LABEL_MAP = new Map<String, String>{
     'created' => '회원 생성',
     'FirstPurchaseDate__c' => '첫 주문 일자',
     'LastPurchaseDate__c' => '마지막 주문 일자'
   };
+  private static final Pattern SALESFORCE_ID_PATTERN = Pattern.compile('^[a-zA-Z0-9]{15}$|^[a-zA-Z0-9]{18}$');
 
   @AuraEnabled(cacheable=true)
   public static List<MemberChangeHistoryDTO> getMemberHistory(Id loyaltyProgramMemberId) {
     List<MemberChangeHistoryDTO> result = new List<MemberChangeHistoryDTO>();
 
-    // 1. LoyaltyProgramMemberHistory
     for (LoyaltyProgramMemberHistory h : [
       SELECT CreatedDate, Field, OldValue, NewValue, CreatedBy.Name
       FROM LoyaltyProgramMemberHistory
       WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId
     ]) {
-      MemberChangeHistoryDTO dto = new MemberChangeHistoryDTO();
-      dto.changeDate = h.CreatedDate;
-      dto.objectType = '회원 정보';
-      dto.fieldName = convertFieldLabel(h.Field);
-      dto.oldValue = formatValue(String.valueOf(h.OldValue));
-      dto.newValue = formatValue(String.valueOf(h.NewValue));
-      dto.changedBy = h.CreatedBy.Name;
-
-      result.add(dto);
+      MemberChangeHistoryDTO dto = buildHistoryDto(h.CreatedDate, '회원 정보', h.Field, h.OldValue, h.NewValue, h.CreatedBy.Name);
+      if (dto != null) {
+        result.add(dto);
+      }
     }
 
-    // 2. ContactHistory
-    Id contactId = [
+    LoyaltyProgramMember member = [
       SELECT ContactId
       FROM LoyaltyProgramMember
       WHERE Id = :loyaltyProgramMemberId
       LIMIT 1
-    ]
-    .ContactId;
+    ];
+
+    Id contactId = member.ContactId;
 
     if (contactId != null) {
       for (ContactHistory h : [
@@ -45,35 +39,32 @@ public with sharing class MemberHistoryUIController {
         if (h.Field == 'created') {
           continue;
         }
-        MemberChangeHistoryDTO dto = new MemberChangeHistoryDTO();
-        dto.changeDate = h.CreatedDate;
-        dto.objectType = '회원 상세';
-        dto.fieldName = convertFieldLabel(h.Field);
-        dto.oldValue = formatValue(String.valueOf(h.OldValue));
-        dto.newValue = formatValue(String.valueOf(h.NewValue));
-        dto.changedBy = h.CreatedBy.Name;
 
-        result.add(dto);
+        MemberChangeHistoryDTO dto = buildHistoryDto(h.CreatedDate, '회원 상세', h.Field, h.OldValue, h.NewValue, h.CreatedBy.Name);
+        if (dto != null) {
+          result.add(dto);
+        }
       }
     }
 
-    // 3. 날짜 기준 정렬
     result.sort(new ChangeDateDescComparator());
-
     return result;
   }
 
-  /*
-     값 포맷 처리
-     - 이메일 prefix 누적 시 줄바꿈 처리
-    */
   @TestVisible
-  private static String formatValue(String value) {
+  private static String formatValue(String fieldApiName, Object rawValue) {
+    String value = rawValue == null ? '' : String.valueOf(rawValue);
     if (String.isBlank(value)) {
       return '';
     }
 
-    // 이메일 prefix 줄바꿈 처리
+    Schema.DescribeFieldResult fieldDescribe = getFieldDescribe(fieldApiName);
+    if (fieldDescribe != null && fieldDescribe.getType() == Schema.DisplayType.Date) {
+      return formatDateValue(rawValue, value);
+    }
+
+    value = convertPicklistValueToLabel(fieldApiName, value);
+
     if (value.startsWith('del_')) {
       value = value.replace('_del_', '\n_del_');
     }
@@ -82,50 +73,170 @@ public with sharing class MemberHistoryUIController {
   }
 
   @TestVisible
-  private static String convertFieldLabel(String fieldApiName) {
-    if (String.isBlank(fieldApiName)) {
-      return '해당 변경 레이블을 찾을 수 없음';
+  private static String formatDateValue(Object rawValue, String fallbackValue) {
+    if (rawValue instanceof Date) {
+      return String.valueOf((Date) rawValue);
     }
 
-    // 1️⃣ 커스텀 매핑
+    if (rawValue instanceof Datetime) {
+      return String.valueOf(((Datetime) rawValue).dateGmt());
+    }
+
+    if (!String.isBlank(fallbackValue) && fallbackValue.length() >= 10) {
+      String datePart = fallbackValue.substring(0, 10);
+      try {
+        Date.valueOf(datePart);
+        return datePart;
+      } catch (Exception e) {
+        return fallbackValue;
+      }
+    }
+
+    return fallbackValue;
+  }
+
+  @TestVisible
+  private static String formatValue(String value) {
+    return formatValue(null, value);
+  }
+
+  @TestVisible
+  private static Boolean shouldIncludeHistory(String oldValue, String newValue) {
+    if (String.isBlank(oldValue) && String.isBlank(newValue)) {
+      return false;
+    }
+
+    return oldValue != newValue;
+  }
+
+  @TestVisible
+  private static MemberChangeHistoryDTO buildHistoryDto(
+    Datetime changeDate,
+    String objectType,
+    String fieldApiName,
+    Object oldRawValue,
+    Object newRawValue,
+    String changedBy
+  ) {
+    String oldValue = formatValue(fieldApiName, oldRawValue);
+    String newValue = formatValue(fieldApiName, newRawValue);
+    if (!shouldIncludeHistory(oldValue, newValue)) {
+      return null;
+    }
+    // Lookup 필드 변경은 ContactHistory가 Name/ID 두 row를 만들어내므로 ID 형태 row는 버림
+    if (looksLikeSalesforceId(oldValue) || looksLikeSalesforceId(newValue)) {
+      return null;
+    }
+
+    MemberChangeHistoryDTO dto = new MemberChangeHistoryDTO();
+    dto.changeDate = changeDate;
+    dto.objectType = objectType;
+    dto.fieldName = convertFieldLabel(fieldApiName);
+    dto.oldValue = oldValue;
+    dto.newValue = newValue;
+    dto.changedBy = changedBy;
+    return dto;
+  }
+
+  @TestVisible
+  private static Boolean looksLikeSalesforceId(String value) {
+    if (String.isBlank(value)) {
+      return false;
+    }
+    return SALESFORCE_ID_PATTERN.matcher(value).matches();
+  }
+
+  @TestVisible
+  private static String convertFieldLabel(String fieldApiName) {
+    if (String.isBlank(fieldApiName)) {
+      return '해당 변경 라벨을 찾을 수 없음';
+    }
+
     if (FIELD_LABEL_MAP.containsKey(fieldApiName)) {
       return FIELD_LABEL_MAP.get(fieldApiName);
     }
 
-    // 2️⃣ Contact 필드 Label
-    Map<String, Schema.SObjectField> contactFields = Schema.SObjectType.Contact.fields.getMap();
-
-    if (contactFields.containsKey(fieldApiName)) {
-      return contactFields.get(fieldApiName).getDescribe().getLabel();
+    Schema.DescribeFieldResult fieldDescribe = getFieldDescribe(fieldApiName);
+    if (fieldDescribe != null) {
+      return fieldDescribe.getLabel();
     }
 
-    // 3️⃣ LoyaltyProgramMember 필드 Label
-    Map<String, Schema.SObjectField> lpmFields = Schema.SObjectType.LoyaltyProgramMember.fields.getMap();
-
-    if (lpmFields.containsKey(fieldApiName)) {
-      return lpmFields.get(fieldApiName).getDescribe().getLabel();
-    }
-
-    // 4️⃣ 찾을 수 없는 경우
-    return '해당 변경 레이블을 찾을 수 없음';
+    return '해당 변경 라벨을 찾을 수 없음';
   }
 
-  /*
-     Comparator : 변경일 내림차순
-    */
+  @TestVisible
+  private static String convertPicklistValueToLabel(String fieldApiName, String value) {
+    if (String.isBlank(fieldApiName) || String.isBlank(value)) {
+      return value;
+    }
+
+    Schema.DescribeFieldResult fieldDescribe = getFieldDescribe(fieldApiName);
+    if (fieldDescribe == null) {
+      return value;
+    }
+
+    Schema.DisplayType fieldType = fieldDescribe.getType();
+    if (fieldType == Schema.DisplayType.Picklist) {
+      return getPicklistEntryLabel(fieldDescribe, value);
+    }
+
+    if (fieldType == Schema.DisplayType.MultiPicklist) {
+      List<String> labels = new List<String>();
+      for (String itemValue : value.split(';')) {
+        labels.add(getPicklistEntryLabel(fieldDescribe, itemValue));
+      }
+      return String.join(labels, ';');
+    }
+
+    return value;
+  }
+
+  private static String getPicklistEntryLabel(Schema.DescribeFieldResult fieldDescribe, String value) {
+    if (fieldDescribe == null || String.isBlank(value)) {
+      return value;
+    }
+
+    String trimmedValue = value.trim();
+    for (Schema.PicklistEntry entry : fieldDescribe.getPicklistValues()) {
+      if (entry.getValue() == trimmedValue) {
+        return entry.getLabel();
+      }
+    }
+
+    return trimmedValue;
+  }
+
+  private static Schema.DescribeFieldResult getFieldDescribe(String fieldApiName) {
+    if (String.isBlank(fieldApiName)) {
+      return null;
+    }
+
+    Map<String, Schema.SObjectField> contactFields = Schema.SObjectType.Contact.fields.getMap();
+    if (contactFields.containsKey(fieldApiName)) {
+      return contactFields.get(fieldApiName).getDescribe();
+    }
+
+    Map<String, Schema.SObjectField> lpmFields = Schema.SObjectType.LoyaltyProgramMember.fields.getMap();
+    if (lpmFields.containsKey(fieldApiName)) {
+      return lpmFields.get(fieldApiName).getDescribe();
+    }
+
+    return null;
+  }
+
   public class ChangeDateDescComparator implements Comparator<MemberChangeHistoryDTO> {
     public Integer compare(MemberChangeHistoryDTO a, MemberChangeHistoryDTO b) {
       Long timeA = (a.changeDate == null) ? 0 : a.changeDate.getTime();
       Long timeB = (b.changeDate == null) ? 0 : b.changeDate.getTime();
 
-      if (timeA == timeB)
+      if (timeA == timeB) {
         return 0;
+      }
 
       return (timeA < timeB) ? 1 : -1;
     }
   }
 
-  // DTO
   public class MemberChangeHistoryDTO {
     @AuraEnabled
     public Datetime changeDate;

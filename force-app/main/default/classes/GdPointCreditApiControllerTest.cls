@@ -12,8 +12,8 @@ private class GdPointCreditApiControllerTest {
     public Double getPointList(Map<String, Object> r) {
       return 0;
     }
-    public Decimal getPointApplyHelp(Map<String, Object> r) {
-      return 0;
+    public ApiResult getPointApplyHelp(Map<String, Object> r) {
+      return null;
     }
     public ApiResult getPointApplyHelpV2(Map<String, Object> r) {
       return null;
@@ -39,7 +39,13 @@ private class GdPointCreditApiControllerTest {
     public List<PointCreditDTO> creditPointsOnPurchase(List<TransactionJournal> d) {
       return null;
     }
+    public List<PointCreditDTO> restoreEcoPointsFromReturn(Id orderId) {
+      return new List<PointCreditDTO>();
+    }
     public List<PointCreditDTO> creditPointsOnPurchaseV2(List<TransactionJournal> data, Decimal excludeAmount) {
+      return new List<PointCreditDTO>();
+    }
+    public List<PointCreditDTO> creditPromotionPointsOnPurchase(List<TransactionJournal> data, Decimal excludeAmount) {
       return new List<PointCreditDTO>();
     }
     public Map<String, Object> cancelPointRedemption(TransactionJournal t) {
@@ -70,8 +76,8 @@ private class GdPointCreditApiControllerTest {
     public Double getPointList(Map<String, Object> r) {
       return 0;
     }
-    public Decimal getPointApplyHelp(Map<String, Object> r) {
-      return 0;
+    public ApiResult getPointApplyHelp(Map<String, Object> r) {
+      return null;
     }
     public ApiResult getPointApplyHelpV2(Map<String, Object> r) {
       return null;
@@ -97,7 +103,13 @@ private class GdPointCreditApiControllerTest {
     public List<PointCreditDTO> creditPointsOnPurchase(List<TransactionJournal> d) {
       return null;
     }
+    public List<PointCreditDTO> restoreEcoPointsFromReturn(Id orderId) {
+      return new List<PointCreditDTO>();
+    }
     public List<PointCreditDTO> creditPointsOnPurchaseV2(List<TransactionJournal> data, Decimal excludeAmount) {
+      return new List<PointCreditDTO>();
+    }
+    public List<PointCreditDTO> creditPromotionPointsOnPurchase(List<TransactionJournal> data, Decimal excludeAmount) {
       return new List<PointCreditDTO>();
     }
     public Map<String, Object> cancelPointRedemption(TransactionJournal t) {
@@ -130,8 +142,8 @@ private class GdPointCreditApiControllerTest {
     public Double getPointList(Map<String, Object> r) {
       return 0;
     }
-    public Decimal getPointApplyHelp(Map<String, Object> r) {
-      return 0;
+    public ApiResult getPointApplyHelp(Map<String, Object> r) {
+      return null;
     }
     public ApiResult getPointApplyHelpV2(Map<String, Object> r) {
       return null;
@@ -157,7 +169,13 @@ private class GdPointCreditApiControllerTest {
     public List<PointCreditDTO> creditPointsOnPurchase(List<TransactionJournal> d) {
       return null;
     }
+    public List<PointCreditDTO> restoreEcoPointsFromReturn(Id orderId) {
+      return new List<PointCreditDTO>();
+    }
     public List<PointCreditDTO> creditPointsOnPurchaseV2(List<TransactionJournal> data, Decimal excludeAmount) {
+      return new List<PointCreditDTO>();
+    }
+    public List<PointCreditDTO> creditPromotionPointsOnPurchase(List<TransactionJournal> data, Decimal excludeAmount) {
       return new List<PointCreditDTO>();
     }
     public Map<String, Object> cancelPointRedemption(TransactionJournal t) {
@@ -181,7 +199,8 @@ private class GdPointCreditApiControllerTest {
     RestRequest req = new RestRequest();
     req.requestURI = '/services/apexrest/gd/point/credit';
     req.httpMethod = 'POST';
-    if (body != null) req.requestBody = Blob.valueOf(body);
+    if (body != null)
+      req.requestBody = Blob.valueOf(body);
     RestContext.request = req;
     RestContext.response = new RestResponse();
   }

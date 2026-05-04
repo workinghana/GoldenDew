@@ -22,6 +22,7 @@ export default class Loyaltytierview extends LightningElement {
   /* ================= 모달 상태 (추가) ================= */
   isIssueModalOpen = false;
   selectedVoucherDefinitionId;
+  couponSearchTerm = "";
 
   //쿠폰 리스트
   couponOptions = [];
@@ -107,21 +108,10 @@ export default class Loyaltytierview extends LightningElement {
 
   /* ================= 별 색상 ================= */
 
-  get tierStarClass() {
-    const color = this.tier?.tierColor?.toUpperCase();
-
-    switch (color) {
-      case "#E7E7E7":
-        return "tier-star star-gray";
-      case "#297FFF":
-        return "tier-star star-blue";
-      case "#B429FF":
-        return "tier-star star-purple";
-      case "#FEF70E":
-        return "tier-star star-gold";
-      default:
-        return "tier-star star-default";
-    }
+  renderedCallback() {
+    const star = this.template.querySelector(".tier-star");
+    if (!star) return;
+    star.style.color = this.tier?.tierColor || "#9ca3af";
   }
 
   /* ================= 쿠폰 지급 모달 (추가) ================= */
@@ -133,10 +123,45 @@ export default class Loyaltytierview extends LightningElement {
   closeIssueModal() {
     this.isIssueModalOpen = false;
     this.selectedVoucherDefinitionId = null;
+    this.couponSearchTerm = "";
   }
 
-  handleCouponChange(event) {
-    this.selectedVoucherDefinitionId = event.detail.value;
+  handleCouponSearchChange(event) {
+    this.couponSearchTerm = event.detail.value ?? "";
+  }
+
+  handleCouponOptionClick(event) {
+    this.selectedVoucherDefinitionId = event.currentTarget.dataset.value;
+  }
+
+  get filteredCouponOptions() {
+    const term = (this.couponSearchTerm ?? "").trim().toLowerCase();
+    if (!term) {
+      return [];
+    }
+
+    return this.couponOptions
+      .filter((option) => (option.label ?? "").toLowerCase().includes(term))
+      .map((option) => ({
+        ...option,
+        itemClass: option.value === this.selectedVoucherDefinitionId ? "coupon-option-item coupon-option-item--selected" : "coupon-option-item"
+      }));
+  }
+
+  get hasFilteredCouponOptions() {
+    return this.filteredCouponOptions.length > 0;
+  }
+
+  get showNoCouponMatch() {
+    return Boolean((this.couponSearchTerm ?? "").trim()) && this.filteredCouponOptions.length === 0;
+  }
+
+  get selectedCouponLabel() {
+    if (!this.selectedVoucherDefinitionId) {
+      return "";
+    }
+    const found = this.couponOptions.find((option) => option.value === this.selectedVoucherDefinitionId);
+    return found?.label ?? "";
   }
 
   submitIssueCoupon() {

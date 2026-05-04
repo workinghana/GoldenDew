@@ -30,6 +30,13 @@ public class ErpPromotionReqDto {
     public String yn_all_store; // 전체 매장 여부
     public String yn_all_item; // 전체 품목 여부
     public String yn_all_coupon; // 전체 쿠폰 여부
+    // 26.04.22 하나 수정: 특정 매장/품목 여부 (ERP 요청)
+    public String yn_spec_store; // 특정 매장 여부 (전체매장 아니고 매장 선택 시 'Y')
+    public String yn_spec_item; // 특정 품목 여부 (전체품목 아니고 품목 선택 시 'Y')
+    // 26.04.23 하나 수정: 포인트 유형별 적립 여부 (ERP 요청)
+    public String yn_pur_point; // 구매포인트 적립 여부 (PointTypeCode__c에 '01' 포함 시 'N')
+    public String yn_gift_point; // 사은포인트 적립 여부 (PointTypeCode__c에 '06' 포함 시 'N')
+    public String yn_event_point; // 이벤트포인트 적립 여부 (PointTypeCode__c에 '07' 포함 시 'N')
     public String cd_dept; // 담당부서코드
     public String id_insert; // 등록자
     public String id_update; // 수정자
@@ -56,10 +63,20 @@ public class ErpPromotionReqDto {
       this.yn_all_store = ErpPromotionReqDto.boolToYn(p.IsAllStore__c);
       this.yn_all_item = ErpPromotionReqDto.boolToYn(p.IsAllItem__c);
       this.yn_all_coupon = ErpPromotionReqDto.isAllCoupon(this.yn_use_coupon, this.yn_use_fixed_coupon, this.yn_use_rate_coupon);
+      // 26.04.23 하나 수정: 포인트 유형별 적립 여부 세팅 (PointTypeCode__c = 적립 불가 유형 멀티픽리스트)
+      this.yn_pur_point = ErpPromotionReqDto.isPointTypeAllowed(p.PointTypeCode__c, '01');
+      this.yn_gift_point = ErpPromotionReqDto.isPointTypeAllowed(p.PointTypeCode__c, '06');
+      this.yn_event_point = ErpPromotionReqDto.isPointTypeAllowed(p.PointTypeCode__c, '07');
       this.cd_dept = p.DepartmentCode__c;
       this.id_insert = p.InsertId__c;
       this.id_update = p.LastModifiedBy.Name;
       this.id_respon = p.ResponId__c;
+    }
+
+    public CreateRequest(Promotion p, Boolean hasSpecificStore, Boolean hasSpecificItem) {
+      this(p);
+      this.yn_spec_store = ErpPromotionReqDto.resolveYnSpec(p.IsAllStore__c, hasSpecificStore);
+      this.yn_spec_item = ErpPromotionReqDto.resolveYnSpec(p.IsAllItem__c, hasSpecificItem);
     }
   }
 
@@ -96,6 +113,13 @@ public class ErpPromotionReqDto {
     public String yn_all_store; // 전체 매장 여부
     public String yn_all_item; // 전체 품목 여부
     public String yn_all_coupon; // 전체 쿠폰 여부
+    // 26.04.22 하나 수정: 특정 매장/품목 여부 (ERP 요청)
+    public String yn_spec_store; // 특정 매장 여부 (전체매장 아니고 매장 선택 시 'Y')
+    public String yn_spec_item; // 특정 품목 여부 (전체품목 아니고 품목 선택 시 'Y')
+    // 26.04.23 하나 수정: 포인트 유형별 적립 여부 (ERP 요청)
+    public String yn_pur_point; // 구매포인트 적립 여부 (PointTypeCode__c에 '01' 포함 시 'N')
+    public String yn_gift_point; // 사은포인트 적립 여부 (PointTypeCode__c에 '06' 포함 시 'N')
+    public String yn_event_point; // 이벤트포인트 적립 여부 (PointTypeCode__c에 '07' 포함 시 'N')
     public String id_insert; // 등록자
     public String id_update; // 수정자
 
@@ -120,8 +144,18 @@ public class ErpPromotionReqDto {
       this.yn_all_store = ErpPromotionReqDto.boolToYn(p.IsAllStore__c);
       this.yn_all_item = ErpPromotionReqDto.boolToYn(p.IsAllItem__c);
       this.yn_all_coupon = ErpPromotionReqDto.isAllCoupon(this.yn_use_coupon, this.yn_use_fixed_coupon, this.yn_use_rate_coupon);
+      // 26.04.23 하나 수정: 포인트 유형별 적립 여부 세팅 (PointTypeCode__c = 적립 불가 유형 멀티픽리스트)
+      this.yn_pur_point = ErpPromotionReqDto.isPointTypeAllowed(p.PointTypeCode__c, '01');
+      this.yn_gift_point = ErpPromotionReqDto.isPointTypeAllowed(p.PointTypeCode__c, '06');
+      this.yn_event_point = ErpPromotionReqDto.isPointTypeAllowed(p.PointTypeCode__c, '07');
       this.id_insert = p.CreatedBy.Name;
       this.id_update = p.LastModifiedBy.Name;
+    }
+
+    public UpdateRequest(Promotion p, Boolean hasSpecificStore, Boolean hasSpecificItem) {
+      this(p);
+      this.yn_spec_store = ErpPromotionReqDto.resolveYnSpec(p.IsAllStore__c, hasSpecificStore);
+      this.yn_spec_item = ErpPromotionReqDto.resolveYnSpec(p.IsAllItem__c, hasSpecificItem);
     }
   }
 
@@ -160,5 +194,31 @@ public class ErpPromotionReqDto {
       return 'Y';
     }
     return 'N';
+  }
+
+  public static String resolveYnSpec(Boolean isAll, Boolean hasSpecific) {
+    if (isAll == true) {
+      return 'N';
+    }
+    return (hasSpecific == true) ? 'Y' : 'N';
+  }
+
+  /**
+   * 26.04.23 하나 수정
+   * 포인트 유형별 적립 여부 판정
+   * - PointTypeCode__c는 '적립 불가 포인트 유형' 멀티픽리스트(세미콜론 구분)
+   * - targetCode 포함 → 'N' (적립 불가)
+   * - 미포함 또는 빈값 → 'Y' (적립 가능)
+   */
+  public static String isPointTypeAllowed(String pointTypeCode, String targetCode) {
+    if (String.isBlank(pointTypeCode)) {
+      return 'Y';
+    }
+    for (String code : pointTypeCode.split(';')) {
+      if (targetCode != null && targetCode.equalsIgnoreCase(code.trim())) {
+        return 'N';
+      }
+    }
+    return 'Y';
   }
 }

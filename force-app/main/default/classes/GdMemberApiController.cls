@@ -1,4 +1,4 @@
-@RestResource(urlMapping='/gd/member')
+//@RestResource(urlMapping='/gd/member')
 global with sharing class GdMemberApiController {
   private static GdContactService contactService;
   private static GdLoyaltyProgramMemberService loyaltyProgramMemberService;
@@ -62,7 +62,7 @@ global with sharing class GdMemberApiController {
    * Contact insert
    * LoyaltyProgramMember insert
    */
-  @HttpPost
+  //@HttpPost
   global static void createMember() {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();
@@ -112,7 +112,7 @@ global with sharing class GdMemberApiController {
    * 회원 수정
    * Contact update
    */
-  @HttpPatch
+  //@HttpPatch
   global static void updateMember() {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();
@@ -155,7 +155,7 @@ global with sharing class GdMemberApiController {
    * Contact update
    * LoyaltyProgramMember update
    */
-  @HttpPut
+  //@HttpPut
   global static void inactiveMember() {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();

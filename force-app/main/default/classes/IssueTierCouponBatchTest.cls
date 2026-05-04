@@ -237,4 +237,57 @@ private class IssueTierCouponBatchTest {
 
     System.assert([SELECT COUNT() FROM TransactionJournal] > 0);
   }
+
+  @IsTest
+  static void testExecute_upgradeCoupon_setsFaceValueZero() {
+    VoucherDefinition upgradeVd = createUpgradeVoucherDefinition();
+
+    Test.startTest();
+    new IssueTierCouponBatch(getTierId(), upgradeVd.Id, Date.today()).execute(new MockBatchContext(), new List<Contact>{ getBaseContact() });
+    Test.stopTest();
+
+    List<Voucher> issuedVoucherList = [
+      SELECT Id, FaceValue
+      FROM Voucher
+      WHERE VoucherDefinitionId = :upgradeVd.Id
+    ];
+
+    System.assert(!issuedVoucherList.isEmpty(), 'Upgrade tier coupon should be issued');
+    for (Voucher issuedVoucher : issuedVoucherList) {
+      System.assertEquals(0, issuedVoucher.FaceValue, 'Upgrade tier coupon should be normalized to face value 0');
+    }
+  }
+
+  private static VoucherDefinition createUpgradeVoucherDefinition() {
+    LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
+    Id categoryId = [SELECT Id FROM VoucherCategory__c LIMIT 1].Id;
+    Id accountId = [SELECT Id FROM Account WHERE CompanyCode__c = '1000' LIMIT 1].Id;
+
+    Product2 product = new Product2(Name = uniq('Tier Upgrade Product'), IsActive = true);
+    insert product;
+
+    VoucherDefinition vd = new VoucherDefinition(
+      Name = uniq('TierUpgradeCoupon'),
+      LoyaltyProgramId = lp.Id,
+      IsActive = true,
+      Description = 'IssueTierCouponBatch upgrade test',
+      ProductId = product.Id,
+      Type = 'FixedValue',
+      FaceValue = 1000,
+      ExpirationType = 'FixedDate',
+      EffectiveDate = Date.today().addDays(-10),
+      ExpirationDate = Date.today().addDays(30),
+      VoucherCategoryId__c = categoryId,
+      AccountId__c = accountId,
+      CouponManNo__c = uniq('CPN-TIER-UPG'),
+      CouponTypeCode__c = '01',
+      ResponsibleDepartment__c = 'Marketing',
+      InsertId__c = 'TestUser',
+      ResponsiblePerson__c = 'Manager',
+      IsUpgrade__c = true
+    );
+    insert vd;
+
+    return vd;
+  }
 }

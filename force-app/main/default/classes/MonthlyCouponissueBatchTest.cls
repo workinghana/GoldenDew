@@ -139,4 +139,48 @@ private class MonthlyCouponIssueBatchTest {
     List<TransactionJournal> journals = [SELECT Id FROM TransactionJournal];
     Assert.areEqual(0, journals.size(), '카테고리가 없으면 저널이 생성되지 않아야 합니다.');
   }
+  @isTest
+  static void testMonthlyBatchUpgradeCoupon_setsFaceValueZero() {
+    LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
+    Id categoryId = [SELECT Id FROM VoucherCategory__c WHERE Code__c = 'MonthlyCoupon' LIMIT 1].Id;
+    Id accountId = [SELECT Id FROM Account WHERE CompanyCode__c = '1000' LIMIT 1].Id;
+    Id tierId = [SELECT Id FROM LoyaltyTier LIMIT 1].Id;
+
+    VoucherDefinition upgradeVd = new VoucherDefinition(
+      Name = 'Monthly Upgrade Coupon',
+      LoyaltyProgramId = lp.Id,
+      IsActive = true,
+      EffectiveDate = Date.today(),
+      ExpirationType = 'FixedDate',
+      ExpirationDate = Date.today().addDays(30),
+      VoucherCategoryId__c = categoryId,
+      AccountId__c = accountId,
+      CouponManNo__c = 'CPN-MON-UPG',
+      ResponsiblePerson__c = 'Manager',
+      Type = 'FixedValue',
+      FaceValue = 1000,
+      CouponTypeCode__c = '01',
+      ResponsibleDepartment__c = '테스트',
+      InsertId__c = 'TEST-UPG',
+      IsUpgrade__c = true
+    );
+    insert upgradeVd;
+
+    insert new VoucherLimit__c(VoucherDefinitionId__c = upgradeVd.Id, Type__c = 'GradeIncludeList', Value__c = (String) tierId, IsActive__c = true);
+
+    Test.startTest();
+    Database.executeBatch(new MonthlyCouponIssueBatch(), 200);
+    Test.stopTest();
+
+    List<Voucher> issuedVoucherList = [
+      SELECT Id, FaceValue
+      FROM Voucher
+      WHERE VoucherDefinitionId = :upgradeVd.Id
+    ];
+
+    Assert.isTrue(!issuedVoucherList.isEmpty(), 'Upgrade monthly coupon should be issued');
+    for (Voucher issuedVoucher : issuedVoucherList) {
+      Assert.areEqual(0, issuedVoucher.FaceValue, 'Upgrade monthly coupon should be normalized to face value 0');
+    }
+  }
 }

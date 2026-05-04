@@ -47,10 +47,12 @@ private class ErpPromotionProductReqDtoTest {
     req.no_prom = 'PROM001';
     req.cd_item = 'ITEM001';
     req.id_insert = 'tester';
+    req.id_update = 'updater';
 
     System.assertEquals('PROM001', req.no_prom);
     System.assertEquals('ITEM001', req.cd_item);
     System.assertEquals('tester', req.id_insert);
+    System.assertEquals('updater', req.id_update);
   }
 
   @IsTest
@@ -71,6 +73,7 @@ private class ErpPromotionProductReqDtoTest {
     System.assertEquals(src.Promotion.PromotionNo__c, req.no_prom);
     System.assertEquals(src.Product.ProductCode, req.cd_item);
     System.assertEquals(UserInfo.getUserName(), req.id_insert);
+    System.assertEquals(UserInfo.getUserName(), req.id_update);
   }
 
   @IsTest
@@ -91,6 +94,7 @@ private class ErpPromotionProductReqDtoTest {
     System.assertEquals(srcList[0].Promotion.PromotionNo__c, req.promotionItemList[0].no_prom);
     System.assertEquals(srcList[0].Product.ProductCode, req.promotionItemList[0].cd_item);
     System.assertEquals(UserInfo.getUserName(), req.promotionItemList[0].id_insert);
+    System.assertEquals(UserInfo.getUserName(), req.promotionItemList[0].id_update);
   }
 
   @IsTest

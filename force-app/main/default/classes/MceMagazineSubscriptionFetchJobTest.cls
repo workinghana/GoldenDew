@@ -33,12 +33,17 @@ private class MceMagazineSubscriptionFetchJobTest {
   }
 
   private static LoyaltyProgramMember createMemberWithLpm(String memberNo) {
+    return createMemberWithLpm(memberNo, false);
+  }
+
+  private static LoyaltyProgramMember createMemberWithLpm(String memberNo, Boolean isWithdrawn) {
     Contact contactRecord = new Contact(
       LastName = 'Magazine Member ' + memberNo,
       MemberNo__c = memberNo,
       MobilePhone = '010-1111-2222',
       Birthdate = Date.newInstance(1990, 1, 2),
-      IsMagazineSubscribed__c = false
+      IsMagazineSubscribed__c = false,
+      IsWithdrawn__c = isWithdrawn
     );
     insert contactRecord;
 
@@ -47,7 +52,7 @@ private class MceMagazineSubscriptionFetchJobTest {
       ContactId = contactRecord.Id,
       MembershipNumber = 'MCE-' + memberNo,
       EnrollmentDate = Date.today(),
-      MemberStatus = 'Active',
+      MemberStatus = isWithdrawn == true ? 'Inactive' : 'Active',
       MemberType = 'Individual'
     );
     insert member;
@@ -107,6 +112,7 @@ private class MceMagazineSubscriptionFetchJobTest {
 
   private static void resetTestHooks() {
     MceMagazineSubscriptionFetchJob.loyaltyProgramIdForTest = null;
+    MceMagazineSubscriptionFetchJob.publishedMagazineEventCountForTest = 0;
   }
 
   @IsTest
@@ -202,6 +208,7 @@ private class MceMagazineSubscriptionFetchJobTest {
       System.assertEquals('Magazine', journalList[0].UsageType__c);
       System.assertEquals(true, journalList[0].Magazine_IsUpdated__c);
       System.assertEquals('Y', journalList[0].Magazine_Ismagazinesubscribed__c);
+      System.assertEquals(1, MceMagazineSubscriptionFetchJob.publishedMagazineEventCountForTest);
     } finally {
       resetTestHooks();
     }
@@ -270,6 +277,62 @@ private class MceMagazineSubscriptionFetchJobTest {
       ];
       System.assertEquals(1, journalList.size());
       System.assertEquals(false, journalList[0].Magazine_IsUpdated__c);
+    } finally {
+      resetTestHooks();
+    }
+  }
+
+  @IsTest
+  static void execute_whenContactIsWithdrawn_skipsErpEventPublish() {
+    ApexLogger.disableLogging();
+    resetTestHooks();
+
+    LoyaltyProgramMember member = createMemberWithLpm('M300', true);
+    Contact contactRecord = [
+      SELECT Id, Name, MemberNo__c
+      FROM Contact
+      WHERE Id = :member.ContactId
+      LIMIT 1
+    ];
+
+    MceMagazineSubscriptionFetchJob.loyaltyProgramIdForTest = member.ProgramId;
+
+    String body =
+      '{"items":[' +
+      buildItemJson(
+        contactRecord.MemberNo__c,
+        'PK-20260304-001',
+        contactRecord.Name,
+        '01011112222',
+        '1/2/1990 9:52:40 AM',
+        'Y',
+        '2026-03-04',
+        '1/14/2026 9:52:40 AM',
+        '1/15/2026 9:52:40 AM',
+        'SUMMER'
+      ) +
+      ']}';
+
+    try {
+      Test.setMock(HttpCalloutMock.class, new RowsetMock(200, body));
+
+      Test.startTest();
+      Id jobId = System.enqueueJob(new MceMagazineSubscriptionFetchJob(Date.newInstance(2026, 3, 4), 1));
+      Test.stopTest();
+
+      System.assertNotEquals(null, jobId);
+      System.assertEquals(0, MceMagazineSubscriptionFetchJob.publishedMagazineEventCountForTest);
+
+      Contact updatedContact = [
+        SELECT IsMagazineSubscribed__c, MagazineSubscriptionDate__c
+        FROM Contact
+        WHERE Id = :contactRecord.Id
+        LIMIT 1
+      ];
+      System.assertEquals(true, updatedContact.IsMagazineSubscribed__c);
+      System.assertEquals(Date.newInstance(2026, 3, 4), updatedContact.MagazineSubscriptionDate__c);
+
+      System.assertEquals(1, [SELECT COUNT() FROM TransactionJournal WHERE MemberId = :member.Id AND UsageType__c = 'Magazine']);
     } finally {
       resetTestHooks();
     }

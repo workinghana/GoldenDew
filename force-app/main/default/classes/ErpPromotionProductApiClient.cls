@@ -28,6 +28,7 @@ public with sharing class ErpPromotionProductApiClient {
     if (req == null) {
       throw new IllegalArgumentException('Request body is required.');
     }
+    validateCreateRequest(req);
     // req.validate()가 없다면 아래 3줄 검증으로 바꾸세요.
     // if (String.isBlank(req.no_man_coupon) || String.isBlank(req.no_mbr) || String.isBlank(req.id_insert)) ...
     // req.validate();
@@ -44,6 +45,7 @@ public with sharing class ErpPromotionProductApiClient {
     if (req == null) {
       throw new IllegalArgumentException('Request body is required.');
     }
+    validateUpdateRequest(req);
 
     CommonApiClient.RequestOptions opt = baseOptions('PATCH', ncEndpoint(PROMOTION_PRODUCT_MASTER_PATH));
     opt.body = req;
@@ -58,8 +60,16 @@ public with sharing class ErpPromotionProductApiClient {
       throw new IllegalArgumentException('Request body is required.');
     }
 
+    if (req.promotionItemList == null || req.promotionItemList.isEmpty()) {
+      throw new IllegalArgumentException('Delete request item is required.');
+    }
+
     CommonApiClient.RequestOptions opt = baseOptions('DELETE', ncEndpoint(PROMOTION_PRODUCT_MASTER_PATH));
-    opt.body = req;
+    ErpPromotionProductReqDto.PromotionItem item = req.promotionItemList[0];
+    opt.query.put('no_prom', item.no_prom);
+    opt.query.put('cd_item', item.cd_item);
+    opt.query.put('id_delete', item.id_delete);
+    opt.body = null;
 
     CommonApiClient.ResponseWrapper res = CommonApiClient.send(opt);
     return ErpApiResponseDto.fromWrapper(res);
@@ -102,5 +112,52 @@ public with sharing class ErpPromotionProductApiClient {
   /** Named Credential endpoint 생성 */
   private static String ncEndpoint(String path) {
     return 'callout:' + ERP_NC + path;
+  }
+
+  private static void validateCreateRequest(ErpPromotionProductReqDto.CreateRequestList req) {
+    if (req.promotionItemList == null || req.promotionItemList.isEmpty()) {
+      throw new IllegalArgumentException('Create request item is required.');
+    }
+    Integer idx = 0;
+    for (ErpPromotionProductReqDto.PromotionItem item : req.promotionItemList) {
+      if (item == null) {
+        throw new IllegalArgumentException('Promotion item at index ' + idx + ' is required.');
+      }
+      if (String.isBlank(item.no_prom)) {
+        throw new IllegalArgumentException('Promotion item[' + idx + '].no_prom is required.');
+      }
+      if (String.isBlank(item.cd_item)) {
+        throw new IllegalArgumentException('Promotion item[' + idx + '].cd_item is required.');
+      }
+      if (String.isBlank(item.id_insert)) {
+        throw new IllegalArgumentException('Promotion item[' + idx + '].id_insert is required.');
+      }
+      if (String.isBlank(item.id_update)) {
+        throw new IllegalArgumentException('Promotion item[' + idx + '].id_update is required.');
+      }
+      idx++;
+    }
+  }
+
+  private static void validateUpdateRequest(ErpPromotionProductReqDto.UpdateRequestList req) {
+    if (req.promotionItemList == null || req.promotionItemList.isEmpty()) {
+      throw new IllegalArgumentException('Update request item is required.');
+    }
+    Integer idx = 0;
+    for (ErpPromotionProductReqDto.PromotionItem item : req.promotionItemList) {
+      if (item == null) {
+        throw new IllegalArgumentException('Promotion item at index ' + idx + ' is required.');
+      }
+      if (String.isBlank(item.no_prom)) {
+        throw new IllegalArgumentException('Promotion item[' + idx + '].no_prom is required.');
+      }
+      if (String.isBlank(item.cd_item)) {
+        throw new IllegalArgumentException('Promotion item[' + idx + '].cd_item is required.');
+      }
+      if (String.isBlank(item.id_update)) {
+        throw new IllegalArgumentException('Promotion item[' + idx + '].id_update is required.');
+      }
+      idx++;
+    }
   }
 }

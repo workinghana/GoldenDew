@@ -58,6 +58,26 @@ private class OrderNumViewControllerTest {
     return pickFirst(LoyaltyProgramCurrency.ExtendExpiration.getDescribe().getPicklistValues(), null);
   }
 
+  private static String resolvePointTypeCode(String preferredValue, String fallbackValue) {
+    List<Schema.PicklistEntry> entries = LoyaltyPgmCurrencySubtype.PointTypeCode__c.getDescribe().getPicklistValues();
+    for (Schema.PicklistEntry entry : entries) {
+      if (entry.getValue() == preferredValue) {
+        return entry.getValue();
+      }
+    }
+    return pickFirst(entries, fallbackValue);
+  }
+
+  private static String resolveOrderStatus(String preferredValue, String fallbackValue) {
+    List<Schema.PicklistEntry> entries = Order.Status.getDescribe().getPicklistValues();
+    for (Schema.PicklistEntry entry : entries) {
+      if (entry.getValue() == preferredValue) {
+        return entry.getValue();
+      }
+    }
+    return pickFirst(entries, fallbackValue);
+  }
+
   private static TransactionJournal createTJ(Id orderId, Id loyaltyProgramId, Id memberId, Id journalTypeId, String paymentMethod, Decimal amount) {
     Map<String, Schema.SObjectField> fieldMap = Schema.sObjectType.TransactionJournal.fields.getMap();
     Order targetOrder = [
@@ -97,11 +117,83 @@ private class OrderNumViewControllerTest {
       tj.put('Description', 'TEST');
     }
 
+    if (fieldMap.containsKey('JournalSubTypeId')) {
+      JournalType journalType = [SELECT Name FROM JournalType WHERE Id = :journalTypeId LIMIT 1];
+      if (journalType.Name == 'Deposit') {
+        List<JournalSubType> subTypes = [SELECT Id FROM JournalSubType WHERE Name = 'Sale Deposit' LIMIT 1];
+        if (!subTypes.isEmpty()) {
+          tj.JournalSubTypeId = subTypes[0].Id;
+        }
+      } else if (journalType.Name == 'Accrual') {
+        List<JournalSubType> subTypes = [SELECT Id FROM JournalSubType WHERE Name = 'Purchase Accrual' LIMIT 1];
+        if (!subTypes.isEmpty()) {
+          tj.JournalSubTypeId = subTypes[0].Id;
+        }
+      }
+    }
+
     insert tj;
     return tj;
   }
 
+  private static TransactionJournal createTJByTypeName(
+    Id orderId,
+    Id loyaltyProgramId,
+    Id memberId,
+    String journalTypeName,
+    String paymentMethod,
+    Decimal amount
+  ) {
+    JournalType journalType = [SELECT Id FROM JournalType WHERE Name = :journalTypeName LIMIT 1];
+    return createTJ(orderId, loyaltyProgramId, memberId, journalType.Id, paymentMethod, amount);
+  }
+
+  private static TransactionJournal createTJByTypeAndSubtypeName(
+    Id orderId,
+    Id loyaltyProgramId,
+    Id memberId,
+    String journalTypeName,
+    String journalSubTypeName,
+    String paymentMethod,
+    Decimal amount,
+    String statusValue,
+    String additionalNotes,
+    Id saleLinkId,
+    Id orderLinkId
+  ) {
+    TransactionJournal journal = createTJByTypeName(orderId, loyaltyProgramId, memberId, journalTypeName, paymentMethod, amount);
+    Map<String, Schema.SObjectField> fieldMap = Schema.sObjectType.TransactionJournal.fields.getMap();
+
+    if (!String.isBlank(journalSubTypeName)) {
+      JournalSubType journalSubType = [SELECT Id FROM JournalSubType WHERE Name = :journalSubTypeName LIMIT 1];
+      journal.JournalSubTypeId = journalSubType.Id;
+    }
+    if (!String.isBlank(statusValue)) {
+      journal.Status = statusValue;
+    }
+    if (!String.isBlank(additionalNotes) && fieldMap.containsKey('AdditionalNotes__c')) {
+      journal.put('AdditionalNotes__c', additionalNotes);
+    }
+    if (saleLinkId != null && fieldMap.containsKey('SaleId__c')) {
+      journal.put('SaleId__c', saleLinkId);
+    }
+    if (orderLinkId != null && fieldMap.containsKey('OrderId__c')) {
+      journal.put('OrderId__c', orderLinkId);
+    }
+
+    update journal;
+    return journal;
+  }
+
   private static void createLedger(Id transactionJournalId, Decimal points) {
+    createLedger(transactionJournalId, points, 'Credit');
+  }
+
+  private static void createLedger(Id transactionJournalId, Decimal points, String eventType) {
+    createLedger(transactionJournalId, points, eventType, null);
+  }
+
+  private static LoyaltyLedger createLedger(Id transactionJournalId, Decimal points, String eventType, Id subtypeId) {
     Map<String, Schema.SObjectField> ledgerFieldMap = Schema.sObjectType.LoyaltyLedger.fields.getMap();
     Map<String, Schema.SObjectField> currencyFieldMap = Schema.sObjectType.LoyaltyProgramCurrency.fields.getMap();
 
@@ -115,7 +207,7 @@ private class OrderNumViewControllerTest {
     LoyaltyLedger ledger = new LoyaltyLedger();
     ledger.TransactionJournalId = journal.Id;
     ledger.Points = points;
-    ledger.EventType = 'Credit';
+    ledger.EventType = eventType;
 
     if (ledgerFieldMap.containsKey('JournalTypeId') && journal.JournalTypeId != null) {
       ledger.put('JournalTypeId', journal.JournalTypeId);
@@ -185,11 +277,66 @@ private class OrderNumViewControllerTest {
       ledger.put('Description', 'TEST');
     }
 
+    if (subtypeId != null && ledgerFieldMap.containsKey('LoyaltyPgmCrcySubtypeId')) {
+      ledger.put('LoyaltyPgmCrcySubtypeId', subtypeId);
+    }
+
     insert ledger;
+    return ledger;
+  }
+
+  private static LoyaltyPgmCurrencySubtype createPointSubtype(Id loyaltyProgramId, String name, String pointTypeCode) {
+    LoyaltyProgramCurrency loyaltyCurrency = [
+      SELECT Id
+      FROM LoyaltyProgramCurrency
+      WHERE LoyaltyProgramId = :loyaltyProgramId
+      LIMIT 1
+    ];
+
+    LoyaltyPgmCurrencySubtype subtype = new LoyaltyPgmCurrencySubtype(
+      LoyaltyProgramCurrencyId = loyaltyCurrency.Id,
+      Name = name,
+      PointTypeCode__c = resolvePointTypeCode(pointTypeCode, '00'),
+      UsagePriorityNumber = 1,
+      IsActive = true
+    );
+    insert subtype;
+    return subtype;
+  }
+
+  private static Order createSaleOrder(Id accountId, Id pricebook2Id, Id memberNoId, Decimal actualPaymentAmount, String orderKey, String saleKey) {
+    Order orderRecord = new Order(
+      Name = 'TEST-SALE',
+      AccountId = accountId,
+      Pricebook2Id = pricebook2Id,
+      Status = pick(Order.Status, 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = orderKey,
+      SaleNo__c = saleKey,
+      MemberNo__c = memberNoId,
+      IsReductionOrder__c = false
+    );
+    applyOrderDefaults(orderRecord, accountId, actualPaymentAmount, orderKey);
+    insert orderRecord;
+    PricebookEntry defaultPricebookEntry = [
+      SELECT Id, UnitPrice
+      FROM PricebookEntry
+      WHERE Pricebook2Id = :pricebook2Id AND IsActive = TRUE
+      LIMIT 1
+    ];
+    createOrderItem(orderRecord.Id, defaultPricebookEntry.Id, 1, defaultPricebookEntry.UnitPrice == null ? 1000 : defaultPricebookEntry.UnitPrice);
+    return orderRecord;
   }
 
   private static void createOrderItem(Id orderId, Id pricebookEntryId, Decimal quantity, Decimal unitPrice) {
     Map<String, Schema.SObjectField> fieldMap = Schema.sObjectType.OrderItem.fields.getMap();
+    Order parentOrder = [
+      SELECT EffectiveDate
+      FROM Order
+      WHERE Id = :orderId
+      LIMIT 1
+    ];
 
     OrderItem item = new OrderItem();
     item.OrderId = orderId;
@@ -200,7 +347,7 @@ private class OrderNumViewControllerTest {
       item.put('UnitPrice', unitPrice);
     }
     if (fieldMap.containsKey('ServiceDate')) {
-      item.put('ServiceDate', Date.today());
+      item.put('ServiceDate', parentOrder.EffectiveDate == null ? Date.today() : parentOrder.EffectiveDate);
     }
 
     insert item;
@@ -208,6 +355,10 @@ private class OrderNumViewControllerTest {
 
   private static void applyOrderDefaults(Order orderRecord, Id storeAccountId, Decimal actualPaymentAmount, String uniqueKey) {
     Map<String, Schema.SObjectField> orderFieldMap = Schema.sObjectType.Order.fields.getMap();
+    String safeKey = String.isBlank(uniqueKey) ? 'TEST' : uniqueKey.replaceAll('[^A-Za-z0-9]', '');
+    if (safeKey.length() > 12) {
+      safeKey = safeKey.substring(0, 12);
+    }
 
     orderRecord.Status = 'Draft';
 
@@ -227,10 +378,10 @@ private class OrderNumViewControllerTest {
       orderRecord.put('SaleStatus__c', '01');
     }
     if (orderFieldMap.containsKey('OrderReferenceNumber') && orderRecord.get('OrderReferenceNumber') == null) {
-      orderRecord.put('OrderReferenceNumber', 'REF-' + uniqueKey);
+      orderRecord.put('OrderReferenceNumber', 'REF-' + safeKey);
     }
     if (orderFieldMap.containsKey('InsertId__c') && orderRecord.get('InsertId__c') == null) {
-      orderRecord.put('InsertId__c', 'TEST-' + uniqueKey);
+      orderRecord.put('InsertId__c', 'TEST-' + safeKey);
     }
   }
 
@@ -273,8 +424,36 @@ private class OrderNumViewControllerTest {
     );
     insert loyaltyProgramMember;
 
-    JournalType journalType = new JournalType(Name = 'JT');
-    insert journalType;
+    JournalType depositJournalType = new JournalType(Name = 'Deposit');
+    JournalType depositReversalJournalType = new JournalType(Name = 'Deposit Reversal');
+    JournalType accrualJournalType = new JournalType(Name = 'Accrual');
+    JournalType accrualReversalJournalType = new JournalType(Name = 'Accrual Reversal');
+    JournalType redemptionJournalType = new JournalType(Name = 'Redemption');
+    JournalType redemptionReversalJournalType = new JournalType(Name = 'Redemption Reversal');
+    insert new List<JournalType>{
+      depositJournalType,
+      depositReversalJournalType,
+      accrualJournalType,
+      accrualReversalJournalType,
+      redemptionJournalType,
+      redemptionReversalJournalType
+    };
+    insert new List<JournalSubType>{
+      new JournalSubType(Name = 'Order Deposit', JournalTypeId = depositJournalType.Id),
+      new JournalSubType(Name = 'Sale Deposit', JournalTypeId = depositJournalType.Id),
+      new JournalSubType(Name = 'Order Deposit Reversal', JournalTypeId = depositReversalJournalType.Id),
+      new JournalSubType(Name = 'Sale Deposit Reversal', JournalTypeId = depositReversalJournalType.Id),
+      new JournalSubType(Name = 'Purchase Accrual', JournalTypeId = accrualJournalType.Id),
+      new JournalSubType(Name = 'Promotion Point Accrual', JournalTypeId = accrualJournalType.Id),
+      new JournalSubType(Name = 'Api Forced Credit', JournalTypeId = accrualJournalType.Id),
+      new JournalSubType(Name = 'Cancel Purchase Accrual', JournalTypeId = accrualReversalJournalType.Id),
+      new JournalSubType(Name = 'Promotion Point Accrual Reversal', JournalTypeId = accrualReversalJournalType.Id),
+      new JournalSubType(Name = 'Coupon Redeem', JournalTypeId = redemptionJournalType.Id),
+      new JournalSubType(Name = 'Point Debit', JournalTypeId = redemptionJournalType.Id),
+      new JournalSubType(Name = 'Api Forced Debit', JournalTypeId = redemptionJournalType.Id),
+      new JournalSubType(Name = 'Coupon Redeem Cancel', JournalTypeId = redemptionReversalJournalType.Id),
+      new JournalSubType(Name = 'Point Redeem Cancel', JournalTypeId = redemptionReversalJournalType.Id)
+    };
 
     Order orderRecord = new Order(
       Name = 'ORDER',
@@ -293,10 +472,11 @@ private class OrderNumViewControllerTest {
 
     createOrderItem(orderRecord.Id, pricebookEntry.Id, 2, 10000);
 
-    createTJ(orderRecord.Id, loyaltyProgram.Id, loyaltyProgramMember.Id, journalType.Id, '01', 1000);
-    createTJ(orderRecord.Id, loyaltyProgram.Id, loyaltyProgramMember.Id, journalType.Id, '03', 500);
-    createTJ(orderRecord.Id, loyaltyProgram.Id, loyaltyProgramMember.Id, journalType.Id, '90', 200);
-    createTJ(orderRecord.Id, loyaltyProgram.Id, loyaltyProgramMember.Id, journalType.Id, '81', 300);
+    createTJ(orderRecord.Id, loyaltyProgram.Id, loyaltyProgramMember.Id, depositJournalType.Id, '01', 1000);
+    createTJ(orderRecord.Id, loyaltyProgram.Id, loyaltyProgramMember.Id, depositJournalType.Id, '03', 500);
+    createTJ(orderRecord.Id, loyaltyProgram.Id, loyaltyProgramMember.Id, depositJournalType.Id, '90', 200);
+    createTJ(orderRecord.Id, loyaltyProgram.Id, loyaltyProgramMember.Id, depositJournalType.Id, '93', 150);
+    createTJ(orderRecord.Id, loyaltyProgram.Id, loyaltyProgramMember.Id, depositJournalType.Id, '81', 300);
 
     TransactionJournal journal = [SELECT Id FROM TransactionJournal LIMIT 1];
     createLedger(journal.Id, 100);
@@ -312,6 +492,8 @@ private class OrderNumViewControllerTest {
 
     System.assertEquals(500, dto.orderCardAmount);
     System.assertEquals(500, dto.saleCardAmount);
+    System.assertEquals(350, dto.orderCouponAmount);
+    System.assertEquals(350, dto.saleCouponAmount);
     System.assertEquals(pickLabel(Order.Type, 'Standard', 'Standard'), dto.orderType);
     System.assertEquals(dto.saleStoreName, dto.saleRecords[0].storeName);
   }
@@ -327,6 +509,7 @@ private class OrderNumViewControllerTest {
       baseOrder,
       baseOrder,
       returnOrder,
+      new List<Order>{ returnOrder },
       new List<Order>{ baseOrder },
       new List<OrderItem>(),
       returnItems,
@@ -349,6 +532,7 @@ private class OrderNumViewControllerTest {
         OrderReferenceNumber,
         OrderStatus__c,
         SaleNo__c,
+        ActualPaymentAmount__c,
         Status,
         EffectiveDate,
         EndDate,
@@ -367,6 +551,7 @@ private class OrderNumViewControllerTest {
       saleOrder,
       saleOrder,
       null,
+      new List<Order>(),
       new List<Order>{ saleOrder },
       new List<OrderItem>(),
       new List<OrderItem>(),
@@ -454,6 +639,7 @@ private class OrderNumViewControllerTest {
       saleOrder,
       saleOrder,
       returnOrder,
+      new List<Order>{ returnOrder },
       new List<Order>{ saleOrder },
       new List<OrderItem>(),
       new List<OrderItem>(),
@@ -478,6 +664,7 @@ private class OrderNumViewControllerTest {
         OrderReferenceNumber,
         OrderStatus__c,
         SaleNo__c,
+        ActualPaymentAmount__c,
         Status,
         EffectiveDate,
         EndDate,
@@ -506,6 +693,7 @@ private class OrderNumViewControllerTest {
       saleOrder,
       saleOrder,
       returnOrder,
+      new List<Order>{ returnOrder },
       new List<Order>{ saleOrder },
       new List<OrderItem>(),
       returnItems,
@@ -539,6 +727,296 @@ private class OrderNumViewControllerTest {
   }
 
   @IsTest
+  static void test_getOrderNumView_salePageAggregatesLinkedOrdersAndUsesLatestOrderAsRepresentative() {
+    Account storeAccount = [SELECT Id FROM Account LIMIT 1];
+    Contact contact = [SELECT Id FROM Contact LIMIT 1];
+    LoyaltyProgramMember loyaltyProgramMember = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    JournalType depositJournalType = [SELECT Id FROM JournalType WHERE Name = 'Deposit' LIMIT 1];
+    Id standardPricebookId = Test.getStandardPricebookId();
+    PricebookEntry pricebookEntry = [SELECT Id, UnitPrice FROM PricebookEntry WHERE Pricebook2Id = :standardPricebookId AND IsActive = TRUE LIMIT 1];
+    Decimal unitPrice = pricebookEntry.UnitPrice == null ? 1000 : pricebookEntry.UnitPrice;
+
+    Order olderOrder = new Order(
+      Name = 'OLDER-ORDER',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = pick(Order.Status, 'Draft'),
+      EffectiveDate = Date.today().addDays(-1),
+      EndDate = Date.today().addDays(-1),
+      OrderNo__c = uniq('ORD-OLDER'),
+      MemberNo__c = contact.Id,
+      IsReductionOrder__c = false
+    );
+    applyOrderDefaults(olderOrder, storeAccount.Id, 700, uniq('OLDERORD'));
+    insert olderOrder;
+    createOrderItem(olderOrder.Id, pricebookEntry.Id, 1, unitPrice);
+    createTJ(olderOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, depositJournalType.Id, '01', 300);
+
+    Order latestOrder = new Order(
+      Name = 'LATEST-ORDER',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = pick(Order.Status, 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = uniq('ORD-LATEST'),
+      MemberNo__c = contact.Id,
+      IsReductionOrder__c = false
+    );
+    applyOrderDefaults(latestOrder, storeAccount.Id, 900, uniq('LATESTORD'));
+    insert latestOrder;
+    createOrderItem(latestOrder.Id, pricebookEntry.Id, 2, unitPrice);
+    createTJ(latestOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, depositJournalType.Id, '03', 150);
+
+    Order saleOrder = createSaleOrder(storeAccount.Id, standardPricebookId, contact.Id, 3000, uniq('ORD-SALE-MULTI'), uniq('SALE-MULTI'));
+
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Sale Deposit',
+      '01',
+      1000,
+      'Processed',
+      null,
+      saleOrder.Id,
+      olderOrder.Id
+    );
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Sale Deposit',
+      '01',
+      1000,
+      'Processed',
+      null,
+      saleOrder.Id,
+      latestOrder.Id
+    );
+
+    Order olderOrderAfterItems = [SELECT TotalAmount FROM Order WHERE Id = :olderOrder.Id LIMIT 1];
+    Order latestOrderAfterItems = [SELECT TotalAmount FROM Order WHERE Id = :latestOrder.Id LIMIT 1];
+
+    Test.startTest();
+    OrderNumViewController.OrderDetailDto dto = OrderNumViewController.getOrderNumView(saleOrder.Id);
+    Test.stopTest();
+
+    System.assertEquals(latestOrder.OrderNo__c, dto.orderNo);
+    System.assertEquals(2, dto.orderRecords.size());
+    System.assertEquals(latestOrder.OrderNo__c, dto.orderRecords[0].orderNo);
+    System.assertEquals(olderOrder.OrderNo__c, dto.orderRecords[1].orderNo);
+    System.assertEquals((latestOrderAfterItems.TotalAmount == null ? 0 : latestOrderAfterItems.TotalAmount) + (olderOrderAfterItems.TotalAmount == null ? 0 : olderOrderAfterItems.TotalAmount), dto.totalAmount);
+    System.assertEquals(3, dto.orderQuantity);
+    System.assertEquals(2, dto.orderItems.size());
+    System.assertEquals(450, dto.orderDepositTotalAmount);
+  }
+
+  @IsTest
+  static void test_getOrderNumView_resolvesDisplayOrderFromTransactionJournal() {
+    Account storeAccount = [SELECT Id FROM Account LIMIT 1];
+    Contact contact = [SELECT Id FROM Contact LIMIT 1];
+    LoyaltyProgramMember loyaltyProgramMember = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id standardPricebookId = Test.getStandardPricebookId();
+    PricebookEntry pricebookEntry = [SELECT Id, UnitPrice FROM PricebookEntry WHERE Pricebook2Id = :standardPricebookId AND IsActive = TRUE LIMIT 1];
+
+    Order originalOrder = new Order(
+      Name = 'ORIGINAL-ORDER',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = pick(Order.Status, 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = uniq('ORD-ORIGIN'),
+      MemberNo__c = contact.Id,
+      IsReductionOrder__c = false
+    );
+    applyOrderDefaults(originalOrder, storeAccount.Id, 1500, uniq('ORIGIN'));
+    insert originalOrder;
+    createOrderItem(originalOrder.Id, pricebookEntry.Id, 1, pricebookEntry.UnitPrice == null ? 1000 : pricebookEntry.UnitPrice);
+
+    Order saleOrder = createSaleOrder(storeAccount.Id, standardPricebookId, contact.Id, 2000, uniq('ORD-SALE-TJ'), uniq('SALE-TJ'));
+
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Sale Deposit',
+      '01',
+      1000,
+      'Processed',
+      null,
+      saleOrder.Id,
+      originalOrder.Id
+    );
+
+    Test.startTest();
+    OrderNumViewController.OrderDetailDto dto = OrderNumViewController.getOrderNumView(saleOrder.Id);
+    Test.stopTest();
+
+    System.assertEquals(originalOrder.OrderNo__c, dto.orderNo);
+    System.assertEquals(saleOrder.SaleNo__c, dto.saleNo);
+  }
+
+  @IsTest
+  static void test_getOrderNumView_resolvesDisplayOrderWhenOrderLinkOnlyExistsOnTransactionJournal() {
+    Account storeAccount = [SELECT Id FROM Account LIMIT 1];
+    Contact contact = [SELECT Id FROM Contact LIMIT 1];
+    LoyaltyProgramMember loyaltyProgramMember = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id standardPricebookId = Test.getStandardPricebookId();
+    PricebookEntry pricebookEntry = [SELECT Id, UnitPrice FROM PricebookEntry WHERE Pricebook2Id = :standardPricebookId AND IsActive = TRUE LIMIT 1];
+
+    Order originalOrder = new Order(
+      Name = 'ORDER-LINK-ONLY',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = pick(Order.Status, 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = uniq('ORD-LINK'),
+      MemberNo__c = contact.Id,
+      IsReductionOrder__c = false
+    );
+    applyOrderDefaults(originalOrder, storeAccount.Id, 1700, uniq('LINKONLY'));
+    insert originalOrder;
+    createOrderItem(originalOrder.Id, pricebookEntry.Id, 1, pricebookEntry.UnitPrice == null ? 1000 : pricebookEntry.UnitPrice);
+
+    Order saleOrder = createSaleOrder(storeAccount.Id, standardPricebookId, contact.Id, 2200, uniq('ORD-SALE-LINK'), uniq('SALE-LINK'));
+
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Sale Deposit',
+      '01',
+      900,
+      'Processed',
+      null,
+      null,
+      originalOrder.Id
+    );
+
+    Test.startTest();
+    OrderNumViewController.OrderDetailDto dto = OrderNumViewController.getOrderNumView(saleOrder.Id);
+    Test.stopTest();
+
+    System.assertEquals(originalOrder.OrderNo__c, dto.orderNo);
+    System.assertEquals(saleOrder.SaleNo__c, dto.saleNo);
+  }
+
+  @IsTest
+  static void test_getOrderNumView_orderPageShowsSaleSummaryWhenSaleLinksBackToOrder() {
+    Account storeAccount = [SELECT Id FROM Account LIMIT 1];
+    Contact contact = [SELECT Id FROM Contact LIMIT 1];
+    LoyaltyProgramMember loyaltyProgramMember = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id standardPricebookId = Test.getStandardPricebookId();
+
+    Order originalOrder = new Order(
+      Name = 'ORDER-WITH-LINKED-SALE',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = pick(Order.Status, 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = uniq('ORD-PARENT'),
+      MemberNo__c = contact.Id,
+      IsReductionOrder__c = false
+    );
+    applyOrderDefaults(originalOrder, storeAccount.Id, 1800, uniq('ORDPARENT'));
+    insert originalOrder;
+
+    Order saleOrder = createSaleOrder(storeAccount.Id, standardPricebookId, contact.Id, 2600, uniq('ORD-CHILD'), uniq('SALE-CHILD'));
+
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Sale Deposit',
+      '01',
+      1100,
+      'Processed',
+      null,
+      null,
+      originalOrder.Id
+    );
+
+    Test.startTest();
+    OrderNumViewController.OrderDetailDto dto = OrderNumViewController.getOrderNumView(originalOrder.Id);
+    Test.stopTest();
+
+    System.assertEquals(originalOrder.OrderNo__c, dto.orderNo);
+    System.assertEquals(saleOrder.SaleNo__c, dto.saleNo);
+  }
+
+  @IsTest
+  static void test_getOrderNumView_returnPageShowsOrderSaleAndReturnTogether() {
+    Account storeAccount = [SELECT Id FROM Account LIMIT 1];
+    Contact contact = [SELECT Id FROM Contact LIMIT 1];
+    LoyaltyProgramMember loyaltyProgramMember = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id standardPricebookId = Test.getStandardPricebookId();
+
+    Order originalOrder = new Order(
+      Name = 'ROOT-ORDER',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = pick(Order.Status, 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = uniq('ORD-ROOT-3'),
+      MemberNo__c = contact.Id,
+      IsReductionOrder__c = false
+    );
+    applyOrderDefaults(originalOrder, storeAccount.Id, 1900, uniq('ROOTTHREE'));
+    insert originalOrder;
+
+    Order saleOrder = createSaleOrder(storeAccount.Id, standardPricebookId, contact.Id, 2900, uniq('ORD-SALE-3'), uniq('SALE-3'));
+
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Sale Deposit',
+      '01',
+      1200,
+      'Processed',
+      null,
+      null,
+      originalOrder.Id
+    );
+
+    Order returnOrder = new Order(
+      Name = 'RETURN-3',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = resolveOrderStatus('returnSuccess', 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = uniq('ORD-RETURN-3'),
+      SaleNo__c = uniq('RETURN-3'),
+      MemberNo__c = contact.Id,
+      OriginalOrderId__c = saleOrder.Id,
+      IsReductionOrder = true,
+      IsReductionOrder__c = true
+    );
+    applyOrderDefaults(returnOrder, storeAccount.Id, 0, uniq('RETURNTHREE'));
+    insert returnOrder;
+
+    Test.startTest();
+    OrderNumViewController.OrderDetailDto dto = OrderNumViewController.getOrderNumView(returnOrder.Id);
+    Test.stopTest();
+
+    System.assertEquals(originalOrder.OrderNo__c, dto.orderNo);
+    System.assertEquals(saleOrder.SaleNo__c, dto.saleNo);
+    System.assertEquals(returnOrder.SaleNo__c, dto.returnNo);
+  }
+
+  @IsTest
   static void test_orderDetailDto_usesFinalSaleLedgerFromRelatedSaleOrders() {
     Order baseOrder = [
       SELECT
@@ -557,6 +1035,7 @@ private class OrderNumViewControllerTest {
         OrderReferenceNumber,
         OrderStatus__c,
         SaleNo__c,
+        ActualPaymentAmount__c,
         Status,
         EffectiveDate,
         EndDate
@@ -565,7 +1044,7 @@ private class OrderNumViewControllerTest {
       LIMIT 1
     ];
     LoyaltyProgramMember loyaltyProgramMember = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
-    JournalType journalType = [SELECT Id FROM JournalType LIMIT 1];
+    JournalType journalType = [SELECT Id FROM JournalType WHERE Name = 'Accrual' LIMIT 1];
     String childSaleNo = uniq('SALE-CHILD');
     String childUniqueKey = uniq('SC');
 
@@ -597,8 +1076,9 @@ private class OrderNumViewControllerTest {
     Test.startTest();
     OrderNumViewController.OrderDetailDto dto = new OrderNumViewController.OrderDetailDto(
       baseOrder,
-      baseOrder,
+      childSaleOrder,
       null,
+      new List<Order>(),
       new List<Order>{ childSaleOrder },
       new List<OrderItem>(),
       new List<OrderItem>(),
@@ -610,5 +1090,525 @@ private class OrderNumViewControllerTest {
     System.assertEquals(childSaleNo, dto.saleRecords[0].saleNo);
     System.assertEquals(250, dto.earnedPointAmount);
     System.assertEquals(250, dto.earnedPointItems[0].amount);
+  }
+
+  @IsTest
+  static void test_progressStates_and_cancelledHelpers() {
+    String saleSuccessStatus = resolveOrderStatus('saleSuccess', 'Draft');
+    String returnDeletedStatus = resolveOrderStatus('returnDeleted2', 'Draft');
+
+    Order saleOrder = new Order(SaleNo__c = uniq('SALE-PROGRESS'), Status = saleSuccessStatus, EffectiveDate = Date.today(), EndDate = Date.today());
+    saleOrder.put('OrderNo__c', uniq('ORD-PROGRESS'));
+
+    Order deletedReturnOrder = new Order(
+      SaleNo__c = uniq('RETURN-PROGRESS'),
+      Status = returnDeletedStatus,
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      IsReductionOrder__c = true
+    );
+    deletedReturnOrder.put('DeleteDateTime__c', System.now());
+
+    Order activeReturnOrder = new Order(
+      SaleNo__c = uniq('RETURN-ACTIVE'),
+      Status = resolveOrderStatus('returnSuccess', 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      IsReductionOrder__c = true
+    );
+
+    Test.startTest();
+    OrderNumViewController.OrderDetailDto dto = new OrderNumViewController.OrderDetailDto(
+      saleOrder,
+      saleOrder,
+      null,
+      new List<Order>(),
+      new List<Order>{ saleOrder },
+      new List<OrderItem>(),
+      new List<OrderItem>(),
+      new List<OrderItem>(),
+      new List<TransactionJournal>(),
+      false,
+      deletedReturnOrder
+    );
+    Test.stopTest();
+
+    System.assertEquals('completed', dto.saleProgressState);
+    System.assertEquals('cancelled', dto.returnProgressState);
+    System.assertEquals(true, OrderNumViewController.testVisibleIsCancelledOrDeletedOrder(deletedReturnOrder));
+    System.assertEquals(1, OrderNumViewController.testVisibleGetActiveReturnOrderCount(new List<Order>{ deletedReturnOrder, activeReturnOrder }));
+  }
+
+  @IsTest
+  static void test_displayAndTotalAmountHelpers() {
+    Account storeAccount = [SELECT Id FROM Account LIMIT 1];
+    Contact contact = [SELECT Id FROM Contact LIMIT 1];
+    Id standardPricebookId = Test.getStandardPricebookId();
+    PricebookEntry pricebookEntry = [SELECT Id, UnitPrice FROM PricebookEntry WHERE Pricebook2Id = :standardPricebookId AND IsActive = TRUE LIMIT 1];
+    String saleNo = uniq('SALE-TOTAL');
+    String orderNo = uniq('ORD-TOTAL');
+
+    Order saleOrder = createSaleOrder(storeAccount.Id, standardPricebookId, contact.Id, 1000, orderNo, saleNo);
+
+    Order latestSaleOrder = new Order(
+      Name = 'LATEST-SALE',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = pick(Order.Status, 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = uniq('ORD-LATEST'),
+      SaleNo__c = saleNo,
+      MemberNo__c = contact.Id,
+      IsReductionOrder__c = false
+    );
+    applyOrderDefaults(latestSaleOrder, storeAccount.Id, 2500, uniq('LATEST'));
+    insert latestSaleOrder;
+    createOrderItem(latestSaleOrder.Id, pricebookEntry.Id, 1, pricebookEntry.UnitPrice == null ? 1000 : pricebookEntry.UnitPrice);
+    Test.setCreatedDate(latestSaleOrder.Id, Datetime.now().addMinutes(5));
+
+    Test.startTest();
+    String displayOrderNumber = OrderNumViewController.testVisibleGetDisplayOrderNumber(new Order(OrderNo__c = 'ORD-DISPLAY'), saleOrder);
+    Decimal orderTotalAmount = OrderNumViewController.testVisibleResolveOrderTotalAmount(null, saleOrder);
+    Decimal saleTotalAmount = OrderNumViewController.testVisibleResolveSaleTotalAmount(saleOrder);
+    Test.stopTest();
+
+    System.assertEquals('ORD-DISPLAY', displayOrderNumber);
+    System.assertEquals(1000, orderTotalAmount);
+    System.assertEquals(2500, saleTotalAmount);
+  }
+
+  @IsTest
+  static void test_relatedSaleRepresentative_chooses_latest_completed_sale() {
+    Account storeAccount = [SELECT Id FROM Account LIMIT 1];
+    Contact contact = [SELECT Id FROM Contact LIMIT 1];
+    Id standardPricebookId = Test.getStandardPricebookId();
+    PricebookEntry pricebookEntry = [SELECT Id, UnitPrice FROM PricebookEntry WHERE Pricebook2Id = :standardPricebookId AND IsActive = TRUE LIMIT 1];
+
+    Order originalOrder = createSaleOrder(storeAccount.Id, standardPricebookId, contact.Id, 1200, uniq('ORD-ROOT'), uniq('SALE-ROOT'));
+
+    Order deletedSaleOrder = new Order(
+      Name = 'DELETED-SALE',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = pick(Order.Status, 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = uniq('ORD-DEL'),
+      SaleNo__c = uniq('SALE-DEL'),
+      MemberNo__c = contact.Id,
+      OriginalOrderId__c = originalOrder.Id,
+      IsReductionOrder__c = false
+    );
+    applyOrderDefaults(deletedSaleOrder, storeAccount.Id, 1400, uniq('DEL'));
+    insert deletedSaleOrder;
+    createOrderItem(deletedSaleOrder.Id, pricebookEntry.Id, 1, pricebookEntry.UnitPrice == null ? 1000 : pricebookEntry.UnitPrice);
+
+    Order completedSaleOrder = new Order(
+      Name = 'COMPLETED-SALE',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = pick(Order.Status, 'Draft'),
+      EffectiveDate = Date.today().addDays(1),
+      EndDate = Date.today().addDays(1),
+      OrderNo__c = uniq('ORD-COMP'),
+      SaleNo__c = uniq('SALE-COMP'),
+      MemberNo__c = contact.Id,
+      OriginalOrderId__c = originalOrder.Id,
+      IsReductionOrder__c = false
+    );
+    applyOrderDefaults(completedSaleOrder, storeAccount.Id, 2100, uniq('COMP'));
+    insert completedSaleOrder;
+    createOrderItem(completedSaleOrder.Id, pricebookEntry.Id, 1, pricebookEntry.UnitPrice == null ? 1000 : pricebookEntry.UnitPrice);
+
+    deletedSaleOrder.Status = resolveOrderStatus('saleDeleted', 'Draft');
+    completedSaleOrder.Status = resolveOrderStatus('saleSuccess', 'Draft');
+    update new List<Order>{ deletedSaleOrder, completedSaleOrder };
+
+    Test.startTest();
+    Integer relatedSaleCount = OrderNumViewController.testVisibleGetRelatedSaleOrderCount(deletedSaleOrder);
+    String representativeSaleNo = OrderNumViewController.testVisibleGetRepresentativeSaleNo(deletedSaleOrder);
+    OrderNumViewController.OrderDetailDto dto = OrderNumViewController.getOrderNumView(deletedSaleOrder.Id);
+    Test.stopTest();
+
+    System.assertEquals(2, relatedSaleCount);
+    System.assertEquals(completedSaleOrder.SaleNo__c, representativeSaleNo);
+    System.assertEquals(completedSaleOrder.SaleNo__c, dto.saleNo);
+    System.assertEquals('부분 판매', dto.saleStatus);
+    System.assertEquals('in_progress', dto.saleProgressState);
+    System.assertEquals(2, dto.saleRecords.size());
+    System.assertEquals(completedSaleOrder.SaleNo__c, dto.saleRecords[0].saleNo);
+  }
+
+  @IsTest
+  static void test_deletedReturn_uses_cancelled_progress_and_deposit_cancellation() {
+    Account storeAccount = [SELECT Id FROM Account LIMIT 1];
+    Contact contact = [SELECT Id FROM Contact LIMIT 1];
+    LoyaltyProgramMember loyaltyProgramMember = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id standardPricebookId = Test.getStandardPricebookId();
+
+    Order saleOrder = createSaleOrder(storeAccount.Id, standardPricebookId, contact.Id, 3000, uniq('ORD-SALE'), uniq('SALE-SALE'));
+    saleOrder.Status = resolveOrderStatus('saleSuccess', 'Draft');
+    update saleOrder;
+
+    Order deletedReturnOrder = new Order(
+      Name = 'DELETED-RETURN',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = resolveOrderStatus('returnDeleted2', 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = uniq('ORD-RETURN-DEL'),
+      SaleNo__c = uniq('RETURN-DEL'),
+      MemberNo__c = contact.Id,
+      OriginalOrderId__c = saleOrder.Id,
+      IsReductionOrder = true,
+      IsReductionOrder__c = true
+    );
+    applyOrderDefaults(deletedReturnOrder, storeAccount.Id, 0, uniq('RETURN-DEL'));
+    deletedReturnOrder.put('DeleteDateTime__c', System.now());
+    deletedReturnOrder.put('IsDeleted__c', true);
+    insert deletedReturnOrder;
+
+    Order activeReturnOrder = new Order(
+      Name = 'ACTIVE-RETURN',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = resolveOrderStatus('returnSuccess', 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = uniq('ORD-RETURN-ACT'),
+      SaleNo__c = uniq('RETURN-ACT'),
+      MemberNo__c = contact.Id,
+      OriginalOrderId__c = saleOrder.Id,
+      IsReductionOrder = true,
+      IsReductionOrder__c = true
+    );
+    applyOrderDefaults(activeReturnOrder, storeAccount.Id, 0, uniq('RETURN-ACT'));
+    insert activeReturnOrder;
+
+    createTJByTypeAndSubtypeName(
+      activeReturnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit Reversal',
+      'Sale Deposit Reversal',
+      '01',
+      500,
+      'Processed',
+      null,
+      null,
+      null
+    );
+
+    Test.startTest();
+    OrderNumViewController.OrderDetailDto dto = OrderNumViewController.getOrderNumView(deletedReturnOrder.Id);
+    Boolean hasDepositCancellation = OrderNumViewController.testVisibleHasDepositCancellation(
+      saleOrder,
+      new List<Order>{ deletedReturnOrder, activeReturnOrder }
+    );
+    Test.stopTest();
+
+    System.assertEquals(activeReturnOrder.SaleNo__c, dto.returnNo);
+    System.assertEquals('in_progress', dto.returnProgressState);
+    System.assertEquals(500, dto.returnTotalAmount);
+    System.assertEquals(true, hasDepositCancellation);
+  }
+
+  @IsTest
+  static void test_paymentSummaryHelpers_cover_sale_and_return_payments() {
+    Account storeAccount = [SELECT Id FROM Account LIMIT 1];
+    Contact contact = [SELECT Id FROM Contact LIMIT 1];
+    LoyaltyProgramMember loyaltyProgramMember = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id standardPricebookId = Test.getStandardPricebookId();
+
+    Order saleOrder = createSaleOrder(storeAccount.Id, standardPricebookId, contact.Id, 5000, uniq('ORD-PAY-SALE'), uniq('SALE-PAY'));
+    saleOrder.Status = resolveOrderStatus('saleSuccess', 'Draft');
+    update saleOrder;
+
+    Order returnOrder = new Order(
+      Name = 'RETURN-PAY',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = resolveOrderStatus('returnSuccess', 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = uniq('ORD-PAY-RETURN'),
+      SaleNo__c = uniq('RETURN-PAY'),
+      MemberNo__c = contact.Id,
+      OriginalOrderId__c = saleOrder.Id,
+      IsReductionOrder = true,
+      IsReductionOrder__c = true
+    );
+    applyOrderDefaults(returnOrder, storeAccount.Id, 0, uniq('PAY-RETURN'));
+    insert returnOrder;
+
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Sale Deposit',
+      '01',
+      1000,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Sale Deposit',
+      '03',
+      2000,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Redemption',
+      'Coupon Redeem',
+      '90',
+      300,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Redemption',
+      'Point Debit',
+      '81',
+      400,
+      'Approved',
+      null,
+      null,
+      null
+    );
+
+    createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit Reversal',
+      'Sale Deposit Reversal',
+      '01',
+      700,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit Reversal',
+      'Sale Deposit Reversal',
+      '03',
+      800,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Redemption Reversal',
+      'Coupon Redeem Cancel',
+      '90',
+      300,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Redemption Reversal',
+      'Point Redeem Cancel',
+      '81',
+      50,
+      'Processed',
+      null,
+      null,
+      null
+    );
+
+    Test.startTest();
+    Decimal originalCash = OrderNumViewController.testVisibleGetOriginalSalePaymentSummaryAmount(saleOrder, 'cash');
+    Decimal originalCard = OrderNumViewController.testVisibleGetOriginalSalePaymentSummaryAmount(saleOrder, 'card');
+    Decimal originalCoupon = OrderNumViewController.testVisibleGetOriginalSalePaymentSummaryAmount(saleOrder, 'coupon');
+    Decimal originalPoint = OrderNumViewController.testVisibleGetOriginalSalePaymentSummaryAmount(saleOrder, 'point');
+    Decimal originalTotal = OrderNumViewController.testVisibleGetOriginalSalePaymentSummaryAmount(saleOrder, 'total');
+    Decimal saleSummaryTotal = OrderNumViewController.testVisibleGetSalePaymentSummaryByOrderIdsAmount(new Set<Id>{ saleOrder.Id }, 'total');
+    Decimal returnCash = OrderNumViewController.testVisibleGetReturnEventPaymentSummaryAmount(saleOrder, returnOrder, 'cash');
+    Decimal returnCard = OrderNumViewController.testVisibleGetReturnEventPaymentSummaryAmount(saleOrder, returnOrder, 'card');
+    Decimal returnCoupon = OrderNumViewController.testVisibleGetReturnEventPaymentSummaryAmount(saleOrder, returnOrder, 'coupon');
+    Decimal returnPoint = OrderNumViewController.testVisibleGetReturnEventPaymentSummaryAmount(saleOrder, returnOrder, 'point');
+    Decimal returnTotal = OrderNumViewController.testVisibleGetReturnPaymentSummaryByOrderIdsAmount(
+      saleOrder,
+      new Set<Id>{ returnOrder.Id },
+      'total'
+    );
+    Test.stopTest();
+
+    System.assertEquals(1000, originalCash);
+    System.assertEquals(2000, originalCard);
+    System.assertEquals(300, originalCoupon);
+    System.assertEquals(400, originalPoint);
+    System.assertEquals(3700, originalTotal);
+    System.assertEquals(3700, saleSummaryTotal);
+    System.assertEquals(700, returnCash);
+    System.assertEquals(800, returnCard);
+    System.assertEquals(300, returnCoupon);
+    System.assertEquals(50, returnPoint);
+    System.assertEquals(1850, returnTotal);
+  }
+
+  @IsTest
+  static void test_returnPointHelpers_cover_restore_cancel_and_traceability() {
+    Account storeAccount = [SELECT Id FROM Account LIMIT 1];
+    Contact contact = [SELECT Id FROM Contact LIMIT 1];
+    LoyaltyProgramMember loyaltyProgramMember = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id standardPricebookId = Test.getStandardPricebookId();
+
+    Order saleOrder = createSaleOrder(storeAccount.Id, standardPricebookId, contact.Id, 3200, uniq('ORD-POINT-SALE'), uniq('SALE-POINT'));
+    saleOrder.Status = resolveOrderStatus('saleSuccess', 'Draft');
+    update saleOrder;
+
+    Order returnOrder = new Order(
+      Name = 'RETURN-POINT',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = resolveOrderStatus('returnSuccess', 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = uniq('ORD-POINT-RETURN'),
+      SaleNo__c = uniq('RETURN-POINT'),
+      MemberNo__c = contact.Id,
+      OriginalOrderId__c = saleOrder.Id,
+      IsReductionOrder = true,
+      IsReductionOrder__c = true
+    );
+    applyOrderDefaults(returnOrder, storeAccount.Id, 0, uniq('POINT-RETURN'));
+    insert returnOrder;
+
+    TransactionJournal seedJournal = createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Accrual',
+      'Purchase Accrual',
+      '81',
+      1,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createLedger(seedJournal.Id, 1);
+
+    LoyaltyPgmCurrencySubtype pointSubtype = createPointSubtype(loyaltyProgramMember.ProgramId, uniq('GENERAL-POINT'), '02');
+    LoyaltyProgramCurrency loyaltyCurrency = [
+      SELECT Id
+      FROM LoyaltyProgramCurrency
+      WHERE LoyaltyProgramId = :loyaltyProgramMember.ProgramId
+      LIMIT 1
+    ];
+
+    TransactionJournal restoreJournal = createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Accrual',
+      'Purchase Accrual',
+      '81',
+      10,
+      'Processed',
+      'Restore purchase accrual due to return deletion',
+      null,
+      null
+    );
+    createLedger(restoreJournal.Id, 120, 'Credit', pointSubtype.Id);
+
+    TransactionJournal cancelJournal = createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Accrual Reversal',
+      'Cancel Purchase Accrual',
+      '81',
+      10,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createLedger(cancelJournal.Id, 30, 'Debit', pointSubtype.Id);
+
+    TransactionJournal sourceCreditJournal = createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Accrual',
+      'Purchase Accrual',
+      '81',
+      10,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    LoyaltyLedger sourceCreditLedger = createLedger(sourceCreditJournal.Id, 50, 'Credit', pointSubtype.Id);
+
+    TransactionJournal unresolvedCancelJournal = createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Accrual Reversal',
+      'Cancel Purchase Accrual',
+      '81',
+      10,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    LoyaltyLedger unresolvedCancelLedger = createLedger(unresolvedCancelJournal.Id, 50, 'Debit', null);
+
+    insert new LoyaltyLedgerTraceability(
+      LoyaltyProgramMemberId = loyaltyProgramMember.Id,
+      LoyaltyProgramCurrencyId = loyaltyCurrency.Id,
+      LoyaltyPgmCurrencySubtypeId = pointSubtype.Id,
+      CreditLoyaltyLedgerId = sourceCreditLedger.Id,
+      DebitLoyaltyLedgerId = unresolvedCancelLedger.Id,
+      ActionType = 'Debit',
+      Points = 50
+    );
+
+    Set<Id> journalIds = new Set<Id>{ restoreJournal.Id, cancelJournal.Id, unresolvedCancelJournal.Id };
+
+    Test.startTest();
+    Decimal accumulatedPointAmount = OrderNumViewController.testVisibleAccumulateReturnPointAmounts(journalIds);
+    Decimal restoredPointAmount = OrderNumViewController.testVisibleGetReturnOrderRestoredPointAmount(saleOrder, returnOrder);
+    Test.stopTest();
+
+    System.assertEquals(200, accumulatedPointAmount);
+    System.assertEquals(200, restoredPointAmount);
   }
 }

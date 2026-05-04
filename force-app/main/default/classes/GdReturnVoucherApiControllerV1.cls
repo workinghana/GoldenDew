@@ -30,7 +30,7 @@ global with sharing class GdReturnVoucherApiControllerV1 {
   //   RestRequest req = RestContext.request;
   //   Map<String, Object> resData = new Map<String, Object>();
   //   try {
-  //     String originalOrderId = ValidationUtil.stringValidationEx(req.params.get('OriginalOrderId'), 'OriginalOrderId', true, false); // 원 판매 번호
+  //     String originalOrderId = ValidationUtil.stringValidationEx(req.params.get('OriginalOrderId__c'), 'OriginalOrderId__c', true, false); // 원 판매 번호
 
   //     ApiResult result = getVoucherService().getReturnUsedCoupon(originalOrderId);
 

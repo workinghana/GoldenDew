@@ -1,5 +1,5 @@
 // ! 상담노트 연동 X = 사용 X
-@RestResource(urlMapping='/gd/consultation-note')
+//@RestResource(urlMapping='/gd/consultation-note')
 global with sharing class GdConsultationNoteController {
   private static GdConsultationNoteService gdConsultationNoteservice;
 
@@ -16,7 +16,7 @@ global with sharing class GdConsultationNoteController {
     return gdConsultationNoteservice;
   }
 
-  @HttpPost
+  //@HttpPost
   global static void getConsultationNotes() {
     RestRequest req = RestContext.request;
     RestResponse res = RestContext.response;

@@ -54,7 +54,7 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       Account company = companyList[0];
 
       // 매장 코드 체크
-      List<Account> storeList = [SELECT Id, StoreTypeFour__c FROM Account WHERE StoreCode__c = :storeCode LIMIT 1];
+      List<Account> storeList = [SELECT Id, StoreTypeFour__c, StoreType__c FROM Account WHERE StoreCode__c = :storeCode LIMIT 1];
       if (storeList.isEmpty()) {
         throw new CustomException(400, '존재하지 않는 매장 코드입니다. ' + storeCode);
       }
@@ -86,6 +86,7 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       Map<String, Object> data = new Map<String, Object>();
       data.put('orderId', o.Id);
       data.put('storeTypeFour', store.StoreTypeFour__c);
+      data.put('storeType', store.StoreType__c);
 
       return ApiResult.ok(200, '주문 등록 완료', data);
     } catch (ValidationException ve) {
@@ -155,6 +156,7 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       String saleNo = ValidationUtil.stringValidation(reqData.get('SaleNo__c'), 'SaleNo__c', true);
       Decimal actualPaymentAmount = ValidationUtil.decimalValidation(reqData.get('ActualPaymentAmount__c'), 'ActualPaymentAmount__c', false);
       String saleStatus = ValidationUtil.stringValidation(reqData.get('SaleStatus__c'), 'SaleStatus__c', false);
+      Date saleDate = ValidationUtil.dateValidation(reqData.get('EndDate'), 'EndDate', false);
       String insertId = ValidationUtil.stringValidationEx(reqData.get('InsertId__c'), 'InsertId__c', false, true); // 등록자
 
       // 판매번호(SaleNo__c) 중복 체크
@@ -176,7 +178,7 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       Account company = companyList[0];
 
       // 매장 코드 체크
-      List<Account> storeList = [SELECT Id, StoreTypeFour__c FROM Account WHERE StoreCode__c = :storeCode LIMIT 1];
+      List<Account> storeList = [SELECT Id, StoreTypeFour__c, StoreType__c FROM Account WHERE StoreCode__c = :storeCode LIMIT 1];
       if (storeList.isEmpty()) {
         throw new CustomException(400, '존재하지 않는 매장 코드입니다. ' + storeCode);
       }
@@ -189,8 +191,8 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       o.AccountId = company.Id;
       o.StoreCode__c = store.Id;
       o.Status = String.valueOf(Status.Draft);
-      o.EffectiveDate = Date.today();
-      o.EndDate = Date.today();
+      o.EffectiveDate = saleDate == null ? Date.today() : saleDate;
+      o.EndDate = saleDate == null ? Date.today() : saleDate;
       o.MemberNo__c = contact.Id;
       o.SaleNo__c = saleNo;
       if (actualPaymentAmount != null) {
@@ -212,6 +214,7 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       Map<String, Object> data = new Map<String, Object>();
       data.put('orderId', o.Id);
       data.put('storeTypeFour', store.StoreTypeFour__c);
+      data.put('storeType', store.StoreType__c);
 
       return ApiResult.ok(200, '판매 등록 완료', data);
     } catch (ValidationException ve) {
@@ -234,10 +237,16 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       String saleNo = ValidationUtil.stringValidation(reqData.get('SaleNo__c'), 'SaleNo__c', true);
       Decimal actualPaymentAmount = ValidationUtil.decimalValidation(reqData.get('ActualPaymentAmount__c'), 'ActualPaymentAmount__c', false);
       String saleStatus = ValidationUtil.stringValidation(reqData.get('SaleStatus__c'), 'SaleStatus__c', false);
+      // Date saleDate = ValidationUtil.dateValidation(reqData.get('EndDate'), 'EndDate', false); // 판매 수정 시 판매 일자 변경 불가능
 
       List<Order> oList = [SELECT Id FROM Order WHERE SaleNo__c = :saleNo LIMIT 1];
       if (oList.isEmpty()) {
         throw new CustomException(400, '존재하지 않는 판매입니다. ' + saleNo);
+      }
+
+      List<Order> returnOrderList = [SELECT Id FROM Order WHERE OriginalOrderId__c = :oList[0].Id AND IsDeleted__c = FALSE LIMIT 1];
+      if (!returnOrderList.isEmpty()) {
+        throw new CustomException(400, '반품 처리된 판매는 수정할 수 없습니다. ' + saleNo);
       }
 
       if (actualPaymentAmount != null) {
@@ -246,6 +255,10 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       if (saleStatus != null) {
         oList[0].SaleStatus__c = saleStatus;
       }
+      // if (saleDate != null) {
+      //   oList[0].EffectiveDate = saleDate;
+      //   oList[0].EndDate = saleDate;
+      // }
 
       Database.SaveResult result = Database.update(oList[0]);
 

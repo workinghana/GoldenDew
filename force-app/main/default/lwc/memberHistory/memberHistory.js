@@ -2,7 +2,7 @@ import { LightningElement, wire, api } from "lwc";
 import getMemberHistory from "@salesforce/apex/MemberHistoryUIController.getMemberHistory";
 
 export default class MemberHistory extends LightningElement {
-  @api recordId; // LoyaltyProgramMember Id (페이지에서 자동 주입)
+  @api recordId;
 
   histories;
   error;
@@ -20,7 +20,6 @@ export default class MemberHistory extends LightningElement {
         minute: "2-digit"
       }
     },
-
     {
       label: "변경 항목",
       fieldName: "fieldName",

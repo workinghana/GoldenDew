@@ -113,8 +113,32 @@ private class IssuePointSubTypeControllerV1Test {
     return pm;
   }
 
+  private static LoyaltyProgramMember createProgramMemberWithMembershipNumber(Id contactId, String membershipNumber) {
+    LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
+
+    LoyaltyProgramMember pm = new LoyaltyProgramMember(
+      ContactId = contactId,
+      ProgramId = lp.Id,
+      MembershipNumber = membershipNumber,
+      MemberStatus = 'Active',
+      EnrollmentDate = Date.today()
+    );
+
+    insert pm;
+    return pm;
+  }
+
   private static Id getSubtypeId() {
     return [SELECT Id FROM LoyaltyPgmCurrencySubtype LIMIT 1].Id;
+  }
+
+  private static AsyncApexJob findJobById(Id jobId) {
+    return [
+      SELECT Id, Status, ExtendedStatus
+      FROM AsyncApexJob
+      WHERE Id = :jobId
+      LIMIT 1
+    ];
   }
 
   @IsTest
@@ -123,7 +147,9 @@ private class IssuePointSubTypeControllerV1Test {
       IssuePointSubTypeControllerV1.parsePointFile(null);
       System.assert(false);
     } catch (AuraHandledException e) {
-      System.assert(true);
+      System.assertEquals('Script-thrown exception', e.getMessage());
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
     }
   }
 
@@ -133,7 +159,9 @@ private class IssuePointSubTypeControllerV1Test {
       IssuePointSubTypeControllerV1.parsePointFile(toBase64('WRONG,ETC\nM001,A'));
       System.assert(false);
     } catch (AuraHandledException e) {
-      System.assert(true);
+      System.assertEquals('Script-thrown exception', e.getMessage());
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
     }
   }
 
@@ -165,6 +193,50 @@ private class IssuePointSubTypeControllerV1Test {
   }
 
   @IsTest
+  static void test_parsePointFile_success_byContactMemberNo() {
+    String contactMemberNo = uniq('CM');
+    String membershipNumber = uniq('LPM');
+
+    Contact contact = createContact(contactMemberNo);
+    createProgramMemberWithMembershipNumber(contact.Id, membershipNumber);
+
+    String csv = 'NO_MBR\n' + contactMemberNo + '\n';
+
+    IssuePointSubTypeControllerV1.UploadPreviewResult result = IssuePointSubTypeControllerV1.parsePointFile(toBase64(csv));
+
+    System.assertEquals(1, result.successCount);
+    System.assertEquals(0, result.failCount);
+  }
+
+  @IsTest
+  static void test_parsePointFile_success_withMemberNoFieldHeader() {
+    String contactMemberNo = uniq('CMHDR');
+    Contact contact = createContact(contactMemberNo);
+    createProgramMember(contact.Id, contactMemberNo);
+
+    String csv = 'MemberNo__c\n' + contactMemberNo + '\n';
+
+    IssuePointSubTypeControllerV1.UploadPreviewResult result = IssuePointSubTypeControllerV1.parsePointFile(toBase64(csv));
+
+    System.assertEquals(1, result.successCount);
+    System.assertEquals(0, result.failCount);
+  }
+
+  @IsTest
+  static void test_parsePointFile_success_withKoreanHeaderAndExcelTextValue() {
+    String memberNo = '00012345';
+    Contact contact = createContact(memberNo);
+    createProgramMember(contact.Id, uniq('LPM'));
+
+    String csv = '\uFEFF회원번호,비고\n"=""' + memberNo + '""",테스트\n';
+
+    IssuePointSubTypeControllerV1.UploadPreviewResult result = IssuePointSubTypeControllerV1.parsePointFile(toBase64(csv));
+
+    System.assertEquals(1, result.successCount);
+    System.assertEquals(0, result.failCount);
+  }
+
+  @IsTest
   static void test_parsePointFile_largeRowCountWithinLimit() {
     String memberNo = uniq('LARGE');
     Contact contact = createContact(memberNo);
@@ -187,7 +259,9 @@ private class IssuePointSubTypeControllerV1Test {
       IssuePointSubTypeControllerV1.issuePoint(null, getSubtypeId(), 100, Date.today().addDays(1));
       System.assert(false);
     } catch (AuraHandledException e) {
-      System.assert(true);
+      System.assertEquals('Script-thrown exception', e.getMessage());
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
     }
   }
 
@@ -201,7 +275,61 @@ private class IssuePointSubTypeControllerV1Test {
       IssuePointSubTypeControllerV1.issuePoint(new List<Id>{ pm.Id }, getSubtypeId(), 0, Date.today().addDays(1));
       System.assert(false);
     } catch (AuraHandledException e) {
-      System.assert(true);
+      System.assertEquals('Script-thrown exception', e.getMessage());
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
+    }
+  }
+
+  @IsTest
+  static void test_issuePoint_invalidSubtypeAndExpireAndMaxPoint() {
+    String memberNo = uniq('P1');
+    Contact c = createContact(memberNo);
+    LoyaltyProgramMember pm = createProgramMember(c.Id, memberNo);
+
+    try {
+      IssuePointSubTypeControllerV1.issuePoint(new List<Id>{ pm.Id }, null, 100, Date.today().addDays(1));
+      System.assert(false);
+    } catch (AuraHandledException e) {
+      System.assertEquals('Script-thrown exception', e.getMessage());
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
+    }
+
+    try {
+      IssuePointSubTypeControllerV1.issuePoint(new List<Id>{ pm.Id }, getSubtypeId(), 100000001, Date.today().addDays(1));
+      System.assert(false);
+    } catch (AuraHandledException e) {
+      System.assertEquals('Script-thrown exception', e.getMessage());
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
+    }
+
+    try {
+      IssuePointSubTypeControllerV1.issuePoint(new List<Id>{ pm.Id }, getSubtypeId(), 100, null);
+      System.assert(false);
+    } catch (AuraHandledException e) {
+      System.assertEquals('Script-thrown exception', e.getMessage());
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
+    }
+
+    try {
+      IssuePointSubTypeControllerV1.issuePoint(new List<Id>{ pm.Id }, getSubtypeId(), 100, Date.today().addDays(-1));
+      System.assert(false);
+    } catch (AuraHandledException e) {
+      System.assertEquals('Script-thrown exception', e.getMessage());
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
+    }
+
+    try {
+      IssuePointSubTypeControllerV1.issuePoint(new List<Id>{ pm.Id }, getSubtypeId(), 100, Date.today());
+      System.assert(false);
+    } catch (AuraHandledException e) {
+      System.assertEquals('Script-thrown exception', e.getMessage());
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
     }
   }
 
@@ -224,5 +352,182 @@ private class IssuePointSubTypeControllerV1Test {
 
     System.assertEquals(true, result.success);
     System.assertEquals(1, result.requestedMemberCount);
+  }
+
+  @IsTest
+  static void test_startValidation_and_getStatus_completed() {
+    String okMemberNo = uniq('UPL');
+    Contact c = createContact(okMemberNo);
+    createProgramMember(c.Id, okMemberNo);
+    String missingMemberNo = uniq('MISS');
+
+    String csv = 'NO_MBR,ETC\n' + okMemberNo + ',A\n' + missingMemberNo + ',B\n';
+
+    Test.startTest();
+    IssuePointSubTypeControllerV1.UploadJobStartResult startResult = IssuePointSubTypeControllerV1.startPointFileValidation(
+      toBase64(csv),
+      'point-upload.csv',
+      getSubtypeId()
+    );
+    Test.stopTest();
+
+    System.assertNotEquals(null, startResult.uploadJobId);
+    System.assertEquals(IssuePointSubTypeControllerV1.JOB_STATUS_PROCESSING, startResult.status);
+
+    IssuePointSubTypeControllerV1.UploadJobStatusResult statusResult = IssuePointSubTypeControllerV1.getPointFileValidationStatus(
+      startResult.uploadJobId
+    );
+
+    System.assertEquals(IssuePointSubTypeControllerV1.JOB_STATUS_COMPLETED, statusResult.status);
+    System.assertEquals(2, statusResult.totalCount);
+    System.assertEquals(1, statusResult.successCount);
+    System.assertEquals(1, statusResult.failCount);
+    System.assertEquals(false, statusResult.isFailed);
+    System.assertEquals(true, statusResult.isCompleted);
+    System.assertEquals(1, statusResult.errors.size());
+  }
+
+  @IsTest
+  static void test_startValidation_blankData_throws() {
+    try {
+      IssuePointSubTypeControllerV1.startPointFileValidation(null, 'point-upload.csv', getSubtypeId());
+      System.assert(false);
+    } catch (AuraHandledException e) {
+      System.assertEquals('Script-thrown exception', e.getMessage());
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
+    }
+  }
+
+  @IsTest
+  static void test_getStatus_invalidArgs_and_missingSource() {
+    try {
+      IssuePointSubTypeControllerV1.getPointFileValidationStatus(null);
+      System.assert(false);
+    } catch (AuraHandledException e) {
+      System.assertEquals('Script-thrown exception', e.getMessage());
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
+    }
+
+    try {
+      IssuePointSubTypeControllerV1.issuePointByUploadJob(null, getSubtypeId(), 100, Date.today().addDays(1));
+      System.assert(false);
+    } catch (AuraHandledException e) {
+      System.assertEquals('Script-thrown exception', e.getMessage());
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
+    }
+
+    Id fakeJobId = ((Id) '707000000000001AAA');
+    try {
+      IssuePointSubTypeControllerV1.issuePointByUploadJob(fakeJobId, getSubtypeId(), 100, Date.today().addDays(1));
+      System.assert(false);
+    } catch (AuraHandledException e) {
+      System.assertEquals('Script-thrown exception', e.getMessage());
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
+    }
+  }
+
+  @IsTest
+  static void test_loadSummary_and_displayHelpers() {
+    Id fakeJobId = ((Id) '707000000000002AAA');
+    IssuePointSubTypeControllerV1.ValidationSummaryFile summary = new IssuePointSubTypeControllerV1.ValidationSummaryFile();
+    summary.status = IssuePointSubTypeControllerV1.JOB_STATUS_FAILED;
+    summary.totalCount = 3;
+    summary.successCount = 1;
+    summary.failCount = 2;
+    summary.errorMessage = 'Contact MemberNo__c';
+    summary.errors = new List<IssuePointSubTypeControllerV1.MemberErrorDTO>{
+      new IssuePointSubTypeControllerV1.MemberErrorDTO('M1', 'LoyaltyProgramMember')
+    };
+
+    insert new ContentVersion(
+      Title = 'summary',
+      PathOnClient = 'summary.json',
+      Description = IssuePointSubTypeControllerV1.buildSummaryDescription(fakeJobId),
+      VersionData = Blob.valueOf(JSON.serialize(summary)),
+      IsMajorVersion = false
+    );
+
+    IssuePointSubTypeControllerV1.ValidationSummaryFile loaded = IssuePointSubTypeControllerV1.loadValidationSummary(fakeJobId);
+    System.assertNotEquals(null, loaded);
+    System.assertEquals(IssuePointSubTypeControllerV1.JOB_STATUS_FAILED, loaded.status);
+    System.assertEquals(3, loaded.totalCount);
+    System.assertEquals(null, IssuePointSubTypeControllerV1.loadValidationSummary((Id) '707000000000003AAA'));
+
+    String displayMessage = IssuePointSubTypeControllerV1.toDisplayLabelMessage('Contact MemberNo__c X_UNKNOWN');
+    System.assert(String.isNotBlank(displayMessage));
+    System.assert(displayMessage.contains('X_UNKNOWN'));
+
+    System.assertEquals('POINT_UPLOAD_SOURCE:' + String.valueOf(fakeJobId), IssuePointSubTypeControllerV1.buildSourceDescription(fakeJobId));
+    System.assertEquals('POINT_UPLOAD_SUMMARY:' + String.valueOf(fakeJobId), IssuePointSubTypeControllerV1.buildSummaryDescription(fakeJobId));
+  }
+
+  @IsTest
+  static void test_csvUtilityMethods() {
+    List<String> cols = IssuePointSubTypeControllerV1.parseCsvColumns('A,"B,C","D""E"');
+    System.assertEquals(3, cols.size());
+    System.assertEquals('A', cols[0]);
+    System.assertEquals('B,C', IssuePointSubTypeControllerV1.normalizeCsvCell('"' + cols[1] + '"'));
+    System.assertEquals('D"E', IssuePointSubTypeControllerV1.normalizeCsvCell('"D""E"'));
+    System.assertEquals('', IssuePointSubTypeControllerV1.normalizeCsvCell(null));
+    System.assertEquals('000123', IssuePointSubTypeControllerV1.normalizeCsvCell('="000123"'));
+    System.assertEquals('ABC', IssuePointSubTypeControllerV1.normalizeCsvCell('\'ABC'));
+    System.assertEquals('001', IssuePointSubTypeControllerV1.normalizeMemberNo('\u00A0001\u00A0'));
+    System.assertEquals(0, IssuePointSubTypeControllerV1.parseCsvColumns(null).size());
+  }
+
+  @IsTest
+  static void test_getStatus_failedSummaryAndMapAsyncStatus() {
+    String csv = 'WRONG,ETC\nA,B\n';
+
+    Test.startTest();
+    IssuePointSubTypeControllerV1.UploadJobStartResult startResult = IssuePointSubTypeControllerV1.startPointFileValidation(
+      toBase64(csv),
+      'wrong-header.csv',
+      getSubtypeId()
+    );
+    Test.stopTest();
+
+    AsyncApexJob job = findJobById(startResult.uploadJobId);
+    System.assertEquals('Completed', job.Status);
+
+    IssuePointSubTypeControllerV1.UploadJobStatusResult statusResult = IssuePointSubTypeControllerV1.getPointFileValidationStatus(
+      startResult.uploadJobId
+    );
+    System.assertEquals(IssuePointSubTypeControllerV1.JOB_STATUS_FAILED, statusResult.status);
+    System.assertEquals(true, statusResult.isFailed);
+    System.assert(String.isNotBlank(statusResult.errorMessage));
+  }
+
+  @IsTest
+  static void test_getPointIssueProgress_completedJob() {
+    String okMemberNo = uniq('PG');
+    Contact contact = createContact(okMemberNo);
+    createProgramMember(contact.Id, okMemberNo);
+
+    String csv = 'NO_MBR,ETC\n' + okMemberNo + ',A\n';
+
+    Test.startTest();
+    IssuePointSubTypeControllerV1.UploadJobStartResult startResult = IssuePointSubTypeControllerV1.startPointFileValidation(
+      toBase64(csv),
+      'point-progress.csv',
+      getSubtypeId()
+    );
+    Test.stopTest();
+
+    IssuePointSubTypeControllerV1.IssuePointProgressResult progressResult = IssuePointSubTypeControllerV1.getPointIssueProgress(
+      startResult.uploadJobId,
+      1
+    );
+
+    System.assertEquals(startResult.uploadJobId, progressResult.issueJobId);
+    System.assertEquals(IssuePointSubTypeControllerV1.JOB_STATUS_COMPLETED, progressResult.status);
+    System.assertEquals(true, progressResult.isCompleted);
+    System.assertEquals(false, progressResult.isFailed);
+    System.assertEquals(1, progressResult.totalCount);
+    System.assertEquals(1, progressResult.processedCount);
   }
 }

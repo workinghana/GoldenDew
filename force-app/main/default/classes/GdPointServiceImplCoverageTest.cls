@@ -32,7 +32,7 @@ private class GdPointServiceImplCoverageTest {
       OrderNo__c = 'GP-ORD-001',
       SaleNo__c = 'GP-SALE-001',
       ActualPaymentAmount__c = 50000,
-      IsReductionOrder = true
+      IsReductionOrder__c = true
     );
     insert ord;
 
@@ -164,7 +164,7 @@ private class GdPointServiceImplCoverageTest {
 
   private static Order getOrderRecord() {
     return [
-      SELECT Id, OrderNo__c, SaleNo__c, ActualPaymentAmount__c, IsReductionOrder
+      SELECT Id, OrderNo__c, SaleNo__c, ActualPaymentAmount__c, IsReductionOrder__c
       FROM Order
       WHERE OrderNo__c = 'GP-ORD-001'
       LIMIT 1
@@ -287,7 +287,7 @@ private class GdPointServiceImplCoverageTest {
           DebitLoyaltyLedger.TransactionJournal.DepositNo__c,
           DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
           DebitLoyaltyLedger.TransactionJournal.Order.ActualPaymentAmount__c,
-          DebitLoyaltyLedger.TransactionJournal.Order.IsReductionOrder
+          DebitLoyaltyLedger.TransactionJournal.Order.IsReductionOrder__c
         FROM LoyaltyLedgerTraceability
         LIMIT 1
       ];
@@ -333,7 +333,7 @@ private class GdPointServiceImplCoverageTest {
           DebitLoyaltyLedger.TransactionJournal.DepositNo__c,
           DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
           DebitLoyaltyLedger.TransactionJournal.Order.ActualPaymentAmount__c,
-          DebitLoyaltyLedger.TransactionJournal.Order.IsReductionOrder
+          DebitLoyaltyLedger.TransactionJournal.Order.IsReductionOrder__c
         FROM LoyaltyLedgerTraceability
         LIMIT 2
       ];

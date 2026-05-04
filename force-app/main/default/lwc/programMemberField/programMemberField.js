@@ -98,11 +98,30 @@ export default class ProgramMemberField extends LightningElement {
   }
 
   get mobilePhoneText() {
-    return this.displayValue(this.member?.mobilePhone);
+    const raw = this.member?.mobilePhone;
+    if (!raw) {
+      return this.displayValue(raw);
+    }
+
+    const digits = raw.replace(/\D/g, "");
+    if (digits.length === 11) {
+      return digits.replace(/(\d{3})(\d{4})(\d{4})/, "$1-$2-$3");
+    }
+    if (digits.length === 10) {
+      return digits.replace(/(\d{3})(\d{3})(\d{4})/, "$1-$2-$3");
+    }
+
+    return raw;
   }
 
   get addressText() {
-    return this.displayValue(this.member?.address);
+    const raw = this.member?.address;
+    if (!raw) {
+      return this.displayValue(raw);
+    }
+    // 끝의 " 호" / " 동" 같은 짧은 토큰이 줄바꿈으로 떨어지지 않도록 비분리 공백으로 묶음
+    const sanitized = raw.replace(/\s+(호|동|층|번지)\s*$/, " $1");
+    return this.displayValue(sanitized);
   }
 
   get storeNameText() {
@@ -208,6 +227,17 @@ export default class ProgramMemberField extends LightningElement {
     return "정보 없음";
   }
 
+  get mobileVerifiedText() {
+    if (this.member?.isMobileVerified === true) return "인증";
+    if (this.member?.isMobileVerified === false) return "미인증";
+
+    return "정보 없음";
+  }
+
+  get memberTypeText() {
+    return this.displayValue(this.member?.memberType);
+  }
+
   /* ================= 혜택 ================= */
 
   get ownedCouponText() {
@@ -230,6 +260,16 @@ export default class ProgramMemberField extends LightningElement {
     return new Intl.NumberFormat("ko-KR").format(value);
   }
 
+  get tierQualifyingSpendText() {
+    const value = this.member?.tierQualifyingSpend3Y;
+
+    if (!value || value === 0) {
+      return "구매 내역 없음";
+    }
+
+    return new Intl.NumberFormat("ko-KR").format(value);
+  }
+
   get gradeUpdatedText() {
     const dt = this.grade?.lastUpdatedDate;
 
@@ -243,15 +283,19 @@ export default class ProgramMemberField extends LightningElement {
   /* ================= 마케팅 ================= */
 
   get emailConsentLabel() {
-    return this.marketing?.emailConsent ? "동의" : "거부";
+    return this.marketing?.emailConsent ? "동의" : "미동의";
   }
 
   get smsConsentLabel() {
-    return this.marketing?.smsConsent ? "동의" : "거부";
+    return this.marketing?.smsConsent ? "동의" : "미동의";
   }
 
   get magazinConsentLabel() {
-    return this.marketing?.magazineConsent ? "동의" : "거부";
+    return this.marketing?.magazineConsent ? "동의" : "미동의";
+  }
+
+  get magazineCatalogLabel() {
+    return this.marketing?.magazineCatalogConsent ? "동의" : "미동의";
   }
 
   get magazineConsentDateText() {

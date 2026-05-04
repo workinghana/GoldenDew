@@ -1,0 +1,19 @@
+{
+  "folders": [
+    {
+      "path": "c:/Users/milvus-0/Goldendew"
+    }
+  ],
+  "settings": {
+    "eslint.workingDirectories": [
+      "c:/Users/milvus-0/Goldendew"
+    ],
+    "eslint.validate": [
+      "javascript",
+      "typescript"
+    ],
+    "eslint.options": {
+      "overrideConfigFile": "c:\\Users\\milvus-0\\Goldendew\\.eslintrc.json"
+    }
+  }
+}

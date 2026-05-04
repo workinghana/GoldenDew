@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Flow xmlns="http://soap.sforce.com/2006/04/metadata">
+    <actionCalls>
+        <description>포인트 사용 취소 액션</description>
+        <name>act010</name>
+        <label>포인트 사용 취소</label>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <actionName>cancelRedemption</actionName>
+        <actionType>cancelRedemption</actionType>
+        <flowTransactionModel>CurrentTransaction</flowTransactionModel>
+        <inputParameters>
+            <name>transactionJournalId</name>
+            <value>
+                <elementReference>TransactionJournalId</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
+            <name>cancellationReason</name>
+            <value>
+                <stringValue>테스트</stringValue>
+            </value>
+        </inputParameters>
+        <nameSegment>cancelRedemption</nameSegment>
+        <offset>0</offset>
+        <storeOutputAutomatically>true</storeOutputAutomatically>
+    </actionCalls>
+    <apiVersion>65.0</apiVersion>
+    <areMetricsLoggedToDataCloud>false</areMetricsLoggedToDataCloud>
+    <description>포인트 사용 취소</description>
+    <environments>Default</environments>
+    <interviewLabel>(AF)포인트 사용 취소 {!$Flow.CurrentDateTime}</interviewLabel>
+    <label>(AF)포인트 사용 취소</label>
+    <processMetadataValues>
+        <name>BuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>CanvasMode</name>
+        <value>
+            <stringValue>AUTO_LAYOUT_CANVAS</stringValue>
+        </value>
+    </processMetadataValues>
+    <processMetadataValues>
+        <name>OriginBuilderType</name>
+        <value>
+            <stringValue>LightningFlowBuilder</stringValue>
+        </value>
+    </processMetadataValues>
+    <processType>AutoLaunchedFlow</processType>
+    <start>
+        <locationX>0</locationX>
+        <locationY>0</locationY>
+        <connector>
+            <targetReference>act010</targetReference>
+        </connector>
+    </start>
+    <status>Active</status>
+    <variables>
+        <name>TransactionJournalId</name>
+        <dataType>String</dataType>
+        <isCollection>false</isCollection>
+        <isInput>true</isInput>
+        <isOutput>false</isOutput>
+    </variables>
+</Flow>

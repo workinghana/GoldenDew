@@ -11,6 +11,8 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
   private static final String SUBTYPE_API_FORCED_EXPIRE = 'Api Forced Expire';
   private static final String SUBTYPE_API_FORCED_DEBIT = 'Api Forced Debit';
   private static final String SUBTYPE_API_FORCED_CREDIT = 'Api Forced Credit'; // API 요청에 의한 포인트 강제 지급(적립) 처리
+  private static final String SUBTYPE_PROMOTION_POINT_ACCRUAL = 'Promotion Point Accrual'; // 프로모션 포인트 지급
+  private static final String SUBTYPE_PROMOTION_POINT_ACCRUAL_REVERSAL = 'Promotion Point Accrual Reversal'; // 프로모션 포인트 지급 취소
 
   private static final String PROGRAM_CURRENCY_POINT_NAME = '포인트';
 
@@ -52,7 +54,9 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
         SUBTYPE_API_FORCED_EXPIRE,
         SUBTYPE_API_FORCED_DEBIT,
         SUBTYPE_API_FORCED_CREDIT,
-        SUBTYPE_AUTO_EXPIRE
+        SUBTYPE_AUTO_EXPIRE,
+        SUBTYPE_PROMOTION_POINT_ACCRUAL,
+        SUBTYPE_PROMOTION_POINT_ACCRUAL_REVERSAL
       };
 
       Map<String, Id> subTypeIdByName = new Map<String, Id>();
@@ -295,11 +299,23 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
         val.loyaltyPgmCrcySubtypeName = subtypeName;
 
         if (tj.JournalSubTypeId == cfg.pointRedeemCancelId) {
-          val.totalRedeemPoint -= pts;
+          // [v3 fix 2026-04-24] Trace 보존 모델 기반 분기:
+          //   Flag ON  = v3 Trace 보존 → 원본 Debit Trace 가 그대로 남음.
+          //              재적립 Credit 을 Accrued 로 반영. Red 는 추가 차감 불필요.
+          //   Flag OFF = v1/v2 경로 (Trace 삭제 전제) → 기존 로직 Red -= pts 유지.
+          //
+          // 과거 Bug 3 Flag 'Aggr_IncludeCancelInAccrued' 는 v3 Flag 로 통합됨
+          // (Trace 삭제 상태에서 Acc += 만 단독으로 걸면 help-info 과다 표시되는 부작용 확인).
+          if (GdFeatureFlag.isEnabled('PointCancel_PreserveTrace')) {
+            val.totalAccrualPoint += pts;
+          } else {
+            val.totalRedeemPoint -= pts;
+          }
         } else if (
           tj.JournalSubTypeId == cfg.purchaseAccrualId ||
           tj.JournalSubTypeId == cfg.manualPointsCreditId ||
-          tj.JournalSubTypeId == cfg.apiForcedCreditId
+          tj.JournalSubTypeId == cfg.apiForcedCreditId ||
+          tj.JournalSubTypeId == cfg.promotionPointAccrualId
         ) {
           val.totalAccrualPoint += pts;
         }
@@ -340,7 +356,11 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
 
           if (tj.JournalSubTypeId == cfg.pointDebitId) {
             val.totalRedeemPoint += tPts;
-          } else if (tj.JournalSubTypeId == cfg.cancelPurchaseAccrualId || tj.JournalSubTypeId == cfg.apiForcedDebitId) {
+          } else if (
+            tj.JournalSubTypeId == cfg.cancelPurchaseAccrualId ||
+            tj.JournalSubTypeId == cfg.promotionPointAccrualReversalId ||
+            tj.JournalSubTypeId == cfg.apiForcedDebitId
+          ) {
             val.totalAccrualPoint -= tPts;
           } else if (tj.JournalSubTypeId == cfg.apiForcedExpireId) {
             val.totalExprPoint += tPts;
@@ -370,7 +390,11 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
         AggrValue val = keyToAggrMap.containsKey(key) ? keyToAggrMap.get(key) : new AggrValue();
         val.loyaltyPgmCrcySubtypeName = subtypeName;
 
-        if (tj.JournalSubTypeId == cfg.autoExpireId) {
+        if (
+          tj.JournalSubTypeId == cfg.autoExpireId ||
+          tj.JournalSubTypeId == cfg.apiForcedExpireId ||
+          tj.JournalSubTypeId == cfg.pointRedeemCancelId
+        ) {
           val.totalExprPoint += pts;
         }
 
@@ -531,6 +555,8 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
     public Id apiForcedExpireId;
     public Id apiForcedDebitId;
     public Id apiForcedCreditId;
+    public Id promotionPointAccrualId;
+    public Id promotionPointAccrualReversalId;
 
     public Id pointCurrencyId;
 
@@ -544,6 +570,8 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
       this.apiForcedExpireId = subTypeIdByName.get(SUBTYPE_API_FORCED_EXPIRE);
       this.apiForcedDebitId = subTypeIdByName.get(SUBTYPE_API_FORCED_DEBIT);
       this.apiForcedCreditId = subTypeIdByName.get(SUBTYPE_API_FORCED_CREDIT);
+      this.promotionPointAccrualId = subTypeIdByName.get(SUBTYPE_PROMOTION_POINT_ACCRUAL);
+      this.promotionPointAccrualReversalId = subTypeIdByName.get(SUBTYPE_PROMOTION_POINT_ACCRUAL_REVERSAL);
 
       this.pointCurrencyId = pointCurrencyId;
     }

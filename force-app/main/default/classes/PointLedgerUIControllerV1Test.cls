@@ -487,6 +487,48 @@ private class PointLedgerUIControllerV1Test {
   }
 
   @IsTest
+  static void testGetPointLedgerRows_excludesPointRedeemCancelCreditRow() {
+    Map<String, Id> ids = setupCoreData('PLM-PRC-CREDIT');
+
+    TransactionJournal accrualJournal = createJournalWithExactSubtypeName(
+      ids.get('memberId'),
+      ids.get('programId'),
+      ids.get('orderId'),
+      'AccrualKeep',
+      'Purchase Accrual',
+      '10',
+      1000
+    );
+    createLedger(accrualJournal.Id, ids.get('memberId'), ids.get('currencyId'), ids.get('subtypeId'), 'Credit', 1000, Date.today().addYears(1));
+
+    TransactionJournal pointRedeemCancelJournal = createJournalWithExactSubtypeName(
+      ids.get('memberId'),
+      ids.get('programId'),
+      ids.get('orderId'),
+      'RedeemCancelKeepOut',
+      'Point Redeem Cancel',
+      '81',
+      500
+    );
+    createLedger(
+      pointRedeemCancelJournal.Id,
+      ids.get('memberId'),
+      ids.get('currencyId'),
+      ids.get('subtypeId'),
+      'Credit',
+      500,
+      Date.today().addYears(1)
+    );
+
+    Test.startTest();
+    List<PointLedgerUIControllerV1.PointLedgerRowDTO> rows = PointLedgerUIControllerV1.getPointLedgerRows(ids.get('memberId'), ids.get('orderId'));
+    Test.stopTest();
+
+    System.assertEquals(1, rows.size());
+    System.assertEquals(1000, rows[0].accruedPoints);
+  }
+
+  @IsTest
   static void testGetPointRedemptionRows_nullInput() {
     Test.startTest();
     List<PointLedgerUIControllerV1.PointRedemptionRowDTO> rows = PointLedgerUIControllerV1.getPointRedemptionRows(null, null);
@@ -795,5 +837,41 @@ private class PointLedgerUIControllerV1Test {
     System.assertEquals('적립취소', rows[0].redemptionType);
     System.assertEquals(1000, rows[0].redemptionPoints);
     System.assertEquals(false, rows[0].isCancel);
+  }
+  @IsTest
+  static void testGetPointRedemptionRows_includesPointRedeemCancelCreditAsUsageCancel() {
+    Map<String, Id> ids = setupCoreData('PRM-REDEEM-CANCEL-CREDIT');
+
+    TransactionJournal pointRedeemCancelJournal = createJournalWithExactSubtypeName(
+      ids.get('memberId'),
+      ids.get('programId'),
+      ids.get('orderId'),
+      'RedeemCancelOnly',
+      'Point Redeem Cancel',
+      '81',
+      500
+    );
+    createLedger(
+      pointRedeemCancelJournal.Id,
+      ids.get('memberId'),
+      ids.get('currencyId'),
+      ids.get('subtypeId'),
+      'Credit',
+      500,
+      Date.today().addYears(1)
+    );
+
+    Test.startTest();
+    List<PointLedgerUIControllerV1.PointRedemptionRowDTO> rows = PointLedgerUIControllerV1.getPointRedemptionRows(
+      ids.get('memberId'),
+      ids.get('orderId')
+    );
+    Test.stopTest();
+
+    System.assertEquals(1, rows.size());
+    System.assertEquals('사용취소', rows[0].redemptionType);
+    System.assertEquals(500, rows[0].redemptionPoints);
+    System.assertEquals(true, rows[0].isCancel);
+    System.assertEquals('SALE-PRM-REDEEM-CANCEL-CREDIT', rows[0].saleNo);
   }
 }

@@ -26,10 +26,28 @@ public interface GdSaleDepositService {
   ApiResult deleteSaleDeposit(String depositNo);
 
   /**
+   * 판매 입금 삭제 V2
+   *
+   * @version 2.0
+   * @return ApiResult
+   * @throws CustomException
+   */
+  ApiResult deleteSaleDepositV2(String depositNo);
+
+  /**
    * 판매 입금 이력 수정
    *
    * @return ApiResult
    * @throws CustomException
    */
   ApiResult upsertSaleDeposit(Map<String, Object> reqData);
+
+  /**
+   * 판매 입금 이력 수정 V2
+   *
+   * @version 2.0
+   * @return ApiResult
+   * @throws CustomException
+   */
+  ApiResult upsertSaleDepositV2(Map<String, Object> reqData);
 }

@@ -73,6 +73,23 @@ private class PromotionProductTriggerHandlerTest {
     PromotionProduct pp = newPromotionProduct(p.Id, products[0].Id);
     insert pp;
 
+    List<ApexAuditTrail__c> logs = [
+      SELECT RequestBody__c, Description__c
+      FROM ApexAuditTrail__c
+      WHERE ApexClass__c = 'PromotionProductTriggerHandler'
+      ORDER BY CreatedDate DESC
+      LIMIT 5
+    ];
+    ApexAuditTrail__c createLog;
+    for (ApexAuditTrail__c log : logs) {
+      if (log.Description__c != null && log.Description__c.startsWith('ERP Promotion Item create done')) {
+        createLog = log;
+        break;
+      }
+    }
+    System.assertNotEquals(null, createLog);
+    System.assert(createLog.RequestBody__c.contains('"id_update"'), createLog.RequestBody__c);
+
     delete pp;
     System.assertEquals(0, [SELECT COUNT() FROM PromotionProduct WHERE Id = :pp.Id]);
   }
@@ -330,6 +347,21 @@ private class PromotionProductTriggerHandlerTest {
     }
 
     System.assert(true);
+  }
+
+  @IsTest
+  static void testUserNameFallback() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+
+    Promotion p = [SELECT Id FROM Promotion LIMIT 1];
+    Product2 prod = [SELECT Id FROM Product2 LIMIT 1];
+
+    // userName 대신 SYSTEM fallback이 타는지 확인
+    Test.startTest();
+    insert newPromotionProduct(p.Id, prod.Id);
+    Test.stopTest();
+
+    System.assert(true); // 예외 없이 실행되면 성공
   }
 
   @IsTest

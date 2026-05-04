@@ -169,6 +169,10 @@ public with sharing class PromotionProductTriggerHandler extends TriggerHandler 
         PromotionProduct ppNew = newMap.get(ppId);
         PromotionProduct ppOld = oldMap.get(ppId);
 
+        if (ppOld.ProductId == null || ppOld.PromotionId == null) {
+          continue;
+        }
+
         if (shouldSkipUpdate(ppNew)) {
           continue;
         }
@@ -191,7 +195,7 @@ public with sharing class PromotionProductTriggerHandler extends TriggerHandler 
           }
 
           ErpPromotionProductReqDto.PromotionItem item = new ErpPromotionProductReqDto.PromotionItem(pp);
-          item.id_update = UserInfo.getUserName();
+          item.id_update = String.isBlank(UserInfo.getUserName()) ? 'SYSTEM' : UserInfo.getUserName();
           items.add(item);
           enqueueTargetIds.add(pp.Id);
         } catch (Exception ex) {

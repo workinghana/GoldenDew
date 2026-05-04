@@ -38,18 +38,18 @@ global with sharing class GdOrderApiControllerV1 {
     return orderItemService;
   }
 
-  // 테스트 클래스 용도
-  @TestVisible
-  private static void setTransactionJournalService(GdTransactionJournalService mock) {
-    transactionJournalService = mock;
-  }
+  // // 테스트 클래스 용도
+  // @TestVisible
+  // private static void setTransactionJournalService(GdTransactionJournalService mock) {
+  //   transactionJournalService = mock;
+  // }
 
-  private static GdTransactionJournalService getTransactionJournalService() {
-    if (transactionJournalService == null) {
-      transactionJournalService = new GdTransactionJournalServiceImpl();
-    }
-    return transactionJournalService;
-  }
+  // private static GdTransactionJournalService getTransactionJournalService() {
+  //   if (transactionJournalService == null) {
+  //     transactionJournalService = new GdTransactionJournalServiceImpl();
+  //   }
+  //   return transactionJournalService;
+  // }
 
   // 테스트 클래스 용도
   @TestVisible
@@ -116,6 +116,7 @@ global with sharing class GdOrderApiControllerV1 {
         ApiResult orderResult = getOrderService().createOrder(reqData);
         reqData.put('orderId', orderResult.data.get('orderId'));
         reqData.put('storeTypeFour', orderResult.data.get('storeTypeFour'));
+        reqData.put('storeType', orderResult.data.get('storeType'));
       }
 
       {
@@ -233,77 +234,77 @@ global with sharing class GdOrderApiControllerV1 {
     }
   }
 
-  /**
-   * ! 보류
-   * 주문 취소
-   * Order update
-   * OrderItem update
-   */
-  @HttpPut
-  global static void cancelOrder() {
-    RestRequest req = RestContext.request;
-    Savepoint sp = Database.setSavepoint();
-    try {
-      String raw = RestContext.request.requestBody == null ? null : RestContext.request.requestBody.toString();
-      if (String.isBlank(raw)) {
-        throw new CustomException(400, '요청 본문이 비었습니다.');
-      }
+  // /**
+  //  * ! 사용 x
+  //  * 주문 취소
+  //  * Order update
+  //  * OrderItem update
+  //  */
+  // @HttpPut
+  // global static void cancelOrder() {
+  //   RestRequest req = RestContext.request;
+  //   Savepoint sp = Database.setSavepoint();
+  //   try {
+  //     String raw = RestContext.request.requestBody == null ? null : RestContext.request.requestBody.toString();
+  //     if (String.isBlank(raw)) {
+  //       throw new CustomException(400, '요청 본문이 비었습니다.');
+  //     }
 
-      Map<String, Object> reqData;
-      try {
-        reqData = (Map<String, Object>) JSON.deserializeUntyped(raw);
-      } catch (Exception e) {
-        throw new CustomException(400, 'JSON 역직렬화 실패: ' + e.getMessage());
-      }
-      Map<String, Object> resData = reqData;
+  //     Map<String, Object> reqData;
+  //     try {
+  //       reqData = (Map<String, Object>) JSON.deserializeUntyped(raw);
+  //     } catch (Exception e) {
+  //       throw new CustomException(400, 'JSON 역직렬화 실패: ' + e.getMessage());
+  //     }
+  //     Map<String, Object> resData = reqData;
 
-      {
-        // Order update
-        reqData.put('orderId', getOrderService().updateOrder(reqData).data.get('orderId'));
-      }
+  //     {
+  //       // Order update
+  //       reqData.put('orderId', getOrderService().updateOrder(reqData).data.get('orderId'));
+  //     }
 
-      {
-        // OrderItem upsert
-        if (reqData.containsKey('OrderItem')) {
-          getOrderItemService().upsertOrderItem(reqData);
-        }
-      }
+  //     {
+  //       // OrderItem upsert
+  //       if (reqData.containsKey('OrderItem')) {
+  //         getOrderItemService().upsertOrderItem(reqData);
+  //       }
+  //     }
 
-      {
-        // TransactionJournal insert - 입금 내역
-        getTransactionJournalService().createOrderDepositHistory(reqData);
-      }
+  //     {
+  //       // TransactionJournal insert - 입금 내역
+  //       getTransactionJournalService().createOrderDepositHistory(reqData);
+  //     }
 
-      ApiResult result = ApiResult.ok(200, '주문 취소 완료', resData);
+  //     ApiResult result = ApiResult.ok(200, '주문 취소 완료', resData);
 
-      RestResponseUtil.handleSuccess(result);
-    } catch (CustomException ce) {
-      RestResponseUtil.handleCustomException(ce, sp, ce.code, ce.message);
-    } catch (Exception e) {
-      RestResponseUtil.handleException(e, sp, 500);
-    }
-  }
+  //     RestResponseUtil.handleSuccess(result);
+  //   } catch (CustomException ce) {
+  //     RestResponseUtil.handleCustomException(ce, sp, ce.code, ce.message);
+  //   } catch (Exception e) {
+  //     RestResponseUtil.handleException(e, sp, 500);
+  //   }
+  // }
 
-  /**
-   * ! 이관 대상
-   * 주문 입금 조회
-   */
-  @HttpGet
-  global static void getOrderDepositList() {
-    try {
-      RestRequest req = RestContext.request;
+  // /**
+  //  * ! 이관 대상 -> 사용 x
+  //  * 주문 입금 조회
+  //  */
+  // @HttpGet
+  // global static void getOrderDepositList() {
+  //   try {
+  //     RestRequest req = RestContext.request;
 
-      String orderNo = ValidationUtil.stringValidation(req.params.get('orderNo'), 'orderNo', true);
+  //     String orderNo = ValidationUtil.stringValidation(req.params.get('orderNo'), 'orderNo', true);
 
-      ApiResult result = getTransactionJournalService().getOrderDepositList(orderNo);
+  //     ApiResult result = getTransactionJournalService().getOrderDepositList(orderNo);
 
-      RestResponseUtil.handleSuccess(result);
-    } catch (ValidationException ve) {
-      RestResponseUtil.handleCustomException(ve, null, ve.code, ve.detail);
-    } catch (CustomException ce) {
-      RestResponseUtil.handleCustomException(ce, null, ce.code, ce.message);
-    } catch (Exception e) {
-      RestResponseUtil.handleException(e, null, 500);
-    }
-  }
+  //     RestResponseUtil.handleSuccess(result);
+  //   } catch (ValidationException ve) {
+  //     RestResponseUtil.handleCustomException(ve, null, ve.code, ve.detail);
+  //   } catch (CustomException ce) {
+  //     RestResponseUtil.handleCustomException(ce, null, ce.code, ce.message);
+  //   } catch (Exception e) {
+  //     RestResponseUtil.handleException(e, null, 500);
+  //   }
+  // }
 }

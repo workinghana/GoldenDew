@@ -38,6 +38,7 @@ public class ErpPromotionProductReqDto {
       for (PromotionProduct pp : promotionProducts) {
         PromotionItem item = new PromotionItem(pp);
         item.id_insert = UserInfo.getUserName();
+        item.id_update = UserInfo.getUserName();
         this.promotionItemList.add(item);
       }
     }
@@ -85,6 +86,7 @@ public class ErpPromotionProductReqDto {
     public String no_prom;
     public String cd_item;
     public String id_insert;
+    public String id_update;
 
     public CreateRequest() {
     }
@@ -93,6 +95,7 @@ public class ErpPromotionProductReqDto {
       this.no_prom = pp.Promotion.PromotionNo__c;
       this.cd_item = pp.Product.ProductCode;
       this.id_insert = UserInfo.getUserName();
+      this.id_update = UserInfo.getUserName();
     }
   }
 

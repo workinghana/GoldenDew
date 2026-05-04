@@ -163,6 +163,11 @@ private class GdMemberApiControllerV1Test {
     RestContext.response = new RestResponse();
   }
 
+  private static void setupDelete(String memberNo, String memberDropDate) {
+    setupDelete(memberNo);
+    RestContext.request.addParameter('MemberDropDate__c', memberDropDate);
+  }
+
   private static void setupPut(String bodyJson) {
     RestContext.request = new RestRequest();
     RestContext.request.requestUri = '/services/apexrest/gd/v1/member';
@@ -349,6 +354,39 @@ private class GdMemberApiControllerV1Test {
     } catch (Exception e) {
     }
     System.assert(true);
+  }
+
+  @IsTest
+  static void inactiveMember_usesRequestedMemberDropDate() {
+    resetServices();
+    ApexLogger.disableLogging();
+
+    Contact contact = insertContact('M_DROP_DATE', 'dropdate@test.com');
+    LoyaltyProgramMember member = insertLpm(contact);
+    member.EnrollmentDate = Date.newInstance(2026, 1, 1);
+    update member;
+
+    Test.startTest();
+    setupDelete('M_DROP_DATE', '2026-03-08');
+    GdMemberApiControllerV1.inactiveMember();
+    Test.stopTest();
+
+    Contact updatedContact = [
+      SELECT IsWithdrawn__c, MemberDropDate__c
+      FROM Contact
+      WHERE Id = :contact.Id
+    ];
+    LoyaltyProgramMember updatedMember = [
+      SELECT MemberStatus, MembershipEndDate
+      FROM LoyaltyProgramMember
+      WHERE ContactId = :contact.Id
+      LIMIT 1
+    ];
+
+    System.assertEquals(true, updatedContact.IsWithdrawn__c);
+    System.assertEquals(Date.newInstance(2026, 3, 8), updatedContact.MemberDropDate__c);
+    System.assertEquals('Inactive', updatedMember.MemberStatus);
+    System.assertEquals(Date.newInstance(2026, 3, 8), updatedMember.MembershipEndDate);
   }
 
   @IsTest

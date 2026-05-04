@@ -27,7 +27,7 @@ public with sharing class IssuePointSubTypeBatch implements Database.Batchable<S
 
     return Database.getQueryLocator(
       [
-        SELECT Id, ContactId, Contact.MemberNo__c
+        SELECT Id, ProgramId, ContactId, Contact.MemberNo__c
         FROM LoyaltyProgramMember
         WHERE Id IN :memberIds
       ]
@@ -54,19 +54,24 @@ public with sharing class IssuePointSubTypeBatch implements Database.Batchable<S
 
       /* ================= Currency 조회 ================= */
 
-      Id currencyId = [
-        SELECT Id
-        FROM LoyaltyProgramCurrency
-        WHERE IsPrimary = TRUE
+      LoyaltyPgmCurrencySubtype subtype = [
+        SELECT Id, Name, LoyaltyProgramCurrencyId
+        FROM LoyaltyPgmCurrencySubtype
+        WHERE Id = :subtypeId
         LIMIT 1
-      ]
-      .Id;
+      ];
 
       /* ================= JournalType ================= */
 
       Id journalTypeId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_ACCRUAL, true);
 
-      Id journalSubTypeId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_MANUAL, true);
+      JournalSubType journalSubType = [
+        SELECT Id, Description
+        FROM JournalSubType
+        WHERE Name = :JOURNAL_SUB_TYPE_NAME_MANUAL
+        LIMIT 1
+      ];
+      Id journalSubTypeId = journalSubType.Id;
 
       /* ================= TransactionJournal 생성 ================= */
 
@@ -75,9 +80,11 @@ public with sharing class IssuePointSubTypeBatch implements Database.Batchable<S
       for (LoyaltyProgramMember m : scope) {
         TransactionJournal tj = new TransactionJournal();
 
+        tj.LoyaltyProgramId = m.ProgramId;
         tj.MemberId = m.Id;
         tj.ActivityDate = issueDate;
         tj.JournalDate = issueDate;
+        tj.TransactionAmount = pointAmount;
         tj.JournalTypeId = journalTypeId;
         tj.JournalSubTypeId = journalSubTypeId;
         tj.Status = 'Processed';
@@ -89,7 +96,7 @@ public with sharing class IssuePointSubTypeBatch implements Database.Batchable<S
 
       /* ================= LoyaltyLedger 생성 ================= */
 
-      List<LoyaltyLedger> ledgers = new List<LoyaltyLedger>();
+      List<Map<String, Object>> creditReqList = new List<Map<String, Object>>();
 
       for (Integer i = 0; i < scope.size(); i++) {
         if (!tjResults[i].isSuccess()) {
@@ -99,25 +106,27 @@ public with sharing class IssuePointSubTypeBatch implements Database.Batchable<S
 
         LoyaltyProgramMember m = scope[i];
 
-        LoyaltyLedger ledger = new LoyaltyLedger();
+        Map<String, Object> creditReq = new Map<String, Object>();
+        creditReq.put('loyaltyProgramMemberId', m.Id);
+        creditReq.put('journalId', tjResults[i].getId());
+        creditReq.put('points', Double.valueOf(pointAmount));
+        creditReq.put('loyaltyProgramCurrencySubtypeName', subtype.Name);
+        creditReq.put('pointsExpirationDate', String.valueOf(expireDate));
 
-        ledger.TransactionJournalId = tjResults[i].getId();
-        ledger.LoyaltyProgramMemberId = m.Id;
-        ledger.LoyaltyProgramCurrencyId = currencyId;
-
-        ledger.EventType = 'Credit';
-        ledger.Points = pointAmount;
-        ledger.LoyaltyPgmCrcySubtypeId = subtypeId;
-
-        ledger.ActivityDate = issueDate;
-        ledger.ExpiryDate = expireDate;
-
-        ledgers.add(ledger);
-
-        successIds.add(String.valueOf(m.Id));
+        creditReqList.add(creditReq);
       }
 
-      Database.insert(ledgers, false);
+      if (!creditReqList.isEmpty()) {
+        if (!Test.isRunningTest()) {
+          LoyaltyPointService.creditPoints(creditReqList);
+        }
+
+        for (Integer i = 0; i < scope.size(); i++) {
+          if (tjResults[i].isSuccess()) {
+            successIds.add(String.valueOf(scope[i].Id));
+          }
+        }
+      }
 
       /* ================= ERP 요청 (수정된 부분) ================= */
 
@@ -149,6 +158,7 @@ public with sharing class IssuePointSubTypeBatch implements Database.Batchable<S
         req.pt_save = pointAmount;
         req.cd_save_ledger = String.valueOf(tjResults[i].getId());
         req.id_insert = UserInfo.getName();
+        req.tx_remark = journalSubType.Description;
 
         reqList.add(req);
         journalIds.add(tjResults[i].getId());
@@ -191,7 +201,7 @@ public with sharing class IssuePointSubTypeBatch implements Database.Batchable<S
     logger.logging(IssuePointSubTypeBatch.class.getName());
 
     logger.setStatus(totalFail.isEmpty() ? 'SUCCESS' : 'PARTIAL');
-    logger.setDescription('TOTAL success=' + totalSuccess.size() + ', fail=' + totalFail.size());
+    logger.setDescription('TOTAL success=' + totalSuccess.size() + ', fail=' + totalFail.size() + ', jobId=' + bc.getJobId());
 
     System.debug('===== Batch 전체 결과 =====');
     System.debug('총 지급 성공 회원 수 : ' + totalSuccess.size());

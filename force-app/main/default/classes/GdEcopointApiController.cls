@@ -1,7 +1,7 @@
 /**
  * 에코포인트 API 컨트롤러
  */
-@RestResource(urlMapping='/gd/ecopoint')
+//@RestResource(urlMapping='/gd/ecopoint')
 global with sharing class GdEcopointApiController {
   private static GdPointService pointService;
 
@@ -20,7 +20,7 @@ global with sharing class GdEcopointApiController {
   /**
    * 에코 포인트 지급
    */
-  @HttpPost
+  //@HttpPost
   global static void creditEcopoint() {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();

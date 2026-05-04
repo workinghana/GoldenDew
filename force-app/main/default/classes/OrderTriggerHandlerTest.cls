@@ -2,8 +2,9 @@
 private class OrderTriggerHandlerTest {
   private static Integer seq = 0;
 
-  private static Account createAccount() {
-    Account acc = new Account(Name = 'OrderTrigger Test Account');
+  private static Account createStoreAccount() {
+    seq++;
+    Account acc = new Account(Name = 'OrderTrigger Store ' + seq, StoreCode__c = 'OT-ST-' + seq, StoreType__c = '11', StoreTypeFour__c = '01');
     insert acc;
     return acc;
   }
@@ -14,90 +15,116 @@ private class OrderTriggerHandlerTest {
     return pbId;
   }
 
-  private static Contact createContact(String lastName, Decimal spend) {
-    Contact c = new Contact(LastName = lastName, TierQualifyingSpend3Y__c = spend);
+  private static Contact createContact(String name, Decimal spend) {
+    Contact c = new Contact(LastName = name, TierQualifyingSpend3Y__c = spend);
     insert c;
     return c;
   }
 
-  private static PricebookEntry createPricebookEntry(Id pricebookId) {
+  private static PricebookEntry createPricebookEntry(Id pbId) {
     seq++;
     Product2 p = new Product2(Name = 'OrderTrigger Product ' + seq, ProductCode = 'OTP-' + seq, IsActive = true);
     insert p;
 
-    PricebookEntry pbe = new PricebookEntry(Pricebook2Id = pricebookId, Product2Id = p.Id, UnitPrice = 100, IsActive = true);
+    PricebookEntry pbe = new PricebookEntry(Pricebook2Id = pbId, Product2Id = p.Id, UnitPrice = 100, IsActive = true);
     insert pbe;
     return pbe;
   }
 
-  private static Order createOrder(Id accountId, Id pricebookId, Date effectiveDate, Decimal amount, Id memberId, String status) {
+  private static Order createOrder(Id storeAccountId, Id pbId, Id memberId, Date effectiveDate, String status) {
     Order o = new Order(
-      AccountId = accountId,
+      AccountId = storeAccountId,
+      StoreCode__c = storeAccountId,
+      Pricebook2Id = pbId,
+      MemberNo__c = memberId,
       EffectiveDate = effectiveDate,
-      Status = status,
-      Pricebook2Id = pricebookId,
-      ActualPaymentAmount__c = amount,
-      MemberNo__c = memberId
+      Status = status
     );
     insert o;
     return o;
   }
 
-  private static void addOrderItem(Id orderId, Id pricebookEntryId) {
-    OrderItem oi = new OrderItem(OrderId = orderId, PricebookEntryId = pricebookEntryId, Quantity = 1, UnitPrice = 100);
-    insert oi;
+  private static void setOrderStatuses(Map<Id, String> statusById) {
+    if (statusById == null || statusById.isEmpty()) {
+      return;
+    }
+
+    List<Order> toUpdate = [SELECT Id, Status FROM Order WHERE Id IN :statusById.keySet()];
+    for (Order o : toUpdate) {
+      o.Status = statusById.get(o.Id);
+    }
+    update toUpdate;
   }
 
-  private static Map<Id, Order> reloadOrders(Set<Id> orderIds) {
-    return new Map<Id, Order>(
-      [
-        SELECT Id, Status, RU_OrderItemLineCount__c, Description
-        FROM Order
-        WHERE Id IN :orderIds
-      ]
+  private static OrderItem createOrderItem(Id orderId, Id pbeId, Decimal netSales, Id originalOrderItemId) {
+    OrderItem oi = new OrderItem(
+      OrderId = orderId,
+      PricebookEntryId = pbeId,
+      Quantity = 1,
+      UnitPrice = 100,
+      NetSalesUnitPrice__c = netSales,
+      OriginalOrderItemId__c = originalOrderItemId
     );
+    insert oi;
+    return oi;
   }
 
   @IsTest
-  static void constructor_createsInstance() {
+  static void constructor_and_guard_paths_are_covered() {
     ApexLogger.disableLogging();
+
     System.assertNotEquals(null, new OrderTriggerHandler());
-  }
-
-  @IsTest
-  static void updateTierQualifyingSpend3Y_guardClauses() {
-    ApexLogger.disableLogging();
 
     Test.startTest();
     OrderTriggerHandler.updateTierQualifyingSpend3Y(null);
     OrderTriggerHandler.updateTierQualifyingSpend3Y(new Map<Id, String>());
-    OrderTriggerHandler.updateTierQualifyingSpend3Y(new Map<Id, String>{ UserInfo.getUserId() => 'saleSuccess' });
     Test.stopTest();
-
-    System.assert(true);
   }
 
   @IsTest
-  static void updateTierQualifyingSpend3Y_appliesExpectedDeltas() {
+  static void updateTierQualifyingSpend3Y_applies_all_status_deltas() {
     ApexLogger.disableLogging();
 
-    Account acc = createAccount();
+    Account store = createStoreAccount();
     Id pbId = ensurePricebook();
+    PricebookEntry pbe = createPricebookEntry(pbId);
 
-    Contact saleContact = createContact('SaleContact', 0);
-    Contact returnContact = createContact('ReturnContact', 200);
-    Contact deleteContact = createContact('DeleteContact', 50);
-    Contact orderContact = createContact('OrderContact', 0);
+    Contact cSale = createContact('Sale', 10);
+    Contact cSaleDel = createContact('SaleDel', 40);
+    Contact cReturn = createContact('Return', 80);
+    Contact cReturnDel = createContact('ReturnDel', 30);
+    Contact cClamp = createContact('Clamp', 5);
+    Contact cJanSaleSkip = createContact('JanSaleSkip', 100);
 
-    Order saleSuccess = createOrder(acc.Id, pbId, Date.newInstance(2026, 2, 10), 120, saleContact.Id, 'Draft');
-    Order saleDeleted = createOrder(acc.Id, pbId, Date.newInstance(2026, 1, 7), 30, deleteContact.Id, 'Draft');
-    Order returnSuccess = createOrder(acc.Id, pbId, Date.newInstance(2026, 1, 7), 40, returnContact.Id, 'Draft');
-    Order returnDeleted = createOrder(acc.Id, pbId, Date.newInstance(2026, 1, 7), 25, returnContact.Id, 'Draft');
-    Order orderSuccess = createOrder(acc.Id, pbId, Date.newInstance(2026, 2, 10), 60, orderContact.Id, 'Draft');
-    Order janSaleIgnored = createOrder(acc.Id, pbId, Date.newInstance(2026, 1, 5), 999, saleContact.Id, 'Draft');
-    Order jan8DeleteIgnored = createOrder(acc.Id, pbId, Date.newInstance(2026, 1, 8), 888, deleteContact.Id, 'Draft');
-    Order zeroIgnored = createOrder(acc.Id, pbId, Date.newInstance(2026, 2, 12), 0, saleContact.Id, 'Draft');
-    Order nullMemberIgnored = createOrder(acc.Id, pbId, Date.newInstance(2026, 2, 12), 77, null, 'Draft');
+    Order saleSuccess = createOrder(store.Id, pbId, cSale.Id, Date.newInstance(2026, 2, 10), 'Draft');
+    Order saleDeleted = createOrder(store.Id, pbId, cSaleDel.Id, Date.newInstance(2026, 2, 10), 'Draft');
+    Order returnSuccess = createOrder(store.Id, pbId, cReturn.Id, Date.newInstance(2026, 2, 10), 'Draft');
+    Order returnDeleted = createOrder(store.Id, pbId, cReturnDel.Id, Date.newInstance(2026, 2, 10), 'Draft');
+    Order clampDeleted = createOrder(store.Id, pbId, cClamp.Id, Date.newInstance(2026, 2, 10), 'Draft');
+    Order janSaleSuccess = createOrder(store.Id, pbId, cJanSaleSkip.Id, Date.newInstance(2026, 1, 3), 'Draft');
+
+    Order originalForReturn = createOrder(store.Id, pbId, cReturn.Id, Date.newInstance(2026, 2, 1), 'Draft');
+    OrderItem originalForReturnItem = createOrderItem(originalForReturn.Id, pbe.Id, 70, null);
+
+    createOrderItem(saleSuccess.Id, pbe.Id, 100, null);
+    createOrderItem(saleDeleted.Id, pbe.Id, 20, null);
+    createOrderItem(returnSuccess.Id, pbe.Id, 1, originalForReturnItem.Id);
+    createOrderItem(returnDeleted.Id, pbe.Id, 1, originalForReturnItem.Id);
+    createOrderItem(clampDeleted.Id, pbe.Id, 50, null);
+    createOrderItem(janSaleSuccess.Id, pbe.Id, 999, null);
+
+    TriggerHandler.bypass('OrderTriggerHandler');
+    setOrderStatuses(
+      new Map<Id, String>{
+        saleSuccess.Id => 'saleSuccess',
+        saleDeleted.Id => 'saleDeleted',
+        returnSuccess.Id => 'returnSuccess',
+        returnDeleted.Id => 'returnDeleted',
+        clampDeleted.Id => 'saleDeleted',
+        janSaleSuccess.Id => 'saleSuccess'
+      }
+    );
+    TriggerHandler.clearBypass('OrderTriggerHandler');
 
     Test.startTest();
     OrderTriggerHandler.updateTierQualifyingSpend3Y(
@@ -106,11 +133,8 @@ private class OrderTriggerHandlerTest {
         saleDeleted.Id => 'saleDeleted',
         returnSuccess.Id => 'returnSuccess',
         returnDeleted.Id => 'returnDeleted',
-        orderSuccess.Id => 'orderSuccess',
-        janSaleIgnored.Id => 'saleSuccess',
-        jan8DeleteIgnored.Id => 'saleDeleted',
-        zeroIgnored.Id => 'saleSuccess',
-        nullMemberIgnored.Id => 'saleSuccess'
+        clampDeleted.Id => 'saleDeleted',
+        janSaleSuccess.Id => 'saleSuccess'
       }
     );
     Test.stopTest();
@@ -119,165 +143,66 @@ private class OrderTriggerHandlerTest {
       [
         SELECT Id, TierQualifyingSpend3Y__c
         FROM Contact
-        WHERE Id IN :new Set<Id>{ saleContact.Id, returnContact.Id, deleteContact.Id, orderContact.Id }
+        WHERE Id IN :new Set<Id>{ cSale.Id, cSaleDel.Id, cReturn.Id, cReturnDel.Id, cClamp.Id, cJanSaleSkip.Id }
       ]
     );
 
-    System.assert(true);
+    System.assertEquals(110, contacts.get(cSale.Id).TierQualifyingSpend3Y__c, 'saleSuccess 는 +NetSales');
+    System.assertEquals(20, contacts.get(cSaleDel.Id).TierQualifyingSpend3Y__c, 'saleDeleted 는 -NetSales');
+    System.assertEquals(10, contacts.get(cReturn.Id).TierQualifyingSpend3Y__c, 'returnSuccess 는 -OriginalOrderItem.NetSales');
+    System.assertEquals(100, contacts.get(cReturnDel.Id).TierQualifyingSpend3Y__c, 'returnDeleted 는 +OriginalOrderItem.NetSales');
+    System.assertEquals(0, contacts.get(cClamp.Id).TierQualifyingSpend3Y__c, '음수는 0으로 보정');
+    System.assertEquals(100, contacts.get(cJanSaleSkip.Id).TierQualifyingSpend3Y__c, '1월 saleSuccess(1~7)는 제외');
   }
 
   @IsTest
-  static void updateTierQualifyingSpend3Y_clampsNegativeToZero() {
+  static void updateTierQualifyingSpend3Y_ignores_unknown_status_and_missing_rows() {
     ApexLogger.disableLogging();
 
-    Account acc = createAccount();
+    Account store = createStoreAccount();
     Id pbId = ensurePricebook();
-    Contact c = createContact('ClampContact', 10);
-    Order o = createOrder(acc.Id, pbId, Date.newInstance(2026, 2, 10), 999, c.Id, 'Draft');
+    PricebookEntry pbe = createPricebookEntry(pbId);
+    Contact c = createContact('UnknownStatus', 33);
+
+    Order o = createOrder(store.Id, pbId, c.Id, Date.newInstance(2026, 2, 10), 'Draft');
+    createOrderItem(o.Id, pbe.Id, 40, null);
+    TriggerHandler.bypass('OrderTriggerHandler');
+    setOrderStatuses(new Map<Id, String>{ o.Id => 'saleSuccess' });
+    TriggerHandler.clearBypass('OrderTriggerHandler');
 
     Test.startTest();
-    OrderTriggerHandler.updateTierQualifyingSpend3Y(new Map<Id, String>{ o.Id => 'saleDeleted' });
+    OrderTriggerHandler.updateTierQualifyingSpend3Y(new Map<Id, String>{ o.Id => 'unknownStatus', UserInfo.getUserId() => 'saleSuccess' });
     Test.stopTest();
 
     c = [SELECT TierQualifyingSpend3Y__c FROM Contact WHERE Id = :c.Id];
-    System.assert(true);
+    System.assertEquals(33, c.TierQualifyingSpend3Y__c, '알 수 없는 상태값은 반영되지 않아야 함');
   }
 
   @IsTest
-  static void trigger_afterUpdate_coversStatusTransitions() {
+  static void trigger_afterUpdate_updates_contact_for_transition() {
     ApexLogger.disableLogging();
 
-    Account acc = createAccount();
+    Account store = createStoreAccount();
     Id pbId = ensurePricebook();
     PricebookEntry pbe = createPricebookEntry(pbId);
+    Contact c = createContact('TriggerPath', 0);
 
-    Contact saleContact = createContact('SaleTriggerContact', 0);
-    Contact returnContact = createContact('ReturnTriggerContact', 200);
-    Contact deleteContact = createContact('DeleteTriggerContact', 50);
-    Contact orderContact = createContact('OrderTriggerContact', 0);
+    Order saleOrder = createOrder(store.Id, pbId, c.Id, Date.newInstance(2026, 2, 10), 'Draft');
+    createOrderItem(saleOrder.Id, pbe.Id, 120, null);
 
-    Order saleSuccess = createOrder(acc.Id, pbId, Date.newInstance(2026, 2, 10), 120, saleContact.Id, 'Draft');
-    Order saleDeleted = createOrder(acc.Id, pbId, Date.newInstance(2026, 1, 7), 30, deleteContact.Id, 'Draft');
-    Order returnSuccess = createOrder(acc.Id, pbId, Date.newInstance(2026, 1, 7), 40, returnContact.Id, 'Draft');
-    Order returnDeleted = createOrder(acc.Id, pbId, Date.newInstance(2026, 1, 7), 25, returnContact.Id, 'Draft');
-    Order orderSuccess = createOrder(acc.Id, pbId, Date.newInstance(2026, 2, 10), 60, orderContact.Id, 'Draft');
-
-    addOrderItem(saleSuccess.Id, pbe.Id);
-    addOrderItem(saleDeleted.Id, pbe.Id);
-    addOrderItem(returnSuccess.Id, pbe.Id);
-    addOrderItem(returnDeleted.Id, pbe.Id);
-    addOrderItem(orderSuccess.Id, pbe.Id);
-
-    Map<Id, Order> reloaded = reloadOrders(new Set<Id>{ saleSuccess.Id, saleDeleted.Id, returnSuccess.Id, returnDeleted.Id, orderSuccess.Id });
-
-    saleSuccess = reloaded.get(saleSuccess.Id);
-    saleDeleted = reloaded.get(saleDeleted.Id);
-    returnSuccess = reloaded.get(returnSuccess.Id);
-    returnDeleted = reloaded.get(returnDeleted.Id);
-    orderSuccess = reloaded.get(orderSuccess.Id);
-
-    saleSuccess.Status = 'saleSuccess';
-    saleDeleted.Status = 'saleDeleted';
-    returnSuccess.Status = 'returnSuccess';
-    returnDeleted.Status = 'returnDeleted';
-    orderSuccess.Status = 'orderSuccess';
+    saleOrder = [SELECT Id, Status FROM Order WHERE Id = :saleOrder.Id];
+    saleOrder.Status = 'saleSuccess';
 
     Test.startTest();
-    update new List<Order>{ saleSuccess, saleDeleted, returnSuccess, returnDeleted, orderSuccess };
-    Test.stopTest();
-
-    Map<Id, Contact> contacts = new Map<Id, Contact>(
-      [
-        SELECT Id, TierQualifyingSpend3Y__c
-        FROM Contact
-        WHERE Id IN :new Set<Id>{ saleContact.Id, returnContact.Id, deleteContact.Id, orderContact.Id }
-      ]
-    );
-
-    System.assert(true);
-  }
-
-  @IsTest
-  static void trigger_afterUpdate_noRelevantStatusChange_returnsEarly() {
-    ApexLogger.disableLogging();
-
-    Account acc = createAccount();
-    Id pbId = ensurePricebook();
-    Contact c = createContact('NoChangeContact', 10);
-    Order o = createOrder(acc.Id, pbId, Date.newInstance(2026, 2, 10), 55, c.Id, 'Draft');
-    o.Description = 'updated only';
-
-    Test.startTest();
-    update o;
+    update saleOrder;
     Test.stopTest();
 
     c = [SELECT TierQualifyingSpend3Y__c FROM Contact WHERE Id = :c.Id];
-    System.assert(true);
+    System.assertEquals(120, c.TierQualifyingSpend3Y__c, 'afterUpdate 상태 전이 시 가산되어야 함');
   }
 
   @IsTest
-  static void trigger_afterUpdate_spendOnlyPath_withoutMceTargets() {
-    ApexLogger.disableLogging();
-
-    Account acc = createAccount();
-    Id pbId = ensurePricebook();
-    PricebookEntry pbe = createPricebookEntry(pbId);
-    Contact deleteContact = createContact('DeleteOnlyContact', 50);
-    Contact returnContact = createContact('ReturnOnlyContact', 200);
-
-    Order saleDeleted = createOrder(acc.Id, pbId, Date.newInstance(2026, 1, 7), 30, deleteContact.Id, 'Draft');
-    Order returnDeleted = createOrder(acc.Id, pbId, Date.newInstance(2026, 1, 7), 25, returnContact.Id, 'Draft');
-
-    addOrderItem(saleDeleted.Id, pbe.Id);
-    addOrderItem(returnDeleted.Id, pbe.Id);
-
-    Map<Id, Order> reloaded = reloadOrders(new Set<Id>{ saleDeleted.Id, returnDeleted.Id });
-    saleDeleted = reloaded.get(saleDeleted.Id);
-    returnDeleted = reloaded.get(returnDeleted.Id);
-
-    saleDeleted.Status = 'saleDeleted';
-    returnDeleted.Status = 'returnDeleted';
-
-    Test.startTest();
-    update new List<Order>{ saleDeleted, returnDeleted };
-    Test.stopTest();
-
-    Map<Id, Contact> contacts = new Map<Id, Contact>(
-      [
-        SELECT Id, TierQualifyingSpend3Y__c
-        FROM Contact
-        WHERE Id IN :new Set<Id>{ deleteContact.Id, returnContact.Id }
-      ]
-    );
-
-    System.assert(true);
-  }
-
-  @IsTest
-  static void trigger_afterUpdate_mceOnlyPath_reachesLoggerBlock() {
-    ApexLogger.disableLogging();
-
-    Account acc = createAccount();
-    Id pbId = ensurePricebook();
-    PricebookEntry pbe = createPricebookEntry(pbId);
-    Contact orderContact = createContact('MceOnlyOrderContact', 0);
-
-    Order orderSuccess = createOrder(acc.Id, pbId, Date.newInstance(2026, 2, 10), 60, orderContact.Id, 'Draft');
-
-    addOrderItem(orderSuccess.Id, pbe.Id);
-
-    orderSuccess = reloadOrders(new Set<Id>{ orderSuccess.Id }).get(orderSuccess.Id);
-    orderSuccess.Status = 'orderSuccess';
-
-    Test.startTest();
-    update orderSuccess;
-    Test.stopTest();
-
-    System.assert(true);
-  }
-
-  @IsTest
-  static void run_paths_cover_bypass_and_loopcount() {
+  static void run_bypass_and_loopcount_are_covered() {
     ApexLogger.disableLogging();
 
     OrderTriggerHandler bypassed = new OrderTriggerHandler();
@@ -286,23 +211,25 @@ private class OrderTriggerHandlerTest {
     bypassed.run();
     TriggerHandler.clearBypass('OrderTriggerHandler');
 
-    OrderTriggerHandler handler = new OrderTriggerHandler();
-    handler.setTriggerContext('after update', true);
-    handler.run();
-    handler.run();
+    OrderTriggerHandler h = new OrderTriggerHandler();
+    h.setTriggerContext('after update', true);
+    h.run();
+    h.run();
+    h.run();
 
     Boolean thrown = false;
     try {
-      handler.run();
+      h.run();
     } catch (Exception e) {
       thrown = true;
+      System.assert(e.getMessage().contains('최대 실행 횟수'), '루프 카운트 초과 예외여야 함');
     }
 
-    System.assert(true);
+    System.assertEquals(true, thrown, '4번째 run()에서 예외가 발생해야 함 (max=3)');
   }
 
   @IsTest
-  static void afterUpdate_outsideTriggerContext_returnsSafely() {
+  static void afterUpdate_outside_trigger_context_is_safe() {
     ApexLogger.disableLogging();
 
     Test.startTest();
@@ -313,46 +240,64 @@ private class OrderTriggerHandlerTest {
   }
 
   @IsTest
-  static void updateTierQualifyingSpend3Y_ignoresUnknownStatus() {
+  static void updateTierQualifyingSpend3Y_delta_branch_focus() {
     ApexLogger.disableLogging();
 
-    Account acc = createAccount();
+    Account store = createStoreAccount();
     Id pbId = ensurePricebook();
-    Contact c = createContact('UnknownStatusContact', 33);
-    Order o = createOrder(acc.Id, pbId, Date.newInstance(2026, 2, 10), 50, c.Id, 'Draft');
+    PricebookEntry pbe = createPricebookEntry(pbId);
+
+    Contact cSaleDeleted = createContact('DeltaSaleDeleted', 100);
+    Contact cReturnSuccess = createContact('DeltaReturnSuccess', 100);
+    Contact cReturnDeleted = createContact('DeltaReturnDeleted', 100);
+    Contact cUnknown = createContact('DeltaUnknown', 100);
+
+    Order saleDeleted = createOrder(store.Id, pbId, cSaleDeleted.Id, Date.newInstance(2026, 2, 10), 'Draft');
+    Order returnSuccess = createOrder(store.Id, pbId, cReturnSuccess.Id, Date.newInstance(2026, 2, 10), 'Draft');
+    Order returnDeleted = createOrder(store.Id, pbId, cReturnDeleted.Id, Date.newInstance(2026, 2, 10), 'Draft');
+    Order unknown = createOrder(store.Id, pbId, cUnknown.Id, Date.newInstance(2026, 2, 10), 'Draft');
+
+    Order baseReturn = createOrder(store.Id, pbId, cReturnSuccess.Id, Date.newInstance(2026, 2, 1), 'Draft');
+    OrderItem baseReturnItem = createOrderItem(baseReturn.Id, pbe.Id, 30, null);
+
+    createOrderItem(saleDeleted.Id, pbe.Id, 20, null);
+    createOrderItem(returnSuccess.Id, pbe.Id, 1, baseReturnItem.Id);
+    createOrderItem(returnDeleted.Id, pbe.Id, 1, baseReturnItem.Id);
+    createOrderItem(unknown.Id, pbe.Id, 50, null);
+
+    TriggerHandler.bypass('OrderTriggerHandler');
+    setOrderStatuses(
+      new Map<Id, String>{
+        saleDeleted.Id => 'saleDeleted',
+        returnSuccess.Id => 'returnSuccess',
+        returnDeleted.Id => 'returnDeleted',
+        unknown.Id => 'saleSuccess'
+      }
+    );
+    TriggerHandler.clearBypass('OrderTriggerHandler');
 
     Test.startTest();
-    OrderTriggerHandler.updateTierQualifyingSpend3Y(new Map<Id, String>{ o.Id => 'unknownStatus' });
+    OrderTriggerHandler.updateTierQualifyingSpend3Y(
+      new Map<Id, String>{
+        saleDeleted.Id => 'saleDeleted',
+        returnSuccess.Id => 'returnSuccess',
+        returnDeleted.Id => 'returnDeleted',
+        unknown.Id => 'unknownStatus'
+      }
+    );
     Test.stopTest();
 
-    c = [SELECT TierQualifyingSpend3Y__c FROM Contact WHERE Id = :c.Id];
-    System.assert(true);
-  }
-
-  @IsTest
-  static void updateTierQualifyingSpend3Y_ignoresJanuaryBoundaries() {
-    ApexLogger.disableLogging();
-
-    Account acc = createAccount();
-    Id pbId = ensurePricebook();
-    Contact janSale = createContact('JanSaleIgnoredContact', 11);
-    Contact janLateDelete = createContact('JanLateDeleteIgnoredContact', 22);
-
-    Order januarySale = createOrder(acc.Id, pbId, Date.newInstance(2026, 1, 3), 100, janSale.Id, 'Draft');
-    Order januaryLateDelete = createOrder(acc.Id, pbId, Date.newInstance(2026, 1, 8), 100, janLateDelete.Id, 'Draft');
-
-    Test.startTest();
-    OrderTriggerHandler.updateTierQualifyingSpend3Y(new Map<Id, String>{ januarySale.Id => 'saleSuccess', januaryLateDelete.Id => 'saleDeleted' });
-    Test.stopTest();
-
-    Map<Id, Contact> contacts = new Map<Id, Contact>(
+    Map<Id, Contact> reloaded = new Map<Id, Contact>(
       [
         SELECT Id, TierQualifyingSpend3Y__c
         FROM Contact
-        WHERE Id IN :new Set<Id>{ janSale.Id, janLateDelete.Id }
+        WHERE Id IN :new Set<Id>{ cSaleDeleted.Id, cReturnSuccess.Id, cReturnDeleted.Id, cUnknown.Id }
       ]
     );
 
-    System.assert(true);
+    System.assertEquals(80, reloaded.get(cSaleDeleted.Id).TierQualifyingSpend3Y__c);
+    System.assertEquals(70, reloaded.get(cReturnSuccess.Id).TierQualifyingSpend3Y__c);
+    System.assertEquals(130, reloaded.get(cReturnDeleted.Id).TierQualifyingSpend3Y__c);
+    System.assertEquals(100, reloaded.get(cUnknown.Id).TierQualifyingSpend3Y__c);
   }
 }

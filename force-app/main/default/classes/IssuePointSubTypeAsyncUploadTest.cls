@@ -102,6 +102,19 @@ private class IssuePointSubTypeAsyncUploadTest {
     return member;
   }
 
+  private static LoyaltyProgramMember createProgramMemberWithMembershipNumber(Id contactId, String membershipNumber) {
+    LoyaltyProgram program = [SELECT Id FROM LoyaltyProgram LIMIT 1];
+    LoyaltyProgramMember member = new LoyaltyProgramMember(
+      ContactId = contactId,
+      ProgramId = program.Id,
+      MembershipNumber = membershipNumber,
+      MemberStatus = 'Active',
+      EnrollmentDate = Date.today()
+    );
+    insert member;
+    return member;
+  }
+
   private static String toBase64(String text) {
     return EncodingUtil.base64Encode(Blob.valueOf(text));
   }
@@ -112,7 +125,7 @@ private class IssuePointSubTypeAsyncUploadTest {
 
   @IsTest
   static void test_asyncValidationStatus_completed() {
-    System.assertEquals(1000, IssuePointSubTypeControllerV1.VALIDATION_BATCH_SCOPE_SIZE);
+    System.assertEquals(300, IssuePointSubTypeControllerV1.VALIDATION_BATCH_SCOPE_SIZE);
 
     String memberNo = uniq('MBR');
     Contact contact = createContact(memberNo);
@@ -158,5 +171,72 @@ private class IssuePointSubTypeAsyncUploadTest {
 
     System.assertEquals(true, issueResult.success);
     System.assertEquals(1, issueResult.requestedMemberCount);
+  }
+
+  @IsTest
+  static void test_asyncValidationStatus_usesContactMemberNo() {
+    String contactMemberNo = uniq('MBR');
+    String membershipNumber = uniq('LPM');
+    Contact contact = createContact(contactMemberNo);
+    createProgramMemberWithMembershipNumber(contact.Id, membershipNumber);
+
+    String csv = 'NO_MBR\n' + contactMemberNo + '\n';
+
+    IssuePointSubTypeControllerV1.UploadJobStartResult startResult;
+    Test.startTest();
+    startResult = IssuePointSubTypeControllerV1.startPointFileValidation(toBase64(csv), 'members.csv', getSubtypeId());
+    Test.stopTest();
+
+    IssuePointSubTypeControllerV1.UploadJobStatusResult statusResult = IssuePointSubTypeControllerV1.getPointFileValidationStatus(
+      startResult.uploadJobId
+    );
+
+    System.assertEquals(IssuePointSubTypeControllerV1.JOB_STATUS_COMPLETED, statusResult.status);
+    System.assertEquals(1, statusResult.successCount);
+    System.assertEquals(0, statusResult.failCount);
+  }
+
+  @IsTest
+  static void test_asyncValidationStatus_acceptsMemberNoFieldHeader() {
+    String memberNo = uniq('MBRHDR');
+    Contact contact = createContact(memberNo);
+    createProgramMember(contact.Id, memberNo);
+
+    String csv = 'MemberNo__c\n' + memberNo + '\n';
+
+    IssuePointSubTypeControllerV1.UploadJobStartResult startResult;
+    Test.startTest();
+    startResult = IssuePointSubTypeControllerV1.startPointFileValidation(toBase64(csv), 'members.csv', getSubtypeId());
+    Test.stopTest();
+
+    IssuePointSubTypeControllerV1.UploadJobStatusResult statusResult = IssuePointSubTypeControllerV1.getPointFileValidationStatus(
+      startResult.uploadJobId
+    );
+
+    System.assertEquals(IssuePointSubTypeControllerV1.JOB_STATUS_COMPLETED, statusResult.status);
+    System.assertEquals(1, statusResult.successCount);
+    System.assertEquals(0, statusResult.failCount);
+  }
+
+  @IsTest
+  static void test_asyncValidationStatus_acceptsExcelCsvMemberNo() {
+    String memberNo = '00098765';
+    Contact contact = createContact(memberNo);
+    createProgramMemberWithMembershipNumber(contact.Id, uniq('LPM'));
+
+    String csv = '\uFEFF회원번호\n"=""' + memberNo + '"""\n';
+
+    IssuePointSubTypeControllerV1.UploadJobStartResult startResult;
+    Test.startTest();
+    startResult = IssuePointSubTypeControllerV1.startPointFileValidation(toBase64(csv), 'members.csv', getSubtypeId());
+    Test.stopTest();
+
+    IssuePointSubTypeControllerV1.UploadJobStatusResult statusResult = IssuePointSubTypeControllerV1.getPointFileValidationStatus(
+      startResult.uploadJobId
+    );
+
+    System.assertEquals(IssuePointSubTypeControllerV1.JOB_STATUS_COMPLETED, statusResult.status);
+    System.assertEquals(1, statusResult.successCount);
+    System.assertEquals(0, statusResult.failCount);
   }
 }

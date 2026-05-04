@@ -1,6 +1,30 @@
 public with sharing class GdContactUiController {
   @AuraEnabled(cacheable=true)
   public static MemberProfileDTO getMemberProfile(Id loyaltyProgramMemberId) {
+    // 기존
+    // LoyaltyProgramMember lpm = [
+    //   SELECT
+    //     Id,
+    //     EnrollmentDate, //등록날짜
+    //     MemberStatus, //멤버 상태
+    //     Program.Name, //프로그램 이름
+    //     Contact.Name, //회원 이름
+    //     Contact.Phone, //회원 전화번호
+    //     Contact.MobilePhone, //회원 휴대폰 번호
+    //     Contact.Email, //회원 이메일
+    //     Contact.Birthdate, //회원 생일
+    //     Contact.StoreMana__c, //관리 매장
+    //     Contact.IsMarried__c, //회원 결혼 유무
+    //     Contact.WeddingAnniversaryDate__c, //회원 결혼 일자
+    //     Contact.MemberNo__c, //회원 번호
+    //     Contact.MailingStreet, // 주소
+    //     Contact.MailingCity
+    //   FROM LoyaltyProgramMember
+    //   WHERE Id = :loyaltyProgramMemberId
+    //   LIMIT 1
+    // ];
+
+    // 26.05.01 GD - 법정 생년월일 추가
     LoyaltyProgramMember lpm = [
       SELECT
         Id,
@@ -11,7 +35,7 @@ public with sharing class GdContactUiController {
         Contact.Phone, //회원 전화번호
         Contact.MobilePhone, //회원 휴대폰 번호
         Contact.Email, //회원 이메일
-        Contact.Birthdate, //회원 생일
+        Contact.LegalBirthdate__c, // 법정 생년월일
         Contact.StoreMana__c, //관리 매장
         Contact.IsMarried__c, //회원 결혼 유무
         Contact.WeddingAnniversaryDate__c, //회원 결혼 일자
@@ -42,7 +66,7 @@ public with sharing class GdContactUiController {
     @AuraEnabled
     public String memberNumber;
     @AuraEnabled
-    public Date birthdate;
+    public String birthdate;
 
     @AuraEnabled
     public Boolean isMarried;
@@ -66,8 +90,10 @@ public with sharing class GdContactUiController {
         phone = lpm.Contact.Phone;
         mobilePhone = lpm.Contact.MobilePhone;
         email = lpm.Contact.Email;
-        birthdate = lpm.Contact.Birthdate;
-        memberNumber = lpm.Contact.MemberNo__c;
+        // 기존
+        // birthdate = lpm.Contact.Birthdate;
+        // 26.05.01 GD - 법정 생년월일 추가
+        memberNumber = lpm.Contact.LegalBirthdate__c;
 
         isMarried = lpm.Contact.IsMarried__c;
         weddingAnniversaryDate = lpm.Contact.WeddingAnniversaryDate__c;

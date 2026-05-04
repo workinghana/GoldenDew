@@ -37,6 +37,7 @@ public with sharing class PromotionTriggerHandler extends TriggerHandler {
         IsPointUsageAllowed__c,
         IsAllStore__c,
         IsAllItem__c,
+        PointTypeCode__c,
         CreatedBy.Name,
         LastModifiedBy.Name,
         InsertId__c,
@@ -53,29 +54,42 @@ public with sharing class PromotionTriggerHandler extends TriggerHandler {
 
     try {
       if (pList == null || pList.isEmpty()) {
-        logger.setStatus('SUCCESS'); logger.setDescription('scope is empty'); return;
+        logger.setStatus('SUCCESS');
+        logger.setDescription('scope is empty');
+        return;
       }
 
       logger.setScopedIds((List<SObject>) pList, 'Id');
+
+      // 26.04.22 수정(하나): 특정 매장/품목 여부 계산을 위한 연관 레코드 존재 집합
+      Set<Id> promotionIdsWithStores = getPromotionIdsWithStores(pIds);
+      Set<Id> promotionIdsWithItems = getPromotionIdsWithItems(pIds);
 
       for (Promotion p : pList) {
         try {
           p.PromotionCode = p.PromotionNo__c;
 
-          ErpPromotionReqDto.CreateRequest req = new ErpPromotionReqDto.CreateRequest(p);
+          ErpPromotionReqDto.CreateRequest req = new ErpPromotionReqDto.CreateRequest(
+            p,
+            promotionIdsWithStores.contains(p.Id),
+            promotionIdsWithItems.contains(p.Id)
+          );
           req.nm_type_prom = (String) p.get('typeCodeLabel');
           req.nm_stat = (String) p.get('statusCodeLabel');
           req.nm_brand = (String) p.get('brandCodeLabel');
-
+          // 26.04.22 수정 (하나)
+          //추가: 특정 매장/품목 여부 세팅
           logger.setRequestBody(JSON.serialize(req));
 
           System.enqueueJob(new ErpPromotionJob(ErpPromotionJob.Operation.CREATE_MASTER, req, new ErpPromotionAsyncCallback(), p.Id));
 
           successIds.add((String) p.Id);
         } catch (CustomException ce) {
-          failIds.add((String) p.Id); failMsgs.add('Id=' + p.Id + ' | ' + ce.getMessage());
+          failIds.add((String) p.Id);
+          failMsgs.add('Id=' + p.Id + ' | ' + ce.getMessage());
         } catch (Exception ex) {
-          failIds.add((String) p.Id); failMsgs.add('Id=' + p.Id + ' | ' + ex.getMessage());
+          failIds.add((String) p.Id);
+          failMsgs.add('Id=' + p.Id + ' | ' + ex.getMessage());
         }
       }
       update pList;
@@ -95,7 +109,9 @@ public with sharing class PromotionTriggerHandler extends TriggerHandler {
         'ERP promotion master create done. total=' + pList.size() + ', success=' + successIds.size() + ', fail=' + failIds.size()
       );
     } catch (Exception e) {
-      logger.createExceptionLog(e); logger.setStatus('ERROR'); logger.setDescription('Handler failed: ' + e.getMessage());
+      logger.createExceptionLog(e);
+      logger.setStatus('ERROR');
+      logger.setDescription('Handler failed: ' + e.getMessage());
     } finally {
       if (!successIds.isEmpty()) {
         logger.setSuccessRecordIds(successIds);
@@ -126,7 +142,9 @@ public with sharing class PromotionTriggerHandler extends TriggerHandler {
 
     try {
       if (oldList == null || oldList.isEmpty()) {
-        logger.setStatus('SUCCESS'); logger.setDescription('scope is empty'); return;
+        logger.setStatus('SUCCESS');
+        logger.setDescription('scope is empty');
+        return;
       }
 
       logger.setScopedIds((List<SObject>) oldList, 'Id');
@@ -141,7 +159,8 @@ public with sharing class PromotionTriggerHandler extends TriggerHandler {
 
           successIds.add((String) p.Id);
         } catch (Exception ex) {
-          failIds.add((String) p.Id); failMsgs.add('Id=' + p.Id + ' | ' + ex.getMessage());
+          failIds.add((String) p.Id);
+          failMsgs.add('Id=' + p.Id + ' | ' + ex.getMessage());
         }
       }
 
@@ -189,7 +208,9 @@ public with sharing class PromotionTriggerHandler extends TriggerHandler {
 
     try {
       if (newMap == null || newMap.isEmpty()) {
-        logger.setStatus('SUCCESS'); logger.setDescription('scope is empty'); return;
+        logger.setStatus('SUCCESS');
+        logger.setDescription('scope is empty');
+        return;
       }
 
       logger.setScopedIds((List<SObject>) new List<Promotion>(newMap.values()), 'Id');
@@ -245,6 +266,7 @@ public with sharing class PromotionTriggerHandler extends TriggerHandler {
           IsPointUsageAllowed__c,
           IsAllStore__c,
           IsAllItem__c,
+          PointTypeCode__c,
           CreatedBy.Name,
           LastModifiedBy.Name
         FROM Promotion
@@ -252,21 +274,33 @@ public with sharing class PromotionTriggerHandler extends TriggerHandler {
       ];
 
       if (pList == null || pList.isEmpty()) {
-        logger.setStatus('SUCCESS'); logger.setDescription('No Promotion found after filtering. targetCnt=' + targetIds.size()); return;
+        logger.setStatus('SUCCESS');
+        logger.setDescription('No Promotion found after filtering. targetCnt=' + targetIds.size());
+        return;
       }
+
+      // 26.04.22 수정(하나)
+      //추가: 특정 매장/품목 여부 계산을 위한 연관 레코드 존재 집합
+      Set<Id> promotionIdsWithStores = getPromotionIdsWithStores(targetIds);
+      Set<Id> promotionIdsWithItems = getPromotionIdsWithItems(targetIds);
 
       Integer enqCnt = 0;
 
       for (Promotion p : pList) {
         try {
           // 3) UpdateRequest 구성
-          ErpPromotionReqDto.UpdateRequest req = new ErpPromotionReqDto.UpdateRequest(p);
+          ErpPromotionReqDto.UpdateRequest req = new ErpPromotionReqDto.UpdateRequest(
+            p,
+            promotionIdsWithStores.contains(p.Id),
+            promotionIdsWithItems.contains(p.Id)
+          );
 
           // 4) label(=toLabel alias) 주입
           req.nm_brand = (String) p.get('brandCodeLabel');
           req.nm_type_prom = (String) p.get('typeCodeLabel');
           req.nm_stat = (String) p.get('statusCodeLabel');
-
+          // 26.04.22 수정(하나)
+          // 추가: 특정 매장/품목 여부 세팅
           // 로깅: 너무 커지면 대표 1건만 남기기
           if (enqCnt == 0) {
             logger.setRequestBody(JSON.serialize(req));
@@ -278,9 +312,11 @@ public with sharing class PromotionTriggerHandler extends TriggerHandler {
           enqCnt++;
           successIds.add((String) p.Id);
         } catch (CustomException ce) {
-          failIds.add((String) p.Id); failMsgs.add('Id=' + p.Id + ' | ' + ce.getMessage());
+          failIds.add((String) p.Id);
+          failMsgs.add('Id=' + p.Id + ' | ' + ce.getMessage());
         } catch (Exception ex) {
-          failIds.add((String) p.Id); failMsgs.add('Id=' + p.Id + ' | ' + ex.getMessage());
+          failIds.add((String) p.Id);
+          failMsgs.add('Id=' + p.Id + ' | ' + ex.getMessage());
         }
       }
 
@@ -307,7 +343,9 @@ public with sharing class PromotionTriggerHandler extends TriggerHandler {
           failIds.size()
       );
     } catch (Exception e) {
-      logger.createExceptionLog(e); logger.setStatus('ERROR'); logger.setDescription('Handler failed: ' + e.getMessage());
+      logger.createExceptionLog(e);
+      logger.setStatus('ERROR');
+      logger.setDescription('Handler failed: ' + e.getMessage());
     } finally {
       if (!successIds.isEmpty()) {
         logger.setSuccessRecordIds(successIds);
@@ -323,6 +361,66 @@ public with sharing class PromotionTriggerHandler extends TriggerHandler {
       logger.addLog();
       ApexLogger.insertLogs();
     }
+  }
+
+  /**
+   * 26.04.22 수정(하나)
+   * 특정 매장 연결(PromotionAccount__c) 레코드가 있는 프로모션 Id 집합 반환
+   */
+  @TestVisible
+  private static Set<Id> getPromotionIdsWithStores(Set<Id> promotionIds) {
+    Set<Id> result = new Set<Id>();
+    if (promotionIds == null || promotionIds.isEmpty()) {
+      return result;
+    }
+    for (AggregateResult ar : [
+      SELECT PromotionId__c pid
+      FROM PromotionAccount__c
+      WHERE PromotionId__c IN :promotionIds
+      GROUP BY PromotionId__c
+    ]) {
+      Id pid = (Id) ar.get('pid');
+      if (pid != null) {
+        result.add(pid);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * 26.04.22 수정(하나) 추가
+   * 특정 품목 연결(PromotionProduct) 레코드가 있는 프로모션 Id 집합 반환
+   */
+  @TestVisible
+  private static Set<Id> getPromotionIdsWithItems(Set<Id> promotionIds) {
+    Set<Id> result = new Set<Id>();
+    if (promotionIds == null || promotionIds.isEmpty()) {
+      return result;
+    }
+    for (AggregateResult ar : [
+      SELECT PromotionId pid
+      FROM PromotionProduct
+      WHERE PromotionId IN :promotionIds
+      GROUP BY PromotionId
+    ]) {
+      Id pid = (Id) ar.get('pid');
+      if (pid != null) {
+        result.add(pid);
+      }
+    }
+    return result;
+  }
+
+  /**
+   * 26.04.22 수정(하나)
+   * 특정 매장/품목 여부 판정
+   * - IsAllStore/IsAllItem == true (전체) 면 'N'
+   * - IsAllStore/IsAllItem == false + 연관 레코드 존재 시 'Y'
+   * - 그 외 (선택 안함) 'N'
+   */
+  @TestVisible
+  private static String resolveYnSpec(Boolean isAll, Boolean hasSpecific) {
+    return ErpPromotionReqDto.resolveYnSpec(isAll, hasSpecific);
   }
 
   /**
@@ -386,6 +484,11 @@ public with sharing class PromotionTriggerHandler extends TriggerHandler {
       return true;
     }
     if (oldP.IsAllItem__c != newP.IsAllItem__c) {
+      return true;
+    }
+
+    // 26.04.23 하나 수정: 포인트 유형별 적립 여부(yn_pur/gift/event_point) 는 PointTypeCode__c 기반이므로 변경 시 ERP 동기화 필요
+    if (oldP.PointTypeCode__c != newP.PointTypeCode__c) {
       return true;
     }
 

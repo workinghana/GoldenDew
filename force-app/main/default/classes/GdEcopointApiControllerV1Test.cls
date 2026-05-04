@@ -15,8 +15,8 @@ private class GdEcopointApiControllerV1Test {
     public Double getPointList(Map<String, Object> r) {
       return 0;
     }
-    public Decimal getPointApplyHelp(Map<String, Object> r) {
-      return 0;
+    public ApiResult getPointApplyHelp(Map<String, Object> r) {
+      return null;
     }
     public ApiResult getDebitPointList(Map<String, Object> r) {
       return null;
@@ -44,6 +44,12 @@ private class GdEcopointApiControllerV1Test {
 
     public List<PointCreditDTO> creditPointsOnPurchase(List<TransactionJournal> d) {
       return null;
+    }
+    public List<PointCreditDTO> restoreEcoPointsFromReturn(Id orderId) {
+      return new List<PointCreditDTO>();
+    }
+    public List<PointCreditDTO> creditPromotionPointsOnPurchase(List<TransactionJournal> data, Decimal excludeAmount) {
+      return new List<PointCreditDTO>();
     }
 
     public Map<String, Object> cancelPointRedemption(TransactionJournal t) {
@@ -94,8 +100,8 @@ private class GdEcopointApiControllerV1Test {
     public Double getPointList(Map<String, Object> r) {
       return 0;
     }
-    public Decimal getPointApplyHelp(Map<String, Object> r) {
-      return 0;
+    public ApiResult getPointApplyHelp(Map<String, Object> r) {
+      return null;
     }
     public ApiResult getDebitPointList(Map<String, Object> r) {
       return null;
@@ -123,6 +129,12 @@ private class GdEcopointApiControllerV1Test {
 
     public List<PointCreditDTO> creditPointsOnPurchase(List<TransactionJournal> d) {
       return null;
+    }
+    public List<PointCreditDTO> restoreEcoPointsFromReturn(Id orderId) {
+      return new List<PointCreditDTO>();
+    }
+    public List<PointCreditDTO> creditPromotionPointsOnPurchase(List<TransactionJournal> data, Decimal excludeAmount) {
+      return new List<PointCreditDTO>();
     }
 
     public Map<String, Object> cancelPointRedemption(TransactionJournal t) {

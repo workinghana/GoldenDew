@@ -182,4 +182,56 @@ private class HalfYearCouponIssueBatchTest {
 
     System.assert(true);
   }
+
+  @IsTest
+  static void test_execute_upgradeCoupon_setsFaceValueZero() {
+    createMember();
+
+    LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
+    Id categoryId = [SELECT Id FROM VoucherCategory__c WHERE Code__c = 'HalfYearCoupon' LIMIT 1].Id;
+    Id accountId = [SELECT Id FROM Account WHERE CompanyCode__c = '1000' LIMIT 1].Id;
+    Id tierId = [SELECT Id FROM LoyaltyTier LIMIT 1].Id;
+
+    Product2 upgradeProduct = new Product2(Name = uniq('HalfYear Upgrade Product'), IsActive = true);
+    insert upgradeProduct;
+
+    VoucherDefinition upgradeVd = new VoucherDefinition(
+      Name = uniq('HalfYear Upgrade Voucher'),
+      LoyaltyProgramId = lp.Id,
+      IsActive = true,
+      Description = 'HalfYear upgrade voucher',
+      ProductId = upgradeProduct.Id,
+      Type = 'FixedValue',
+      FaceValue = 1000,
+      ExpirationType = 'FixedDate',
+      EffectiveDate = Date.today(),
+      ExpirationDate = Date.today().addDays(30),
+      VoucherCategoryId__c = categoryId,
+      AccountId__c = accountId,
+      CouponManNo__c = uniq('CPN-HALF-UPG'),
+      CouponTypeCode__c = '01',
+      ResponsibleDepartment__c = 'Marketing',
+      InsertId__c = 'TestUser',
+      ResponsiblePerson__c = 'Manager',
+      IsUpgrade__c = true
+    );
+    insert upgradeVd;
+
+    insert new VoucherLimit__c(VoucherDefinitionId__c = upgradeVd.Id, Type__c = 'GradeIncludeList', Value__c = tierId, IsActive__c = true);
+
+    Test.startTest();
+    Database.executeBatch(new HalfYearCouponIssueBatch(), 50);
+    Test.stopTest();
+
+    List<Voucher> issuedVoucherList = [
+      SELECT Id, FaceValue
+      FROM Voucher
+      WHERE VoucherDefinitionId = :upgradeVd.Id
+    ];
+
+    System.assert(!issuedVoucherList.isEmpty(), 'Upgrade half-year coupon should be issued');
+    for (Voucher issuedVoucher : issuedVoucherList) {
+      System.assertEquals(0, issuedVoucher.FaceValue, 'Upgrade half-year coupon should be normalized to face value 0');
+    }
+  }
 }

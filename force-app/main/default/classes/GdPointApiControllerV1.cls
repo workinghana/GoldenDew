@@ -42,8 +42,8 @@ global with sharing class GdPointApiControllerV1 {
         throw new CustomException(400, 'JSON 역직렬화 실패: ' + e.getMessage());
       }
 
-      Decimal points = getPointService().getPointApplyHelp(reqData);
-      resData.put('points', points);
+      ApiResult result = getPointService().getPointApplyHelp(reqData);
+      RestResponseUtil.handleSuccess(result);
 
       RestResponseUtil.handleSuccess(ApiResult.ok(200, '포인트 조회 성공', resData));
     } catch (CustomException ce) {

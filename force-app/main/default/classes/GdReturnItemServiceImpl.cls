@@ -1,17 +1,29 @@
 public with sharing class GdReturnItemServiceImpl implements GdReturnItemService {
+  private static void logTiming(String label, Long startMs, Integer startCpu) {
+    Long elapsedMs = Datetime.now().getTime() - startMs;
+    Integer elapsedCpu = Limits.getCpuTime() - startCpu;
+    System.debug(LoggingLevel.WARN, '[TIMING] ' + label + ' | 누적 ' + elapsedMs + 'ms | CPU ' + elapsedCpu + 'ms');
+  }
   /**
    * 반품 상세 등록
    */
   public ApiResult createReturnItem(Map<String, Object> reqData) {
     try {
+      Long totalStartMs = Datetime.now().getTime();
+      Integer totalStartCpu = Limits.getCpuTime();
       List<Object> saleItemList = ValidationUtil.listObjValidation(reqData.get('OrderItem'), 'OrderItem', true);
       String orderId = ValidationUtil.stringValidation(reqData.get('orderId'), 'orderId', true);
-      String originalOrderId = ValidationUtil.stringValidation(reqData.get('originalOrderId'), 'originalOrderId', true); // 원판매 Id
+      String originalOrderId = ValidationUtil.stringValidation(reqData.get('originalOrderId'), 'originalOrderId', true); // ?먰뙋留?Id
 
       List<OrderItem> oiList = new List<OrderItem>();
+      List<Map<String, Object>> normalizedSaleItemList = new List<Map<String, Object>>();
+      Set<String> productCodeSet = new Set<String>();
+      Set<String> saleSeqNoSet = new Set<String>();
+      Set<String> orderNoSet = new Set<String>();
 
       // Standard Pricebook 조회
       Id standardPricebookId = [SELECT Id FROM Pricebook2 WHERE IsStandard = TRUE LIMIT 1].Id;
+      logTiming('GdReturnItemServiceImpl.createReturnItem.loadPricebook', totalStartMs, totalStartCpu);
 
       for (Object v : saleItemList) {
         Map<String, Object> saleItem = ValidationUtil.mapStrObjValidation(v, 'OrderItem', true);
@@ -20,56 +32,102 @@ public with sharing class GdReturnItemServiceImpl implements GdReturnItemService
         String orderNo = ValidationUtil.stringValidation(saleItem.get('OrderNo__c'), 'OrderNo__c', false); // 주문 번호
         String productCode = ValidationUtil.stringValidation(saleItem.get('ProductCode'), 'ProductCode', true); // 상품 코드
         Integer quantity = ValidationUtil.integerValidation(saleItem.get('Quantity'), 'Quantity', true); // 수량
+        Decimal netSalesUnitPrice = ValidationUtil.decimalValidation(saleItem.get('NetSalesUnitPrice__c'), 'NetSalesUnitPrice__c', false); // 판매단가
+        Decimal discountRate = ValidationUtil.decimalValidation(saleItem.get('DiscountRate__c'), 'DiscountRate__c', false); // 할인율
 
-        // Product2 조회
-        List<Product2> productList = [SELECT Id FROM Product2 WHERE Product2.ProductCode = :productCode LIMIT 1];
-        if (productList.isEmpty()) {
+        productCodeSet.add(productCode);
+        saleSeqNoSet.add(saleSeqNo);
+        if (String.isNotBlank(orderNo)) {
+          orderNoSet.add(orderNo);
+        }
+
+        normalizedSaleItemList.add(
+          new Map<String, Object>{
+            'SaleSeqNo__c' => saleSeqNo,
+            'OrderNo__c' => orderNo,
+            'ProductCode' => productCode,
+            'Quantity' => quantity,
+            'NetSalesUnitPrice__c' => netSalesUnitPrice,
+            'DiscountRate__c' => discountRate
+          }
+        );
+      }
+
+      Map<String, PricebookEntry> pbeByProductCode = new Map<String, PricebookEntry>();
+      for (PricebookEntry pbe : [
+        SELECT Id, UnitPrice, ProductCode
+        FROM PricebookEntry
+        WHERE ProductCode IN :productCodeSet AND Pricebook2Id = :standardPricebookId
+      ]) {
+        if (String.isNotBlank(pbe.ProductCode) && !pbeByProductCode.containsKey(pbe.ProductCode)) {
+          pbeByProductCode.put(pbe.ProductCode, pbe);
+        }
+      }
+
+      Map<String, OrderItem> originalOrderItemBySaleSeqNo = new Map<String, OrderItem>();
+      for (OrderItem originalOi : [
+        SELECT Id, SaleSeqNo__c
+        FROM OrderItem
+        WHERE OrderId = :originalOrderId AND SaleSeqNo__c IN :saleSeqNoSet
+      ]) {
+        if (String.isNotBlank(originalOi.SaleSeqNo__c) && !originalOrderItemBySaleSeqNo.containsKey(originalOi.SaleSeqNo__c)) {
+          originalOrderItemBySaleSeqNo.put(originalOi.SaleSeqNo__c, originalOi);
+        }
+      }
+
+      Map<String, Order> orderByOrderNo = new Map<String, Order>();
+      if (!orderNoSet.isEmpty()) {
+        for (Order o : [SELECT Id, OrderNo__c FROM Order WHERE OrderNo__c IN :orderNoSet]) {
+          if (String.isNotBlank(o.OrderNo__c) && !orderByOrderNo.containsKey(o.OrderNo__c)) {
+            orderByOrderNo.put(o.OrderNo__c, o);
+          }
+        }
+      }
+
+      for (Map<String, Object> saleItem : normalizedSaleItemList) {
+        String saleSeqNo = (String) saleItem.get('SaleSeqNo__c');
+        String orderNo = (String) saleItem.get('OrderNo__c');
+        String productCode = (String) saleItem.get('ProductCode');
+        Decimal netSalesUnitPrice = (Decimal) saleItem.get('NetSalesUnitPrice__c');
+        Decimal discountRate = (Decimal) saleItem.get('DiscountRate__c');
+        Integer quantity = (Integer) saleItem.get('Quantity');
+
+        PricebookEntry matchedPbe = pbeByProductCode.get(productCode);
+        if (matchedPbe == null) {
           throw new CustomException(400, '해당 품목이 존재하지 않습니다. 품목 코드 : ' + productCode);
         }
 
-        // PricebookEntry 조회
-        List<PricebookEntry> pricebookEntryList = [
-          SELECT Id, UnitPrice, Name
-          FROM PricebookEntry
-          WHERE ProductCode = :productCode AND Pricebook2Id = :standardPricebookId
-          LIMIT 1
-        ];
-        if (pricebookEntryList.isEmpty()) {
-          throw new CustomException(400, '해당 PricebookEntry 가 없습니다.');
-        }
-
-        // 원판매 상세 Id 조회
-        List<OrderItem> originalOrderItemList = [
-          SELECT Id
-          FROM OrderItem
-          WHERE OrderId = :originalOrderId AND SaleSeqNo__c = :saleSeqNo
-          LIMIT 1
-        ];
-        if (originalOrderItemList.isEmpty()) {
+        OrderItem originalOrderItem = originalOrderItemBySaleSeqNo.get(saleSeqNo);
+        if (originalOrderItem == null) {
           throw new CustomException(400, '해당 원판매 건이 없습니다. ' + originalOrderId + '-' + saleSeqNo);
         }
 
+        System.debug('matchedPbe.Id : ' + matchedPbe.Id);
         OrderItem oi = new OrderItem();
         oi.OrderId = orderId;
-        oi.PricebookEntryId = pricebookEntryList[0].Id;
+        oi.PricebookEntryId = matchedPbe.Id;
         oi.Quantity = quantity;
-        oi.UnitPrice = pricebookEntryList[0].UnitPrice;
+        oi.UnitPrice = matchedPbe.UnitPrice;
         oi.SaleSeqNo__c = saleSeqNo;
         oi.SaleItemNo__c = orderId + '-' + saleSeqNo; // 판매 상세 번호 (외부 ID)
-        oi.OriginalOrderItemId = originalOrderItemList[0].Id;
+        oi.OriginalOrderItemId__c = originalOrderItem.Id;
+        oi.NetSalesUnitPrice__c = netSalesUnitPrice;
+        oi.DiscountRate__c = discountRate;
 
-        if (orderNo != null) {
-          List<Order> oList = [SELECT Id FROM Order WHERE OrderNo__c = :orderNo LIMIT 1];
-          if (oList.isEmpty()) {
+        if (String.isNotBlank(orderNo)) {
+          Order matchedOrder = orderByOrderNo.get(orderNo);
+          if (matchedOrder == null) {
             throw new CustomException(400, '해당 주문 건이 없습니다. ' + orderNo);
           }
-          oi.OrderId__c = oList[0].Id; // 주문 번호
+          oi.OrderId__c = matchedOrder.Id; // 주문 번호
         }
 
         oiList.add(oi);
       }
 
+      logTiming('GdReturnItemServiceImpl.createReturnItem.buildOrderItems', totalStartMs, totalStartCpu);
       List<Database.SaveResult> resultList = Database.insert(oiList);
+      logTiming('GdReturnItemServiceImpl.createReturnItem.insertOrderItems', totalStartMs, totalStartCpu);
 
       for (Database.SaveResult result : resultList) {
         if (!result.isSuccess()) {
@@ -79,6 +137,7 @@ public with sharing class GdReturnItemServiceImpl implements GdReturnItemService
       }
 
       Map<String, Object> data = new Map<String, Object>();
+      logTiming('GdReturnItemServiceImpl.createReturnItem.total', totalStartMs, totalStartCpu);
       return ApiResult.ok(200, '반품 상세 등록 완료', data);
     } catch (ValidationException ve) {
       throw new CustomException(ve.code, ve.detail);

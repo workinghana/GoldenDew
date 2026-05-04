@@ -36,8 +36,8 @@
           <div class="member-info-grid">
             <div class="meta-col">
               <p>회원번호 : {memberNumberText}</p>
-              <p>생년월일 : {birthdateText}</p>
-              <p>연락처 : {mobilePhoneText}</p>
+              <p>법정생년월일 : {birthdateText}</p>
+              <p>휴대폰 : {mobilePhoneText}</p>
               <p>
                 이메일 :
                 <span class="email-text">{emailText}</span>
@@ -51,10 +51,12 @@
                 <p>탈퇴일시 : {withdrawDateText}</p>
               </template>
 
-              <p>관리 매장 : {storeNameText}</p>
-              <p>가입 매장 : {signupStoreText}</p>
-              <p>결혼 유무 : {marriedText}</p>
-              <p>결혼 기념일 : {weddingDateText}</p>
+              <p>관리매장 : {storeNameText}</p>
+              <p>가입매장 : {signupStoreText}</p>
+              <p>결혼유무 : {marriedText}</p>
+              <p>결혼기념일 : {weddingDateText}</p>
+              <p>휴대폰인증여부 : {mobileVerifiedText}</p>
+              <p>회원구분 : {memberTypeText}</p>
             </div>
           </div>
         </template>
@@ -107,6 +109,11 @@
         </div>
 
         <div class="update-time">(최근 수정일자 : {gradeUpdatedText})</div>
+
+        <div class="grade-money">
+          <span class="grade-label">등급 산정 누적 구매금액 : </span>
+          <span class="grade-value">₩{tierQualifyingSpendText}</span>
+        </div>
       </div>
     </div>
 
@@ -122,17 +129,22 @@
 
       <div class="marketing-grid">
         <div class="marketing-row">
-          <span class="marketing-label">Email</span>
+          <span class="marketing-label">Email 수신</span>
           <span class="marketing-value">{emailConsentLabel}</span>
         </div>
 
         <div class="marketing-row">
-          <span class="marketing-label">SMS</span>
+          <span class="marketing-label">SMS 수신</span>
           <span class="marketing-value">{smsConsentLabel}</span>
         </div>
 
         <div class="marketing-row">
-          <span class="marketing-label">매거진</span>
+          <span class="marketing-label">DM(매거진)</span>
+          <span class="marketing-value">{magazineCatalogLabel}</span>
+        </div>
+
+        <div class="marketing-row">
+          <span class="marketing-label">매거진 구독</span>
           <span class="marketing-value">{magazinConsentLabel}</span>
         </div>
 

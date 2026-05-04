@@ -1,4 +1,4 @@
-@RestResource(urlMapping='/gd/v1/promotion/product')
+//@RestResource(urlMapping='/gd/v1/promotion/product')
 global with sharing class GdPromotionProductApiControllerV1 {
   private static GdProductService productService;
 
@@ -17,7 +17,7 @@ global with sharing class GdPromotionProductApiControllerV1 {
   /**
    * 품목 도움창 조회 (프로모션 연동) API
    */
-  @HttpGet
+  //@HttpGet
   global static void getProductByPromotion() {
     // 로그 객체 생성 (JobType: API)
     ApexLogger logger = new ApexLogger(ApexLogger.JobType.API);

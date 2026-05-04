@@ -1,6 +1,6 @@
 public with sharing class PromotionAccountUploadControllerV1 {
   private static final Integer MAX_ROWS = 50000;
-  private static final String COL_STORE_CODE = 'StoreCode__c';
+  private static final String COL_STORE_CODE = 'StoreCode';
 
   @AuraEnabled
   public static UploadPreviewResult parseUploadFile(String base64Data, Id promotionId) {
@@ -102,7 +102,7 @@ public with sharing class PromotionAccountUploadControllerV1 {
 
     Integer storeCodeIdx = headers.indexOf(COL_STORE_CODE);
     if (storeCodeIdx == -1) {
-      throw new AuraHandledException('Required column StoreCode__c is missing.');
+      throw new AuraHandledException('Required column StoreCode is missing.');
     }
 
     ParsedUpload parsed = new ParsedUpload();
@@ -120,7 +120,7 @@ public with sharing class PromotionAccountUploadControllerV1 {
       String storeCode = getColumnValue(cols, storeCodeIdx);
 
       if (String.isBlank(storeCode)) {
-        parsed.errors.add(new RowErrorDTO(rowNumber, storeCode, null, 'StoreCode__c is required.'));
+        parsed.errors.add(new RowErrorDTO(rowNumber, storeCode, null, 'StoreCode is required.'));
         continue;
       }
 

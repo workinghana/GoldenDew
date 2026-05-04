@@ -4,12 +4,22 @@ public with sharing class GdReturnServiceImpl implements GdReturnService {
     saleSuccess
   }
 
+  private static final String RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE = '반품 입금 삭제로 인한 "포인트 사용" 내역 복구';
+
+  private static void logTiming(String label, Long startMs, Integer startCpu) {
+    Long elapsedMs = Datetime.now().getTime() - startMs;
+    Integer elapsedCpu = Limits.getCpuTime() - startCpu;
+    System.debug(LoggingLevel.WARN, '[TIMING] ' + label + ' | 누적 ' + elapsedMs + 'ms | CPU ' + elapsedCpu + 'ms');
+  }
+
   /**
    * 반품 등록
    */
   public ApiResult createReturn(Map<String, Object> reqData) {
     Map<String, Object> data = new Map<String, Object>();
     try {
+      Long totalStartMs = Datetime.now().getTime();
+      Integer totalStartCpu = Limits.getCpuTime();
       if (reqData == null || reqData.isEmpty()) {
         throw new CustomException(400, 'Request body is empty.');
       }
@@ -32,6 +42,7 @@ public with sharing class GdReturnServiceImpl implements GdReturnService {
 
       // Standard Pricebook 조회
       Id standardPricebookId = [SELECT Id FROM Pricebook2 WHERE IsStandard = TRUE LIMIT 1].Id;
+      logTiming('GdReturnServiceImpl.createReturn.loadOrderContext', totalStartMs, totalStartCpu);
 
       Order o = new Order();
       o.AccountId = originalOrderList[0].AccountId;
@@ -46,10 +57,49 @@ public with sharing class GdReturnServiceImpl implements GdReturnService {
       }
       o.Pricebook2Id = standardPricebookId;
       o.InsertId__c = insertId;
-      o.IsReductionOrder = true;
-      o.OriginalOrderId = originalOrderList[0].Id;
+      o.IsReductionOrder__c = true;
+      o.OriginalOrderId__c = originalOrderList[0].Id;
+
+      // 다른 주문/판매 건에서 포인트 사용했는지 확인
+      List<LoyaltyLedgerTraceability> lltList = [
+        SELECT
+          Id,
+          DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
+          DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
+          DebitLoyaltyLedger.TransactionJournal.DepositNo__c,
+          DebitLoyaltyLedger.TransactionJournal.IsDeleted__c,
+          DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c
+        FROM LoyaltyLedgerTraceability
+        WHERE
+          CreditLoyaltyLedger.TransactionJournal.OrderId = :originalOrderList[0].Id
+          AND ActionType = 'Debit'
+          AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+          AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
+          OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
+        LIMIT 1
+      ];
+      if (!lltList.isEmpty()) {
+        if (lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c != null) {
+          throw new CustomException(
+            400,
+            '해당 입금 건은 삭제할 수 없습니다. 이미 사용한 판매 건이 존재합니다. 판매번호: ' +
+              lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c +
+              '/ 입금번호: ' +
+              lltList[0].DebitLoyaltyLedger.TransactionJournal.DepositNo__c
+          );
+        } else if (lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c != null) {
+          throw new CustomException(
+            400,
+            '해당 입금 건은 삭제할 수 없습니다. 이미 사용한 주문 건이 존재합니다. 주문번호: ' +
+              lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c +
+              '/ 입금번호: ' +
+              lltList[0].DebitLoyaltyLedger.TransactionJournal.DepositNo__c
+          );
+        }
+      }
 
       Database.SaveResult insertResult = Database.insert(o);
+      logTiming('GdReturnServiceImpl.createReturn.insertOrder', totalStartMs, totalStartCpu);
 
       if (!insertResult.isSuccess()) {
         Database.Error err = insertResult.getErrors()[0];
@@ -58,6 +108,7 @@ public with sharing class GdReturnServiceImpl implements GdReturnService {
 
       data.put('orderId', o.Id);
       data.put('originalOrderId', originalOrderList[0].Id);
+      logTiming('GdReturnServiceImpl.createReturn.total', totalStartMs, totalStartCpu);
 
       return ApiResult.ok(200, '반품 등록 성공', data);
     } catch (ValidationException ve) {

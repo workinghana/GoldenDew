@@ -13,14 +13,20 @@ public with sharing class IssueUploadCouponBatch implements Database.Batchable<I
 
   private String voucherDefinitionName;
   private String programName;
+  private String requestToken;
 
   private Set<String> totalSuccess = new Set<String>();
   private Set<String> totalFail = new Set<String>();
 
   public IssueUploadCouponBatch(Set<Id> memberIds, Id voucherDefinitionId, Date issueDate) {
+    this(memberIds, voucherDefinitionId, issueDate, null);
+  }
+
+  public IssueUploadCouponBatch(Set<Id> memberIds, Id voucherDefinitionId, Date issueDate, String requestToken) {
     this.memberIds = memberIds;
     this.voucherDefinitionId = voucherDefinitionId;
     this.issueDate = issueDate;
+    this.requestToken = requestToken;
 
     VoucherDefinition vd = [
       SELECT Id, Name, LoyaltyProgram.Name, EffectiveDate, ExpirationDate
@@ -101,6 +107,8 @@ public with sharing class IssueUploadCouponBatch implements Database.Batchable<I
       logger.setDescription(
         'chunkSize=' +
           scope.size() +
+          ', requestToken=' +
+          requestToken +
           ', voucherDefinitionId=' +
           voucherDefinitionId +
           ', voucherDefinitionName=' +
@@ -153,6 +161,8 @@ public with sharing class IssueUploadCouponBatch implements Database.Batchable<I
       logger.setDescription(
         'chunkSize=' +
           scope.size() +
+          ', requestToken=' +
+          requestToken +
           ', voucherDefinitionId=' +
           voucherDefinitionId +
           ', voucherDefinitionName=' +
@@ -182,6 +192,8 @@ public with sharing class IssueUploadCouponBatch implements Database.Batchable<I
       logger.setDescription(
         'chunkSize=' +
           scope.size() +
+          ', requestToken=' +
+          requestToken +
           ', voucherDefinitionId=' +
           voucherDefinitionId +
           ', voucherDefinitionName=' +
@@ -298,6 +310,8 @@ public with sharing class IssueUploadCouponBatch implements Database.Batchable<I
     logger.setDescription(
       'chunkSize=' +
         scope.size() +
+        ', requestToken=' +
+        requestToken +
         ', voucherDefinitionId=' +
         voucherDefinitionId +
         ', voucherDefinitionName=' +
@@ -351,7 +365,7 @@ public with sharing class IssueUploadCouponBatch implements Database.Batchable<I
     ApexLogger logger = new ApexLogger(ApexLogger.JobType.ASYNCHRONOUS, bc.getJobId(), null);
     logger.logging(IssueUploadCouponBatch.class.getName());
     logger.setStatus(status);
-    logger.setDescription('TOTAL success=' + totalSuccess.size() + ', fail=' + totalFail.size());
+    logger.setDescription('TOTAL success=' + totalSuccess.size() + ', fail=' + totalFail.size() + ', requestToken=' + requestToken);
     if (!totalSuccess.isEmpty()) {
       logger.setSuccessRecordIds(totalSuccess);
     }

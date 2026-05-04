@@ -10,17 +10,33 @@ public with sharing class BirthdayCouponIssueBatch implements Database.Batchable
 
   public Database.QueryLocator start(Database.BatchableContext bc) {
     Integer thisMonth = Date.today().month();
+    // 기존
+    // String soql =
+    //   'SELECT Id, LoyaltyMemberId, LoyaltyTierId, ' +
+    //   '       LoyaltyMember.ProgramId, LoyaltyMember.Program.Name, ' +
+    //   '       LoyaltyMember.Contact.MemberNo__c, LoyaltyMember.Contact.Birthdate ' +
+    //   'FROM LoyaltyMemberTier ' +
+    //   'WHERE LoyaltyMemberId != NULL ' +
+    //   '  AND LoyaltyMember.MemberStatus = \'Active\' ' +
+    //   '  AND LoyaltyTierId != NULL ' +
+    //   '  AND LoyaltyMember.Contact.Birthdate != NULL ' +
+    //   '  AND CALENDAR_MONTH(LoyaltyMember.Contact.Birthdate) = ' +
+    //   thisMonth;
+
+    // 26.05.01 GD 수정 - 법정 생년월일로 변경
+    String monthStr = String.valueOf(thisMonth).leftPad(2, '0');
+    String likePattern = '__' + monthStr + '__'; 
+
     String soql =
       'SELECT Id, LoyaltyMemberId, LoyaltyTierId, ' +
       '       LoyaltyMember.ProgramId, LoyaltyMember.Program.Name, ' +
-      '       LoyaltyMember.Contact.MemberNo__c, LoyaltyMember.Contact.Birthdate ' +
+      '       LoyaltyMember.Contact.MemberNo__c, LoyaltyMember.Contact.LegalBirthdate__c ' +
       'FROM LoyaltyMemberTier ' +
       'WHERE LoyaltyMemberId != NULL ' +
       '  AND LoyaltyMember.MemberStatus = \'Active\' ' +
       '  AND LoyaltyTierId != NULL ' +
-      '  AND LoyaltyMember.Contact.Birthdate != NULL ' +
-      '  AND CALENDAR_MONTH(LoyaltyMember.Contact.Birthdate) = ' +
-      thisMonth;
+      '  AND LoyaltyMember.Contact.LegalBirthdate__c != NULL ' +
+      '  AND LoyaltyMember.Contact.LegalBirthdate__c LIKE :likePattern';
 
     return Database.getQueryLocator(soql);
   }
@@ -64,7 +80,7 @@ public with sharing class BirthdayCouponIssueBatch implements Database.Batchable
 
       // 2) 쿠폰 마스터 조회
       List<VoucherDefinition> vdList = [
-        SELECT Id, Name, CouponManNo__c
+        SELECT Id, Name, CouponManNo__c, IsUpgrade__c
         FROM VoucherDefinition
         WHERE IsActive = TRUE AND VoucherCategoryId__c = :vcList[0].Id
         LIMIT 10
@@ -291,6 +307,7 @@ public with sharing class BirthdayCouponIssueBatch implements Database.Batchable
         }
 
         // 8) 발급 성공 voucherId 재조회 → ERP DTO 생성 + 최종 성공 집계
+        normalizeIssuedUpgradeVouchers(issuedVoucherIdSet);
         if (!issuedVoucherIdSet.isEmpty()) {
           List<Voucher> issued = [
             SELECT Id, LoyaltyProgramMemberId, LoyaltyProgramMember.Contact.MemberNo__c, VoucherDefinition.CouponManNo__c, VoucherCode
@@ -407,5 +424,25 @@ public with sharing class BirthdayCouponIssueBatch implements Database.Batchable
 
     String msg = 'Status=' + status + ', success=' + successCnt + ', fail=' + failCnt + ', jobId=' + bc.getJobId();
     SchedulerNotificationPublisher.publishResult('BirthdayCouponIssueBatch', notifStatus, msg, bc.getJobId(), null);
+  }
+
+  private static void normalizeIssuedUpgradeVouchers(Set<Id> issuedVoucherIds) {
+    if (issuedVoucherIds == null || issuedVoucherIds.isEmpty()) {
+      return;
+    }
+
+    List<Voucher> upgradeVoucherList = [
+      SELECT Id, FaceValue, VoucherDefinition.IsUpgrade__c
+      FROM Voucher
+      WHERE Id IN :issuedVoucherIds AND VoucherDefinition.IsUpgrade__c = TRUE
+    ];
+
+    for (Voucher voucher : upgradeVoucherList) {
+      voucher.FaceValue = 0;
+    }
+
+    if (!upgradeVoucherList.isEmpty()) {
+      update upgradeVoucherList;
+    }
   }
 }

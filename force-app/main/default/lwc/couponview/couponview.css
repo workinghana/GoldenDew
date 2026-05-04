@@ -341,6 +341,61 @@
   color: #b91c1c;
 }
 
+.issue-progress-panel {
+  margin-bottom: 14px;
+  padding: 16px 18px;
+  border: 1px solid #dbe4f0;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f8fbff 0%, #f3f7fc 100%);
+}
+
+.issue-progress-panel--completed {
+  border-color: #bbf7d0;
+  background: linear-gradient(180deg, #f0fdf4 0%, #ecfdf5 100%);
+}
+
+.issue-progress-panel--failed {
+  border-color: #fecaca;
+  background: linear-gradient(180deg, #fef2f2 0%, #fff1f2 100%);
+}
+
+.issue-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.issue-progress-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.issue-progress-description {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.issue-progress-count {
+  font-size: 20px;
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.issue-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: #64748b;
+  flex-wrap: wrap;
+}
+
 .policy-upload-block + .policy-upload-block {
   margin-top: 18px;
 }
@@ -462,7 +517,20 @@
   z-index: 9400;
 }
 
+.policy-error-modal {
+  z-index: 9700;
+}
+
+.policy-error-backdrop {
+  z-index: 9600;
+}
+
 .policy-upload-entry-container {
+  max-width: 84rem;
+  width: 92%;
+}
+
+.coupon-upload-modal-container {
   max-width: 84rem;
   width: 92%;
 }
@@ -511,10 +579,76 @@
   color: #64748b;
 }
 
+.policy-upload-warning-text {
+  max-width: 36rem;
+  padding: 10px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.6;
+  text-align: center;
+}
+
+.coupon-upload-modal-container .policy-upload-warning-text {
+  max-width: 48rem;
+}
+
 .policy-upload-file-name {
   font-size: 0.92rem;
   color: #7c3f66;
   word-break: break-all;
+}
+
+.policy-upload-file-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.policy-upload-file-clear {
+  width: 26px;
+  height: 26px;
+  border: 1px solid #d8b4c8;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #9a5f8f;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.policy-upload-file-clear:hover {
+  background: #fdf2f8;
+  border-color: #c084a4;
+}
+
+.validation-loading-card {
+  margin: 18px 0;
+  padding: 24px 20px;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fbfdff 0%, #f8fbff 100%);
+  text-align: center;
+}
+
+.validation-loading-title {
+  margin-top: 14px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #1f2a44;
+}
+
+.validation-loading-text {
+  margin-top: 12px;
+  color: #64748b;
+  line-height: 1.8;
+  white-space: normal;
 }
 
 .policy-upload-entry-guide {

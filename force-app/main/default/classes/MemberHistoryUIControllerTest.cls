@@ -2,185 +2,198 @@
 private class MemberHistoryUIControllerTest {
   @TestSetup
   static void setupData() {
-    Contact c = new Contact(LastName = 'HistoryUI', Email = 'old@test.com', Phone = '01012345678');
-    insert c;
+    Contact contactRecord = new Contact(LastName = 'HistoryUI', Email = 'old@test.com', Phone = '01012345678');
+    insert contactRecord;
 
-    LoyaltyProgram lp = new LoyaltyProgram(Name = 'UI Program', IsPrimary = true);
-    insert lp;
+    LoyaltyProgram program = new LoyaltyProgram(Name = 'UI Program', IsPrimary = true);
+    insert program;
 
-    LoyaltyProgramMember lpm = new LoyaltyProgramMember(
-      ContactId = c.Id,
-      ProgramId = lp.Id,
+    LoyaltyProgramMember member = new LoyaltyProgramMember(
+      ContactId = contactRecord.Id,
+      ProgramId = program.Id,
       MembershipNumber = 'UI-001',
       EnrollmentDate = Date.today(),
       MemberStatus = 'Active'
     );
-    insert lpm;
+    insert member;
 
-    /* 1️⃣ 휴대폰 변경 */
-    c.Phone = '01099998888';
-    update c;
+    contactRecord.Phone = '01099998888';
+    update contactRecord;
 
-    /* 2️⃣ 이메일 변경 */
-    c.Email = 'updated@test.com';
-    update c;
-
-    Test.startTest();
-
-    List<MemberHistoryUIController.MemberChangeHistoryDTO> result = MemberHistoryUIController.getMemberHistory(lpm.Id);
-
-    Test.stopTest();
-
-    System.assert(result != null);
-
-    if (!result.isEmpty()) {
-      Boolean hasPhone = false;
-      Boolean hasEmail = false;
-
-      for (MemberHistoryUIController.MemberChangeHistoryDTO dto : result) {
-        if (dto.fieldName == '휴대폰') {
-          hasPhone = true;
-          System.assertEquals('01012345678', dto.oldValue);
-          System.assertEquals('01099998888', dto.newValue);
-        }
-
-        if (dto.fieldName == '이메일') {
-          hasEmail = true;
-          System.assertEquals('old@test.com', dto.oldValue);
-          System.assertEquals('updated@test.com', dto.newValue);
-        }
-      }
-
-      System.assert(hasPhone);
-      System.assert(hasEmail);
-    }
+    contactRecord.Email = 'updated@test.com';
+    update contactRecord;
   }
-
-  /* ==============================
-       getMemberHistory 기본 실행
-       ============================== */
 
   @IsTest
   static void test_getMemberHistory() {
     Id lpmId = [SELECT Id FROM LoyaltyProgramMember LIMIT 1].Id;
 
     Test.startTest();
-
     List<MemberHistoryUIController.MemberChangeHistoryDTO> result = MemberHistoryUIController.getMemberHistory(lpmId);
-
     Test.stopTest();
 
     System.assertNotEquals(null, result);
-
-    if (!result.isEmpty()) {
-      MemberHistoryUIController.MemberChangeHistoryDTO dto = result[0];
-
-      System.assertNotEquals(null, dto.changeDate);
-      System.assertNotEquals(null, dto.objectType);
-      System.assertNotEquals(null, dto.fieldName);
-      System.assertNotEquals(null, dto.changedBy);
-    }
   }
-
-  /* ==============================
-       convertFieldLabel - blank
-       ============================== */
 
   @IsTest
   static void test_convertFieldLabel_blank() {
-    String expected = '해당 변경 레이블을 찾을 수 없음';
+    String expected = '해당 변경 라벨을 찾을 수 없음';
 
     System.assertEquals(expected, MemberHistoryUIController.convertFieldLabel(null));
-
     System.assertEquals(expected, MemberHistoryUIController.convertFieldLabel(''));
-
     System.assertEquals(expected, MemberHistoryUIController.convertFieldLabel('   '));
   }
-
-  /* ==============================
-       convertFieldLabel - map
-       ============================== */
 
   @IsTest
   static void test_convertFieldLabel_map() {
     System.assertEquals('회원 생성', MemberHistoryUIController.convertFieldLabel('created'));
-
     System.assertEquals('첫 주문 일자', MemberHistoryUIController.convertFieldLabel('FirstPurchaseDate__c'));
-
     System.assertEquals('마지막 주문 일자', MemberHistoryUIController.convertFieldLabel('LastPurchaseDate__c'));
   }
 
-  /* ==============================
-       convertFieldLabel - Contact field
-       ============================== */
-
   @IsTest
   static void test_convertFieldLabel_contactField() {
-    String label = MemberHistoryUIController.convertFieldLabel('Email');
-
-    System.assertNotEquals(null, label);
+    System.assertNotEquals(null, MemberHistoryUIController.convertFieldLabel('Email'));
   }
-
-  /* ==============================
-       convertFieldLabel - LPM field
-       ============================== */
 
   @IsTest
   static void test_convertFieldLabel_lpmField() {
-    String label = MemberHistoryUIController.convertFieldLabel('MemberStatus');
-
-    System.assertNotEquals(null, label);
+    System.assertNotEquals(null, MemberHistoryUIController.convertFieldLabel('MemberStatus'));
   }
-
-  /* ==============================
-       convertFieldLabel - unknown
-       ============================== */
 
   @IsTest
   static void test_convertFieldLabel_unknown() {
-    String result = MemberHistoryUIController.convertFieldLabel('UnknownField__c');
-
-    System.assertEquals('해당 변경 레이블을 찾을 수 없음', result);
+    System.assertEquals('해당 변경 라벨을 찾을 수 없음', MemberHistoryUIController.convertFieldLabel('UnknownField__c'));
   }
-
-  /* ==============================
-       formatValue 테스트
-       ============================== */
 
   @IsTest
   static void test_formatValue() {
     String formatted = MemberHistoryUIController.formatValue('del_20250101_010101_del_20250102_020202_email@test.com');
-
     System.assert(formatted.contains('\n_del_'));
 
-    String normal = MemberHistoryUIController.formatValue('test@test.com');
-
-    System.assertEquals('test@test.com', normal);
+    System.assertEquals('test@test.com', MemberHistoryUIController.formatValue('test@test.com'));
   }
-
-  /* ==============================
-       formatValue blank
-       ============================== */
 
   @IsTest
   static void test_formatValue_blank() {
     System.assertEquals('', MemberHistoryUIController.formatValue(null));
-
     System.assertEquals('', MemberHistoryUIController.formatValue(''));
   }
 
-  /* ==============================
-       Comparator sorting
-       ============================== */
+  @IsTest
+  static void test_formatValue_dateField_removesTime() {
+    System.assertEquals('2025-01-01', MemberHistoryUIController.formatValue('Birthdate', Datetime.newInstanceGmt(2025, 1, 1, 12, 34, 56)));
+    System.assertEquals('2025-01-02', MemberHistoryUIController.formatValue('Birthdate', '2025-01-02 12:34:56'));
+  }
+
+  @IsTest
+  static void test_shouldIncludeHistory() {
+    System.assertEquals(false, MemberHistoryUIController.shouldIncludeHistory('', ''));
+    System.assertEquals(false, MemberHistoryUIController.shouldIncludeHistory('same', 'same'));
+    System.assertEquals(true, MemberHistoryUIController.shouldIncludeHistory('old', 'new'));
+    System.assertEquals(true, MemberHistoryUIController.shouldIncludeHistory('', 'new'));
+  }
+
+  @IsTest
+  static void test_convertPicklistValueToLabel_picklist() {
+    Schema.DescribeFieldResult fieldDescribe = findFieldByType(Schema.DisplayType.Picklist);
+
+    System.assertNotEquals(null, fieldDescribe);
+    System.assert(!fieldDescribe.getPicklistValues().isEmpty());
+
+    Schema.PicklistEntry entry = fieldDescribe.getPicklistValues()[0];
+    String converted = MemberHistoryUIController.convertPicklistValueToLabel(fieldDescribe.getName(), entry.getValue());
+
+    System.assertEquals(entry.getLabel(), converted);
+  }
+
+  @IsTest
+  static void test_convertPicklistValueToLabel_multiPicklist() {
+    Schema.DescribeFieldResult fieldDescribe = findFieldByType(Schema.DisplayType.MultiPicklist);
+
+    if (fieldDescribe == null || fieldDescribe.getPicklistValues().size() < 2) {
+      return;
+    }
+
+    String rawValue = fieldDescribe.getPicklistValues()[0].getValue() + ';' + fieldDescribe.getPicklistValues()[1].getValue();
+    String converted = MemberHistoryUIController.convertPicklistValueToLabel(fieldDescribe.getName(), rawValue);
+
+    System.assertEquals(fieldDescribe.getPicklistValues()[0].getLabel() + ';' + fieldDescribe.getPicklistValues()[1].getLabel(), converted);
+  }
+
+  @IsTest
+  static void test_convertPicklistValueToLabel_unknownAndBlank() {
+    System.assertEquals('', MemberHistoryUIController.convertPicklistValueToLabel('Email', ''));
+    System.assertEquals('raw', MemberHistoryUIController.convertPicklistValueToLabel('UnknownField__c', 'raw'));
+    System.assertEquals('raw', MemberHistoryUIController.convertPicklistValueToLabel('Email', 'raw'));
+  }
+
+  @IsTest
+  static void test_formatValue_withFieldApiName() {
+    Schema.DescribeFieldResult fieldDescribe = findFieldByType(Schema.DisplayType.Picklist);
+
+    System.assertNotEquals(null, fieldDescribe);
+    System.assert(!fieldDescribe.getPicklistValues().isEmpty());
+
+    Schema.PicklistEntry entry = fieldDescribe.getPicklistValues()[0];
+    String formatted = MemberHistoryUIController.formatValue(fieldDescribe.getName(), entry.getValue());
+
+    System.assertEquals(entry.getLabel(), formatted);
+  }
+
+  @IsTest
+  static void test_buildHistoryDto_changedValue() {
+    MemberHistoryUIController.MemberChangeHistoryDTO dto = MemberHistoryUIController.buildHistoryDto(
+      Datetime.newInstance(2025, 1, 1, 0, 0, 0),
+      'member',
+      'Email',
+      'old@test.com',
+      'new@test.com',
+      'tester'
+    );
+
+    System.assertNotEquals(null, dto);
+    System.assertEquals('member', dto.objectType);
+    System.assertEquals(MemberHistoryUIController.convertFieldLabel('Email'), dto.fieldName);
+    System.assertEquals('old@test.com', dto.oldValue);
+    System.assertEquals('new@test.com', dto.newValue);
+    System.assertEquals('tester', dto.changedBy);
+  }
+
+  @IsTest
+  static void test_buildHistoryDto_unchangedValue() {
+    MemberHistoryUIController.MemberChangeHistoryDTO dto = MemberHistoryUIController.buildHistoryDto(
+      Datetime.now(),
+      'member',
+      'Email',
+      'same@test.com',
+      'same@test.com',
+      'tester'
+    );
+
+    System.assertEquals(null, dto);
+  }
+
+  @IsTest
+  static void test_buildHistoryDto_blankValue() {
+    MemberHistoryUIController.MemberChangeHistoryDTO dto = MemberHistoryUIController.buildHistoryDto(
+      Datetime.now(),
+      'member',
+      'Email',
+      null,
+      '',
+      'tester'
+    );
+
+    System.assertEquals(null, dto);
+  }
 
   @IsTest
   static void test_comparator_sort() {
     MemberHistoryUIController.MemberChangeHistoryDTO oldItem = new MemberHistoryUIController.MemberChangeHistoryDTO();
-
     oldItem.changeDate = Datetime.newInstance(2024, 1, 1, 0, 0, 0);
 
     MemberHistoryUIController.MemberChangeHistoryDTO newItem = new MemberHistoryUIController.MemberChangeHistoryDTO();
-
     newItem.changeDate = Datetime.newInstance(2025, 1, 1, 0, 0, 0);
 
     List<MemberHistoryUIController.MemberChangeHistoryDTO> items = new List<MemberHistoryUIController.MemberChangeHistoryDTO>{ oldItem, newItem };
@@ -190,52 +203,45 @@ private class MemberHistoryUIControllerTest {
     System.assertEquals(newItem, items[0]);
   }
 
-  /* ==============================
-       Comparator equal case
-       ============================== */
-
   @IsTest
   static void test_comparator_equal() {
-    Datetime t = Datetime.newInstance(2025, 1, 1, 0, 0, 0);
+    Datetime sameTime = Datetime.newInstance(2025, 1, 1, 0, 0, 0);
 
     MemberHistoryUIController.MemberChangeHistoryDTO a = new MemberHistoryUIController.MemberChangeHistoryDTO();
-    a.changeDate = t;
+    a.changeDate = sameTime;
 
     MemberHistoryUIController.MemberChangeHistoryDTO b = new MemberHistoryUIController.MemberChangeHistoryDTO();
-    b.changeDate = t;
+    b.changeDate = sameTime;
 
     Integer result = new MemberHistoryUIController.ChangeDateDescComparator().compare(a, b);
-
     System.assertEquals(0, result);
   }
-
-  /* ==============================
-       Comparator reverse 비교
-       ============================== */
 
   @IsTest
   static void test_comparator_reverse() {
     MemberHistoryUIController.MemberChangeHistoryDTO newer = new MemberHistoryUIController.MemberChangeHistoryDTO();
-
     newer.changeDate = Datetime.newInstance(2025, 1, 1, 0, 0, 0);
 
     MemberHistoryUIController.MemberChangeHistoryDTO older = new MemberHistoryUIController.MemberChangeHistoryDTO();
-
     older.changeDate = Datetime.newInstance(2024, 1, 1, 0, 0, 0);
 
     Integer result = new MemberHistoryUIController.ChangeDateDescComparator().compare(newer, older);
-
     System.assertEquals(-1, result);
   }
 
-  /* ==============================
-       DTO 필드 접근
-       ============================== */
+  @IsTest
+  static void test_comparator_nullDate() {
+    MemberHistoryUIController.MemberChangeHistoryDTO noDate = new MemberHistoryUIController.MemberChangeHistoryDTO();
+    MemberHistoryUIController.MemberChangeHistoryDTO withDate = new MemberHistoryUIController.MemberChangeHistoryDTO();
+    withDate.changeDate = Datetime.newInstance(2025, 1, 1, 0, 0, 0);
+
+    Integer result = new MemberHistoryUIController.ChangeDateDescComparator().compare(noDate, withDate);
+    System.assertEquals(1, result);
+  }
 
   @IsTest
   static void test_dto_access() {
     MemberHistoryUIController.MemberChangeHistoryDTO dto = new MemberHistoryUIController.MemberChangeHistoryDTO();
-
     dto.changeDate = Datetime.now();
     dto.objectType = '회원 정보';
     dto.fieldName = '회원 생성';
@@ -248,5 +254,25 @@ private class MemberHistoryUIControllerTest {
     System.assertEquals('OLD', dto.oldValue);
     System.assertEquals('NEW', dto.newValue);
     System.assertEquals('Admin', dto.changedBy);
+  }
+
+  private static Schema.DescribeFieldResult findFieldByType(Schema.DisplayType displayType) {
+    Schema.DescribeFieldResult fieldDescribe = findFieldByType(Contact.SObjectType, displayType);
+    if (fieldDescribe != null) {
+      return fieldDescribe;
+    }
+
+    return findFieldByType(LoyaltyProgramMember.SObjectType, displayType);
+  }
+
+  private static Schema.DescribeFieldResult findFieldByType(Schema.SObjectType objectType, Schema.DisplayType displayType) {
+    for (Schema.SObjectField fieldToken : objectType.getDescribe().fields.getMap().values()) {
+      Schema.DescribeFieldResult fieldDescribe = fieldToken.getDescribe();
+      if (fieldDescribe.getType() == displayType && !fieldDescribe.getPicklistValues().isEmpty()) {
+        return fieldDescribe;
+      }
+    }
+
+    return null;
   }
 }

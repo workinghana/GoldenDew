@@ -66,7 +66,13 @@ export default class Promotion_upload extends LightningElement {
   }
 
   get fileGuideText() {
-    return this.isProductUpload ? "헤더는 제품 코드(ProductCode__c)만 있으면 됩니다." : "헤더는 매장 코드(StoreCode__c)만 있으면 됩니다.";
+    return this.isProductUpload
+      ? "코드 컬럼(ProductCode)이 포함된 CSV 파일을 업로드하면 선택 목록에 일괄 반영할 수 있습니다."
+      : "코드 컬럼(StoreCode)이 포함된 CSV 파일을 업로드하면 선택 목록에 일괄 반영할 수 있습니다.";
+  }
+
+  get uploadWarningText() {
+    return "최대 5천건만 업로드하세요. 초과 시 업로드가 지연되거나 실패할 수 있습니다.";
   }
 
   get errorColumns() {
@@ -100,7 +106,7 @@ export default class Promotion_upload extends LightningElement {
   }
 
   get dropZoneClass() {
-    return this.isDragOver ? "drop-zone drop-zone--active" : "drop-zone";
+    return this.isDragOver ? "policy-upload-dropzone policy-upload-dropzone--active" : "policy-upload-dropzone";
   }
 
   get hasCompletionMessage() {
@@ -171,6 +177,13 @@ export default class Promotion_upload extends LightningElement {
     }
 
     this.processFile(file);
+  }
+
+  handleClearFile() {
+    if (this.isParsing || this.isUploading) {
+      return;
+    }
+    this.resetState();
   }
 
   processFile(file) {
@@ -276,11 +289,11 @@ export default class Promotion_upload extends LightningElement {
 
   translateErrorReason(message) {
     const translations = {
-      "ProductCode__c is required.": "제품 코드가 비어 있습니다.",
+      "ProductCode is required.": "제품 코드가 비어 있습니다.",
       "Duplicate product code in file.": "파일 내 제품 코드가 중복되었습니다.",
       "Product not found.": "일치하는 제품을 찾을 수 없습니다.",
       "PromotionProduct already exists.": "이미 적용 가능 품목에 등록된 제품입니다.",
-      "StoreCode__c is required.": "매장 코드가 비어 있습니다.",
+      "StoreCode is required.": "매장 코드가 비어 있습니다.",
       "Duplicate store code in file.": "파일 내 매장 코드가 중복되었습니다.",
       "Store not found.": "일치하는 매장을 찾을 수 없습니다.",
       "PromotionAccount already exists.": "이미 적용 가능 매장에 등록된 매장입니다.",
@@ -296,13 +309,13 @@ export default class Promotion_upload extends LightningElement {
     }
 
     return message
-      .replaceAll("Required column ProductCode__c is missing.", '필수 컬럼 "제품 코드(ProductCode__c)"가 없습니다.')
-      .replaceAll("ProductCode__c is required.", "제품 코드가 비어 있습니다.")
+      .replaceAll("Required column ProductCode is missing.", '필수 컬럼 "제품 코드(ProductCode)"가 없습니다.')
+      .replaceAll("ProductCode is required.", "제품 코드가 비어 있습니다.")
       .replaceAll("Duplicate product code in file.", "파일 내 제품 코드가 중복되었습니다.")
       .replaceAll("Product not found.", "일치하는 제품을 찾을 수 없습니다.")
       .replaceAll("PromotionProduct already exists.", "이미 적용 가능 품목에 등록된 제품입니다.")
-      .replaceAll("Required column StoreCode__c is missing.", '필수 컬럼 "매장 코드(StoreCode__c)"가 없습니다.')
-      .replaceAll("StoreCode__c is required.", "매장 코드가 비어 있습니다.")
+      .replaceAll("Required column StoreCode is missing.", '필수 컬럼 "매장 코드(StoreCode)"가 없습니다.')
+      .replaceAll("StoreCode is required.", "매장 코드가 비어 있습니다.")
       .replaceAll("Duplicate store code in file.", "파일 내 매장 코드가 중복되었습니다.")
       .replaceAll("Store not found.", "일치하는 매장을 찾을 수 없습니다.")
       .replaceAll("PromotionAccount already exists.", "이미 적용 가능 매장에 등록된 매장입니다.")

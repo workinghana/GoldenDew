@@ -141,8 +141,25 @@ public with sharing class GdAccountServiceImpl implements GdAccountService {
             throw new CustomException(400, '이미 존재하는 매장 코드입니다.');
           }
 
+          List<Account> companyList = [
+            SELECT Id
+            FROM Account
+            WHERE CompanyCode__c = :companyCode AND ParentId = NULL AND IsDeleted__c = FALSE AND StoreCode__c = NULL
+            LIMIT 1
+          ];
+
           //매장 재등록
           oldStore.IsDeleted__c = false;
+          oldStore.ParentId = companyList[0].Id;
+          oldStore.StoreCode__c = storeCode;
+          oldStore.StoreType__c = storeType;
+          oldStore.StoreGroupCode__c = storeGroupCode;
+          oldStore.Name = name;
+          oldStore.CompanyCode__c = companyCode;
+          oldStore.BrandCode__c = brandCode;
+          oldStore.Phone = phone;
+          oldStore.Phone2__c = phone2;
+          oldStore.Phone3__c = phone3;
 
           Database.SaveResult sr = Database.update(oldStore, false);
 
@@ -151,13 +168,13 @@ public with sharing class GdAccountServiceImpl implements GdAccountService {
             throw new CustomException(400, err.getMessage());
           }
 
-          return ApiResult.ok(200, '회사 재등록 완료', reqData);
+          return ApiResult.ok(200, '매장 재등록 완료', reqData);
         }
 
         List<Account> companyList = [
           SELECT Id
           FROM Account
-          WHERE CompanyCode__c = :companyCode AND ParentId = NULL AND IsDeleted__c = FALSE
+          WHERE CompanyCode__c = :companyCode AND ParentId = NULL AND IsDeleted__c = FALSE AND StoreCode__c = NULL
           LIMIT 1
         ];
 

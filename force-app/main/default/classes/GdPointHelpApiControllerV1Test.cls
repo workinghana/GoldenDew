@@ -44,8 +44,14 @@ private class GdPointHelpApiControllerV1Test {
     public List<PointCreditDTO> creditPointsOnPurchase(List<TransactionJournal> data) {
       return null;
     }
+    public List<PointCreditDTO> restoreEcoPointsFromReturn(Id orderId) {
+      return new List<PointCreditDTO>();
+    }
     public List<PointCreditDTO> creditPointsOnPurchaseV2(List<TransactionJournal> data, Decimal excludeAmount) {
       return null;
+    }
+    public List<PointCreditDTO> creditPromotionPointsOnPurchase(List<TransactionJournal> data, Decimal excludeAmount) {
+      return new List<PointCreditDTO>();
     }
     public Map<String, Object> cancelPointRedemption(TransactionJournal tj) {
       return null;
@@ -101,8 +107,14 @@ private class GdPointHelpApiControllerV1Test {
     public List<PointCreditDTO> creditPointsOnPurchase(List<TransactionJournal> data) {
       return null;
     }
+    public List<PointCreditDTO> restoreEcoPointsFromReturn(Id orderId) {
+      return new List<PointCreditDTO>();
+    }
     public List<PointCreditDTO> creditPointsOnPurchaseV2(List<TransactionJournal> data, Decimal excludeAmount) {
       return null;
+    }
+    public List<PointCreditDTO> creditPromotionPointsOnPurchase(List<TransactionJournal> data, Decimal excludeAmount) {
+      return new List<PointCreditDTO>();
     }
     public Map<String, Object> cancelPointRedemption(TransactionJournal tj) {
       return null;
@@ -158,8 +170,14 @@ private class GdPointHelpApiControllerV1Test {
     public List<PointCreditDTO> creditPointsOnPurchase(List<TransactionJournal> data) {
       return null;
     }
+    public List<PointCreditDTO> restoreEcoPointsFromReturn(Id orderId) {
+      return new List<PointCreditDTO>();
+    }
     public List<PointCreditDTO> creditPointsOnPurchaseV2(List<TransactionJournal> data, Decimal excludeAmount) {
       return null;
+    }
+    public List<PointCreditDTO> creditPromotionPointsOnPurchase(List<TransactionJournal> data, Decimal excludeAmount) {
+      return new List<PointCreditDTO>();
     }
     public Map<String, Object> cancelPointRedemption(TransactionJournal tj) {
       return null;

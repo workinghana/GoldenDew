@@ -238,6 +238,8 @@ public with sharing class IssueTierCouponBatch implements Database.Batchable<SOb
         }
       }
 
+      normalizeIssuedUpgradeVouchers(issuedVoucherIds);
+
       /* ================= Voucher 재조회 ================= */
 
       if (!issuedVoucherIds.isEmpty()) {
@@ -319,6 +321,26 @@ public with sharing class IssueTierCouponBatch implements Database.Batchable<SOb
     logger.addLog();
 
     ApexLogger.insertLogs();
+  }
+
+  private void normalizeIssuedUpgradeVouchers(Set<Id> issuedVoucherIds) {
+    if (issuedVoucherIds == null || issuedVoucherIds.isEmpty()) {
+      return;
+    }
+
+    List<Voucher> upgradeVoucherList = [
+      SELECT Id, FaceValue, VoucherDefinition.IsUpgrade__c
+      FROM Voucher
+      WHERE Id IN :issuedVoucherIds AND VoucherDefinition.IsUpgrade__c = TRUE
+    ];
+
+    for (Voucher voucher : upgradeVoucherList) {
+      voucher.FaceValue = 0;
+    }
+
+    if (!upgradeVoucherList.isEmpty()) {
+      update upgradeVoucherList;
+    }
   }
 
   public class CustomException extends Exception {

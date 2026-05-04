@@ -42,6 +42,11 @@ public interface GdPointService {
   List<GdSaleApiController.PointDebitDTO> debitPoint(TransactionJournal tj);
 
   /**
+   * 판매 수정 전용 포인트 사용 (same-sale 적립 제외 + 커스텀 DML, 2026-04-23 V2-SCN06 fix)
+   */
+  List<GdSaleApiController.PointDebitDTO> debitPointForSaleUpdate(TransactionJournal tj);
+
+  /**
    * 특정 포인트 차감 ([판매반품, 교환반품] 전체 삭제 API 에서 사용됨)
    */
   List<PointDebitDTO> debitSpecificPoints(TransactionJournal tj, List<LoyaltyLedger> llList);
@@ -67,9 +72,19 @@ public interface GdPointService {
   List<PointCreditDTO> creditPointsOnPurchase(List<TransactionJournal> data);
 
   /**
+   * 에코포인트 적립 취소 복원
+   */
+  List<PointCreditDTO> restoreEcoPointsFromReturn(Id orderId);
+
+  /**
    * 구매 시 포인트 지급 V2
    */
   List<PointCreditDTO> creditPointsOnPurchaseV2(List<TransactionJournal> data, Decimal excludeAmount);
+
+  /**
+   * 프로모션 포인트 지급
+   */
+  List<PointCreditDTO> creditPromotionPointsOnPurchase(List<TransactionJournal> data, Decimal excludeAmount);
 
   /**
    * 포인트 사용 취소

@@ -145,6 +145,7 @@ global with sharing class GdSaleDepositApiControllerV1 {
       depositNo += '-' + deposiSeqNo;
 
       ApiResult saleDepositResult = getSaleDepositService().deleteSaleDeposit(depositNo);
+      // ApiResult saleDepositResult = getSaleDepositService().deleteSaleDepositV2(depositNo);
 
       resData.put('CancelPointList', saleDepositResult.data.get('pointRedemptionCanceled'));
       resData.put('CancelPointsCreditedList', saleDepositResult.data.get('purchasePointAccrualCanceled'));

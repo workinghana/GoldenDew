@@ -1,9 +1,6 @@
 public with sharing class PromotionProductUploadControllerV1 {
   private static final Integer MAX_ROWS = 50000;
-  private static final Integer INSERT_CHUNK_SIZE = 1000;
-  private static final String COL_PRODUCT_CODE = 'ProductCode__c';
-  @TestVisible
-  private static Integer testChunkSizeOverride;
+  private static final String COL_PRODUCT_CODE = 'ProductCode';
 
   @AuraEnabled
   public static UploadPreviewResult parseUploadFile(String base64Data, Id promotionId) {
@@ -35,36 +32,26 @@ public with sharing class PromotionProductUploadControllerV1 {
       return result;
     }
 
-    Integer chunkSize = getInsertChunkSize();
-    for (Integer startIdx = 0; startIdx < parsed.previewRows.size(); startIdx += chunkSize) {
-      Integer endIdx = Math.min(startIdx + chunkSize, parsed.previewRows.size());
-      List<PreviewRowDTO> chunkRows = new List<PreviewRowDTO>();
-      List<PromotionProduct> toInsert = new List<PromotionProduct>();
+    List<PromotionProduct> toInsert = new List<PromotionProduct>();
+    for (PreviewRowDTO row : parsed.previewRows) {
+      toInsert.add(new PromotionProduct(PromotionId = promotionId, ProductId = row.productId));
+    }
 
-      for (Integer i = startIdx; i < endIdx; i++) {
-        chunkRows.add(parsed.previewRows[i]);
+    Database.SaveResult[] saveResults = Database.insert(toInsert, false);
+    for (Integer i = 0; i < saveResults.size(); i++) {
+      Database.SaveResult saveResult = saveResults[i];
+      PreviewRowDTO row = parsed.previewRows[i];
+
+      if (saveResult.isSuccess()) {
+        result.successCount++;
+        result.insertedIds.add(saveResult.getId());
+        continue;
       }
 
-      for (PreviewRowDTO row : chunkRows) {
-        toInsert.add(new PromotionProduct(PromotionId = promotionId, ProductId = row.productId));
-      }
-
-      Database.SaveResult[] saveResults = Database.insert(toInsert, false);
-      for (Integer i = 0; i < saveResults.size(); i++) {
-        Database.SaveResult saveResult = saveResults[i];
-        PreviewRowDTO row = chunkRows[i];
-
-        if (saveResult.isSuccess()) {
-          result.successCount++;
-          result.insertedIds.add(saveResult.getId());
-          continue;
-        }
-
-        result.success = false;
-        result.failCount++;
-        String message = saveResult.getErrors().isEmpty() ? 'Unknown error' : saveResult.getErrors()[0].getMessage();
-        result.errors.add(new RowErrorDTO(row.rowNumber, row.productCode, row.productName, message));
-      }
+      result.success = false;
+      result.failCount++;
+      String message = saveResult.getErrors().isEmpty() ? 'Unknown error' : saveResult.getErrors()[0].getMessage();
+      result.errors.add(new RowErrorDTO(row.rowNumber, row.productCode, row.productName, message));
     }
 
     if (!result.errors.isEmpty()) {
@@ -115,7 +102,7 @@ public with sharing class PromotionProductUploadControllerV1 {
 
     Integer productCodeIdx = headers.indexOf(COL_PRODUCT_CODE);
     if (productCodeIdx == -1) {
-      throw new AuraHandledException('Required column ProductCode__c is missing.');
+      throw new AuraHandledException('Required column ProductCode is missing.');
     }
 
     ParsedUpload parsed = new ParsedUpload();
@@ -133,7 +120,7 @@ public with sharing class PromotionProductUploadControllerV1 {
       String productCode = getColumnValue(cols, productCodeIdx);
 
       if (String.isBlank(productCode)) {
-        parsed.errors.add(new RowErrorDTO(rowNumber, productCode, null, 'ProductCode__c is required.'));
+        parsed.errors.add(new RowErrorDTO(rowNumber, productCode, null, 'ProductCode is required.'));
         continue;
       }
 
@@ -267,13 +254,6 @@ public with sharing class PromotionProductUploadControllerV1 {
         error.productName = product.Name;
       }
     }
-  }
-
-  private static Integer getInsertChunkSize() {
-    if (Test.isRunningTest() && testChunkSizeOverride != null && testChunkSizeOverride > 0) {
-      return testChunkSizeOverride;
-    }
-    return INSERT_CHUNK_SIZE;
   }
 
   private class ParsedUpload {

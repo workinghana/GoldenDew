@@ -1,4 +1,4 @@
-@RestResource(urlMapping='/gd/product')
+//@RestResource(urlMapping='/gd/product')
 global with sharing class GdProductApiController {
   private static GdProductService productService;
   private static GdPricebookEntryService pricebookEntryService;
@@ -31,7 +31,7 @@ global with sharing class GdProductApiController {
    * 품목 등록
    * Product2, PricebookEntry create
    */
-  @HttpPost
+  //@HttpPost
   global static void createProduct() {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();
@@ -73,7 +73,7 @@ global with sharing class GdProductApiController {
    * 품목 수정
    * Product2, PricebookEntry update
    */
-  @HttpPatch
+  //@HttpPatch
   global static void updateProduct() {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();

@@ -59,7 +59,7 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
 
       // VoucherDefinition 조회
       List<VoucherDefinition> vdList = [
-        SELECT Id, CouponManNo__c, Name
+        SELECT Id, CouponManNo__c, Name, IsUpgrade__c
         FROM VoucherDefinition
         WHERE IsActive = TRUE AND VoucherCategoryId__c = :vcList[0].Id
         LIMIT 10
@@ -259,6 +259,8 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
           }
         }
 
+        normalizeIssuedUpgradeVouchers(issuedVoucherIdSet);
+
         List<Voucher> loyaltyIssuedVouchers = [
           SELECT Id, LoyaltyProgramMember.Contact.MemberNo__c, VoucherDefinition.CouponManNo__c, VoucherCode
           FROM Voucher
@@ -373,5 +375,25 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
 
     String msg = 'Status=' + status + ', success=' + successCnt + ', fail=' + failCnt + ', jobId=' + bc.getJobId();
     SchedulerNotificationPublisher.publishResult('MonthlyCouponIssueBatch', notifStatus, msg, bc.getJobId(), null);
+  }
+
+  private static void normalizeIssuedUpgradeVouchers(Set<Id> issuedVoucherIds) {
+    if (issuedVoucherIds == null || issuedVoucherIds.isEmpty()) {
+      return;
+    }
+
+    List<Voucher> upgradeVoucherList = [
+      SELECT Id, FaceValue, VoucherDefinition.IsUpgrade__c
+      FROM Voucher
+      WHERE Id IN :issuedVoucherIds AND VoucherDefinition.IsUpgrade__c = TRUE
+    ];
+
+    for (Voucher voucher : upgradeVoucherList) {
+      voucher.FaceValue = 0;
+    }
+
+    if (!upgradeVoucherList.isEmpty()) {
+      update upgradeVoucherList;
+    }
   }
 }

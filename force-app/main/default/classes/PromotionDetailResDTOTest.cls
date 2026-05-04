@@ -3,7 +3,17 @@ private class PromotionDetailResDTOTest {
   // =========================================================
   // 공통 helper: Promotion insert
   // =========================================================
+
+  // 2026-04-14 (하나): 프로모션 전체 품목 설정 여부(YN_ALL_ITEM) 응답 추가
   private static Promotion insertPromotion() {
+    return insertPromotion(false, true, Date.today(), Date.today().addDays(30));
+  }
+
+  private static Promotion insertPromotion(Boolean isActive, Date publishStartDate, Date publishEndDate) {
+    return insertPromotion(false, isActive, publishStartDate, publishEndDate);
+  }
+
+  private static Promotion insertPromotion(Boolean isAllItem, Boolean isActive, Date publishStartDate, Date publishEndDate) {
     String storeTypeValue = null;
     // List<Schema.PicklistEntry> entries = Promotion.StoreType__c.getDescribe().getPicklistValues();
     // if (!entries.isEmpty()) {
@@ -14,9 +24,12 @@ private class PromotionDetailResDTOTest {
       Name = 'DetailTestPromo',
       DisplayName = 'DetailTestPromo Display',
       PromotionCode = 'PDRTO-001',
-      IsActive = true,
+      IsActive = isActive,
       StartDate = Date.today(),
       EndDate = Date.today().addDays(30),
+      PublishStartDate__c = publishStartDate,
+      PublishEndDate__c = publishEndDate,
+      IsAllItem__c = isAllItem,
       IsDiscountRateApplicable__c = true
       // ,
       // StoreType__c  = storeTypeValue
@@ -24,7 +37,7 @@ private class PromotionDetailResDTOTest {
     insert p;
 
     return [
-      SELECT Id, Name, PromotionNo__c, IsDiscountRateApplicable__c
+      SELECT Id, Name, PromotionNo__c, IsActive, IsAllItem__c, IsDiscountRateApplicable__c, PublishStartDate__c, PublishEndDate__c
       FROM Promotion
       WHERE Id = :p.Id
       LIMIT 1
@@ -52,6 +65,7 @@ private class PromotionDetailResDTOTest {
     Test.startTest();
     PromotionDetailResDTO.PromotionMaster master = new PromotionDetailResDTO.PromotionMaster(p);
     Test.stopTest();
+    System.assertEquals('N', master.YN_ALL_ITEM);
 
     System.assertEquals(p.PromotionNo__c, master.NO_PROM, 'PromotionNo__c → NO_PROM');
     System.assertEquals(p.Name, master.NM_PROM, 'Name → NM_PROM');
@@ -63,6 +77,31 @@ private class PromotionDetailResDTOTest {
     System.assertEquals(0, master.ITEMS.size());
     System.assertEquals(0, master.COUPONS.size());
     System.assertEquals(0, master.POINTS.size());
+  }
+
+  @IsTest
+  static void promotionMaster_ynActive_requiresIsActiveAndPublishPeriod() {
+    Promotion activePromotion = insertPromotion(true, Date.today(), Date.today().addDays(30));
+    Promotion inactivePromotion = insertPromotion(false, Date.today(), Date.today().addDays(30));
+
+    Test.startTest();
+    PromotionDetailResDTO.PromotionMaster activeMaster = new PromotionDetailResDTO.PromotionMaster(activePromotion);
+    PromotionDetailResDTO.PromotionMaster inactiveMaster = new PromotionDetailResDTO.PromotionMaster(inactivePromotion);
+    Test.stopTest();
+
+    System.assertEquals(true, activeMaster.YN_ACTIVE);
+    System.assertEquals(false, inactiveMaster.YN_ACTIVE);
+  }
+
+  @IsTest
+  static void promotionMaster_ynAllItem_mapsFlag() {
+    Promotion allItemPromotion = insertPromotion(true, true, Date.today(), Date.today().addDays(30));
+
+    Test.startTest();
+    PromotionDetailResDTO.PromotionMaster master = new PromotionDetailResDTO.PromotionMaster(allItemPromotion);
+    Test.stopTest();
+
+    System.assertEquals('Y', master.YN_ALL_ITEM);
   }
 
   // =========================================================
@@ -260,6 +299,29 @@ private class PromotionDetailResDTOTest {
     Test.stopTest();
 
     System.assertEquals('', coupon.NM_TYPE_COUPON, 'null 타입 → 빈 문자열');
+  }
+
+  @IsTest
+  static void promotionCoupon_voucherDefinitionConstructor_mapsFields() {
+    VoucherDefinition vd = new VoucherDefinition(
+      Name = 'DirectCoupon',
+      Type = 'DiscountPercentage',
+      DiscountPercent = 20,
+      FaceValue = 0,
+      EffectiveDate = Date.newInstance(2025, 2, 1),
+      ExpirationDate = Date.newInstance(2025, 2, 28)
+    );
+
+    Test.startTest();
+    PromotionDetailResDTO.PromotionCoupon coupon = new PromotionDetailResDTO.PromotionCoupon(vd);
+    Test.stopTest();
+
+    System.assertEquals('DirectCoupon', coupon.NM_MAN_COUPON);
+    System.assertEquals('정률', coupon.NM_TYPE_COUPON);
+    System.assertEquals(20, coupon.RT_DISC);
+    System.assertEquals(0, coupon.AM_DISC);
+    System.assertEquals('20250201', coupon.DT_STR_EXP);
+    System.assertEquals('20250228', coupon.DT_END_EXP);
   }
 
   // =========================================================

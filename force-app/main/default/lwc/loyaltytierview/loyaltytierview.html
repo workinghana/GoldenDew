@@ -33,7 +33,7 @@
 
             <span class="tier-name value">
               {tierName}
-              <span class={tierStarClass}>★</span>
+              <span class="tier-star">★</span>
             </span>
           </div>
 
@@ -102,14 +102,29 @@
 
         <!-- Body -->
         <div class="slds-modal__content slds-p-around_medium">
-          <lightning-combobox
-            name="coupon"
+          <lightning-input
+            type="search"
             label="지급할 쿠폰"
-            value={selectedVoucherDefinitionId}
-            options={couponOptions}
-            onchange={handleCouponChange}
-          >
-          </lightning-combobox>
+            value={couponSearchTerm}
+            placeholder="쿠폰명을 입력하세요"
+            onchange={handleCouponSearchChange}
+          ></lightning-input>
+
+          <template if:true={selectedCouponLabel}>
+            <p class="selected-coupon-text">선택된 쿠폰 : {selectedCouponLabel}</p>
+          </template>
+
+          <template if:true={hasFilteredCouponOptions}>
+            <ul class="coupon-option-list">
+              <template for:each={filteredCouponOptions} for:item="option">
+                <li key={option.value} class={option.itemClass} data-value={option.value} onclick={handleCouponOptionClick}>{option.label}</li>
+              </template>
+            </ul>
+          </template>
+
+          <template if:true={showNoCouponMatch}>
+            <p class="coupon-no-match">검색 결과가 없습니다.</p>
+          </template>
         </div>
 
         <!-- Footer -->

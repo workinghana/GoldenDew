@@ -1,5 +1,23 @@
 @IsTest
 private class IssueUploadCouponBatchTest {
+  private static String pickVoucherType() {
+    for (Schema.PicklistEntry entry : VoucherDefinition.Type.getDescribe().getPicklistValues()) {
+      if (entry.getValue() == 'FixedValue') {
+        return entry.getValue();
+      }
+    }
+    return VoucherDefinition.Type.getDescribe().getPicklistValues()[0].getValue();
+  }
+
+  private static String pickExpirationType() {
+    for (Schema.PicklistEntry entry : VoucherDefinition.ExpirationType.getDescribe().getPicklistValues()) {
+      if (entry.getValue() == 'FixedDate') {
+        return entry.getValue();
+      }
+    }
+    return VoucherDefinition.ExpirationType.getDescribe().getPicklistValues()[0].getValue();
+  }
+
   private class MockBatchableContext implements Database.BatchableContext {
     public Id getJobId() {
       return UserInfo.getUserId();
@@ -12,6 +30,8 @@ private class IssueUploadCouponBatchTest {
 
   @TestSetup
   static void setupData() {
+    String voucherType = pickVoucherType();
+
     LoyaltyProgram program = new LoyaltyProgram(Name = 'IssueUpload Test Program', IsPrimary = true);
     insert program;
 
@@ -27,8 +47,8 @@ private class IssueUploadCouponBatchTest {
       IsActive = true,
       Description = 'IssueUploadCouponBatch test',
       ProductId = productRecord.Id,
-      Type = 'ProductOrService',
-      ExpirationType = 'FixedDate',
+      Type = voucherType,
+      ExpirationType = pickExpirationType(),
       EffectiveDate = Date.today(),
       ExpirationDate = Date.today().addDays(30),
       AccountId__c = companyAccount.Id,
@@ -38,6 +58,11 @@ private class IssueUploadCouponBatchTest {
       InsertId__c = 'TestUser',
       ResponsiblePerson__c = 'Manager'
     );
+    if (voucherType == 'DiscountPercentage') {
+      definition.DiscountPercent = 10;
+    } else {
+      definition.FaceValue = 1000;
+    }
     insert definition;
 
     Contact contactRecord = new Contact(LastName = 'Upload Member', MemberNo__c = 'M-UPLOAD-001');

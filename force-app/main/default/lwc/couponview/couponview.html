@@ -1,4 +1,5 @@
-<template>
+<template
+  >ㄴ
   <template if:true={isLoading}>
     <lightning-spinner alternative-text="Loading"></lightning-spinner>
   </template>
@@ -59,8 +60,6 @@
             <div class="detail-value"><span class={couponStatusClass}>{couponStatus}</span></div>
           </div>
         </div>
-
-        <input class="hidden-file-input coupon-upload-file-input" type="file" accept=".csv" onchange={handleFileChange} />
       </article>
 
       <article class="coupon-card-box">
@@ -96,7 +95,7 @@
   </template>
 
   <template if:true={isPolicyModalOpen}>
-    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+    <section role="dialog" class="slds-modal slds-fade-in-open">
       <div class="slds-modal__container policy-modal-container">
         <header class="slds-modal__header">
           <button class="slds-button slds-button_icon slds-modal__close" title="닫기" onclick={closePolicyModal}>
@@ -358,8 +357,8 @@
   </template>
 
   <template if:true={isPolicyErrorModalOpen}>
-    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
-      <div class="slds-modal__container">
+    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open policy-error-modal">
+      <div class="slds-modal__container coupon-upload-modal-container">
         <header class="slds-modal__header"><h2 class="slds-text-heading_medium">정책 저장 실패</h2></header>
         <div class="slds-modal__content slds-p-around_large"><div class="issue-error-message">{policyErrorMessage}</div></div>
         <footer class="slds-modal__footer">
@@ -367,7 +366,7 @@
         </footer>
       </div>
     </section>
-    <div class="slds-backdrop slds-backdrop_open"></div>
+    <div class="slds-backdrop slds-backdrop_open policy-error-backdrop"></div>
   </template>
 
   <template if:true={isPolicyUploadModalOpen}>
@@ -389,12 +388,24 @@
             <lightning-icon icon-name="utility:upload" size="large" class="policy-upload-dropzone-icon"></lightning-icon>
             <div class="policy-upload-dropzone-title">CSV 파일 업로드</div>
             <div class="policy-upload-dropzone-text">{policyUploadGuideText}</div>
+            <div class="policy-upload-warning-text">{policyUploadWarningText}</div>
             <template if:true={policyUploadFileName}>
-              <div class="policy-upload-file-name">{policyUploadFileName}</div>
+              <div class="policy-upload-file-row">
+                <div class="policy-upload-file-name">{policyUploadFileName}</div>
+                <button type="button" class="policy-upload-file-clear" onclick={clearPolicyUploadFile} title="파일 제거">x</button>
+              </div>
             </template>
             <lightning-button label="파일 선택" variant="brand" onclick={handlePolicyUploadClick}></lightning-button>
             <input class="hidden-file-input policy-upload-file-input" type="file" accept=".csv" onchange={handlePolicyUploadFileChange} />
           </div>
+
+          <template if:true={isPolicyUploadLoading}>
+            <div class="validation-loading-card policy-upload-entry-guide">
+              <lightning-spinner alternative-text="Loading" size="small"></lightning-spinner>
+              <div class="validation-loading-title">업로드 파일을 확인하고 있습니다</div>
+              <div class="validation-loading-text">파일 검증이 완료되면 정상 목록과 오류 목록이 표시됩니다.</div>
+            </div>
+          </template>
 
           <div class="policy-upload-block">
             <div class="upload-summary">
@@ -409,41 +420,28 @@
             </div>
           </div>
 
-          <template if:true={hasPolicyUploadPreviewRows}>
-            <div class="policy-upload-block">
-              <div class="policy-upload-title">업로드 미리보기</div>
-              <div class="policy-upload-table-wrap">
-                <div class="policy-upload-table-inner">
-                  <lightning-datatable
-                    key-field="id"
-                    data={policyUploadPreviewRows}
-                    columns={policyUploadColumns}
-                    hide-checkbox-column
-                  ></lightning-datatable>
-                </div>
+          <div class="policy-upload-block">
+            <div class="policy-upload-title">오류 목록</div>
+            <div class="policy-upload-table-wrap">
+              <div class="policy-upload-table-inner">
+                <lightning-datatable
+                  key-field="rowNumber"
+                  data={policyUploadErrors}
+                  columns={policyUploadErrorColumns}
+                  hide-checkbox-column
+                ></lightning-datatable>
               </div>
             </div>
-          </template>
-
-          <template if:true={hasPolicyUploadErrors}>
-            <div class="policy-upload-block">
-              <div class="policy-upload-title">오류 목록</div>
-              <div class="policy-upload-table-wrap">
-                <div class="policy-upload-table-inner">
-                  <lightning-datatable
-                    key-field="rowNumber"
-                    data={policyUploadErrors}
-                    columns={policyUploadErrorColumns}
-                    hide-checkbox-column
-                  ></lightning-datatable>
-                </div>
-              </div>
-            </div>
-          </template>
+          </div>
         </div>
         <footer class="slds-modal__footer">
           <lightning-button label="닫기" variant="neutral" onclick={closePolicyUploadModal}></lightning-button>
-          <lightning-button label="선택 목록에 반영" variant="brand" onclick={applyPolicyUploadRows}></lightning-button>
+          <lightning-button
+            label={policyUploadActionButtonLabel}
+            variant="brand"
+            onclick={applyPolicyUploadRows}
+            disabled={isPolicyUploadActionDisabled}
+          ></lightning-button>
         </footer>
       </div>
     </section>
@@ -452,9 +450,9 @@
 
   <template if:true={isLimitModalOpen}>
     <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
-      <div class="slds-modal__container">
+      <div class="slds-modal__container coupon-upload-modal-container">
         <header class="slds-modal__header"><h2 class="slds-text-heading_medium">{selectedLimitLabel}</h2></header>
-        <div class="slds-modal__content slds-p-around_large">
+        <div class="slds-modal__content slds-p-around_medium">
           <div class="limit-modal-meta">{selectedLimitCountText}</div>
           <div class="limit-modal-table-wrap">
             <div class="limit-modal-table">
@@ -494,26 +492,93 @@
 
   <template if:true={isUploadModalOpen}>
     <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
-      <div class="slds-modal__container">
+      <div class="slds-modal__container coupon-upload-modal-container">
         <header class="slds-modal__header"><h2 class="slds-text-heading_medium">지급 대상 확인</h2></header>
-        <div class="slds-modal__content slds-p-around_large">
-          <div class="upload-summary">
-            <div class="upload-summary-card upload-summary-card--success">
-              <div class="upload-summary-label">정상 건수</div>
-              <div class="upload-summary-value">{successCount}</div>
+        <div class="slds-modal__content slds-p-around_medium">
+          <template if:true={shouldShowCouponUploadEntry}>
+            <div
+              class={uploadDropzoneClass}
+              ondragenter={handleUploadDragEnter}
+              ondragover={handleUploadDragOver}
+              ondragleave={handleUploadDragLeave}
+              ondrop={handleUploadDrop}
+            >
+              <lightning-icon icon-name="utility:upload" size="large" class="policy-upload-dropzone-icon"></lightning-icon>
+              <div class="policy-upload-dropzone-title">CSV 파일 업로드</div>
+              <div class="policy-upload-dropzone-text">
+                NO_MBR 컬럼 또는 회원번호 컬럼이 포함된 CSV 파일을 업로드해 지급 대상을 불러올 수 있습니다.
+              </div>
+              <div class="policy-upload-warning-text">최대 1만건만 업로드하세요. 초과 시 업로드가 지연되거나 실패할 수 있습니다.</div>
+              <template if:true={uploadFileName}>
+                <div class="policy-upload-file-row">
+                  <div class="policy-upload-file-name">{uploadFileName}</div>
+                  <button type="button" class="policy-upload-file-clear" onclick={clearCouponUploadFile} title="파일 제거">x</button>
+                </div>
+              </template>
+              <lightning-button label="파일 선택" variant="brand" onclick={handleCouponUploadFileClick}></lightning-button>
+              <input class="hidden-file-input coupon-upload-file-input" type="file" accept=".csv" onchange={handleFileChange} />
             </div>
-            <div class="upload-summary-card upload-summary-card--error">
-              <div class="upload-summary-label">오류 건수</div>
-              <div class="upload-summary-value">{failCount}</div>
+
+            <template if:true={isUploadProcessing}>
+              <div class="validation-loading-card policy-upload-entry-guide">
+                <lightning-spinner alternative-text="Loading" size="small"></lightning-spinner>
+                <div class="validation-loading-title">업로드 파일을 확인하고 있습니다</div>
+                <div class="validation-loading-text">
+                  현재 파일 업로드가 진행 중입니다.<br />
+                  업로드가 완료되면 결과가 아래에 표시됩니다.
+                </div>
+              </div>
+            </template>
+          </template>
+
+          <template if:false={isUploadProcessing}>
+            <div class="validation-status">업로드 현황</div>
+            <div class="validation-help">
+              <strong>{couponUploadStatusLabel}</strong>
+              <template if:true={couponUploadStatusHelp}>
+                <br />
+                {couponUploadStatusHelp}
+              </template>
             </div>
-          </div>
-          <template if:true={hasPreviewMembers}>
-            <lightning-datatable key-field="memberNo" data={previewMembers} columns={columns} hide-checkbox-column></lightning-datatable>
+          </template>
+
+          <template if:true={showCouponUploadResults}>
+            <div class="upload-summary">
+              <div class="upload-summary-card upload-summary-card--success">
+                <div class="upload-summary-label">정상 건수</div>
+                <div class="upload-summary-value">{successCount}</div>
+              </div>
+              <div class="upload-summary-card upload-summary-card--error">
+                <div class="upload-summary-label">오류 건수</div>
+                <div class="upload-summary-value">{failCount}</div>
+              </div>
+            </div>
+
+            <template if:true={hasIssueStarted}>
+              <div class={issueProgressStatusClass}>
+                <div class="issue-progress-header">
+                  <div>
+                    <div class="issue-progress-title">{issueProgressTitle}</div>
+                    <div class="issue-progress-description">{issueProgressDescription}</div>
+                  </div>
+                  <div class="issue-progress-count">{issueProgressCountText}</div>
+                </div>
+                <lightning-progress-bar value={issueProgressPercent} size="medium"></lightning-progress-bar>
+                <div class="issue-progress-meta">
+                  <span>{issueProgressSummaryLabel}</span>
+                  <span>{issueProgressMetaText}</span>
+                </div>
+              </div>
+            </template>
+
+            <template if:true={hasPreviewMembers}>
+              <lightning-datatable key-field="memberNo" data={previewMembers} columns={columns} hide-checkbox-column></lightning-datatable>
+            </template>
           </template>
         </div>
         <footer class="slds-modal__footer">
           <lightning-button label="닫기" variant="neutral" onclick={closeUploadModal}></lightning-button>
-          <lightning-button label={issueButtonLabel} variant="brand" onclick={handleIssueCoupon}></lightning-button>
+          <lightning-button label={issueButtonLabel} variant="brand" onclick={handleIssueCoupon} disabled={isIssueActionDisabled}></lightning-button>
         </footer>
       </div>
     </section>

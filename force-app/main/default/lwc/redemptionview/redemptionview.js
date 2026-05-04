@@ -1,7 +1,8 @@
 import { LightningElement, api, wire } from "lwc";
+import { NavigationMixin } from "lightning/navigation";
 import getPointRedemptionRows from "@salesforce/apex/PointLedgerUIControllerV1.getPointRedemptionRows";
 
-export default class Redemptionview extends LightningElement {
+export default class Redemptionview extends NavigationMixin(LightningElement) {
   pageSize = 7;
   visiblePageCount = 5;
   @api recordId;
@@ -17,13 +18,24 @@ export default class Redemptionview extends LightningElement {
     this.isLoading = false;
 
     if (data) {
-      this.rows = data.map((row) => ({
-        ...row,
-        redemptionDateText: this.formatDate(row.redemptionDate),
-        redemptionPointsText: this.formatSignedNumber(row.redemptionPoints, row.isCancel),
-        saleAmountText: this.formatNumber(row.saleAmount),
-        rowClass: row.isCancel ? "row-cancel" : ""
-      }));
+      this.rows = data
+        .map((row) => ({
+          ...row,
+          redemptionDateText: this.formatDate(row.redemptionDate),
+          redemptionPointsText: this.formatSignedNumber(row.redemptionPoints, row.isCancel),
+          saleAmountText: this.formatNumber(row.saleAmount),
+          orderNoText: row.orderNo || "",
+          saleNoText: row.saleNo || "",
+          hasOrderLink: Boolean(row.orderNo && row.recordId),
+          hasSaleLink: Boolean(row.saleNo && row.recordId),
+          hasNoLink: !row.orderNo && !row.saleNo,
+          accrualSaleNoText: row.accrualSaleNo || "-",
+          returnSaleNoText: row.returnSaleNo || "-",
+          hasAccrualLink: Boolean(row.accrualSaleNo && row.accrualRecordId),
+          hasReturnLink: Boolean(row.returnSaleNo && row.recordId),
+          rowClass: row.isCancel ? "row-cancel" : ""
+        }))
+        .sort((a, b) => this.compareDateAsc(a.redemptionDate, b.redemptionDate));
       this.currentPage = 1;
       this.error = undefined;
       return;
@@ -119,6 +131,22 @@ export default class Redemptionview extends LightningElement {
     this.currentPage = Number(event.currentTarget.dataset.page);
   }
 
+  handleRecordNavigate(event) {
+    event.preventDefault();
+    const recordId = event.currentTarget.dataset.id;
+    if (!recordId) {
+      return;
+    }
+    this[NavigationMixin.Navigate]({
+      type: "standard__recordPage",
+      attributes: {
+        recordId,
+        objectApiName: "Order",
+        actionName: "view"
+      }
+    });
+  }
+
   handleDateFilterChange(event) {
     this.filterDate = event.target.value;
     this.currentPage = 1;
@@ -141,5 +169,22 @@ export default class Redemptionview extends LightningElement {
       return "";
     }
     return String(value).slice(0, 10);
+  }
+
+  compareDateAsc(left, right) {
+    const leftDate = this.normalizeDate(left);
+    const rightDate = this.normalizeDate(right);
+
+    if (!leftDate && !rightDate) {
+      return 0;
+    }
+    if (!leftDate) {
+      return 1;
+    }
+    if (!rightDate) {
+      return -1;
+    }
+
+    return leftDate.localeCompare(rightDate);
   }
 }

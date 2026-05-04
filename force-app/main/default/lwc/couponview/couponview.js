@@ -9,6 +9,7 @@ import parseCouponFile from "@salesforce/apex/CouponListUploadControllerV1.parse
 import parseProductLimitFile from "@salesforce/apex/CouponListUploadControllerV1.parseProductLimitFile";
 import parseStoreLimitFile from "@salesforce/apex/CouponListUploadControllerV1.parseStoreLimitFile";
 import issueCoupon from "@salesforce/apex/CouponListUploadControllerV1.issueCoupon";
+import getIssueCouponProgress from "@salesforce/apex/CouponListUploadControllerV1.getIssueCouponProgress";
 
 const OPERATOR_NONE = "NONE";
 
@@ -114,11 +115,22 @@ export default class Couponview extends LightningElement {
   limitPageSize = 10;
   isUploadModalOpen = false;
   isIssueLoading = false;
+  isUploadProcessing = false;
   isIssueErrorModalOpen = false;
   issueErrorMessage = "";
   successCount = 0;
   failCount = 0;
   successMemberIds = [];
+  uploadFileName = "";
+  isUploadDragOver = false;
+  issueJobId = "";
+  issueRequestToken = "";
+  issueStatus = "";
+  issueProcessedCount = 0;
+  issueSuccessCount = 0;
+  issueFailCount = 0;
+  issueProgressMessage = "";
+  issueProgressTimer = null;
   policyUploadType = "";
   policyUploadTitle = "";
   policyUploadFileName = "";
@@ -129,15 +141,8 @@ export default class Couponview extends LightningElement {
     { label: "오류 사유", fieldName: "errorReason" }
   ];
 
-  policyUploadColumns = [
-    { label: "코드", fieldName: "code" },
-    { label: "이름", fieldName: "name" }
-  ];
-
   policyUploadErrorColumns = [
     { label: "행", fieldName: "rowNumber" },
-    { label: "코드", fieldName: "code" },
-    { label: "이름", fieldName: "name" },
     { label: "오류 사유", fieldName: "errorReason" }
   ];
 
@@ -162,6 +167,38 @@ export default class Couponview extends LightningElement {
     this.policySections = this.createPolicySections();
     if (this.recordId) {
       this.loadPageData();
+    }
+  }
+
+  disconnectedCallback() {
+    this.stopIssueProgressPolling();
+  }
+
+  renderedCallback() {
+    const warningEls = this.template.querySelectorAll(".policy-upload-warning-text");
+    if (!warningEls.length) {
+      return;
+    }
+
+    const warningText = this.isUploadModalOpen
+      ? "최대 1만건만 업로드하세요. 초과 시 업로드가 지연되거나 실패할 수 있습니다."
+      : "최대 5천건만 업로드하세요. 초과 시 업로드가 지연되거나 실패할 수 있습니다.";
+
+    warningEls.forEach((el) => {
+      el.textContent = warningText;
+    });
+
+    if (this.isUploadModalOpen) {
+      const titleEl = this.template.querySelector(".coupon-upload-modal-container .slds-modal__header h2");
+      if (titleEl) {
+        titleEl.textContent = "쿠폰 지급 업로드";
+      }
+
+      const closeButton = this.template.querySelector(".coupon-upload-modal-container .slds-modal__footer lightning-button");
+      if (closeButton) {
+        closeButton.label = "닫기";
+        closeButton.disabled = this.closeUploadButtonDisabled;
+      }
     }
   }
 
@@ -357,11 +394,187 @@ export default class Couponview extends LightningElement {
   }
 
   get issueButtonLabel() {
+    if (this.isIssueCompleted || this.isIssueFailed) {
+      return "완료";
+    }
     return this.isIssueLoading ? "지급 중..." : "지급";
   }
 
   get hasPreviewMembers() {
     return this.previewMembers.length > 0;
+  }
+
+  get isIssueActionDisabled() {
+    if (this.isIssueCompleted || this.isIssueFailed) {
+      return false;
+    }
+    return this.isUploadProcessing || this.isIssueLoading || this.isIssueInProgress || !this.successMemberIds.length;
+  }
+
+  get hasIssueStarted() {
+    return Boolean(this.issueJobId);
+  }
+
+  get isIssueInProgress() {
+    return this.issueStatus === "PROCESSING";
+  }
+
+  get isIssueCompleted() {
+    return this.issueStatus === "COMPLETED";
+  }
+
+  get isIssueFailed() {
+    return this.issueStatus === "FAILED";
+  }
+
+  get uploadDropzoneClass() {
+    return this.isUploadDragOver ? "policy-upload-dropzone policy-upload-dropzone--active" : "policy-upload-dropzone";
+  }
+
+  get shouldShowCouponUploadEntry() {
+    return !this.hasIssueStarted;
+  }
+
+  get closeUploadButtonDisabled() {
+    return this.isUploadProcessing || this.isIssueLoading || this.isIssueInProgress;
+  }
+
+  get showCouponUploadResults() {
+    return !this.isUploadProcessing && (this.successCount > 0 || this.failCount > 0 || this.hasIssueStarted);
+  }
+
+  get couponUploadStatusLabel() {
+    if (this.isUploadProcessing) {
+      return "쿠폰 지급 대상 검증 중";
+    }
+    if (this.isIssueInProgress) {
+      return "쿠폰 지급 진행 중";
+    }
+    if (this.isIssueCompleted) {
+      return "쿠폰 지급 완료";
+    }
+    if (this.isIssueFailed) {
+      return "쿠폰 지급 실패";
+    }
+    if (this.showCouponUploadResults) {
+      return "검증 완료";
+    }
+    return "대기 중";
+  }
+
+  get couponUploadStatusHelp() {
+    if (this.isUploadProcessing) {
+      return "현재 파일 검증이 진행 중입니다. 완료 전에는 창을 닫거나 새 파일을 업로드하지 마세요.";
+    }
+    if (this.isIssueInProgress) {
+      return `총 ${this.successCount}명 중 ${this.issueProcessedCount}명 처리가 완료되었습니다.`;
+    }
+    if (this.isIssueCompleted) {
+      return this.issueFailCount > 0
+        ? `성공 ${this.issueSuccessCount}명 / 실패 ${this.issueFailCount}명입니다.`
+        : `총 ${this.issueSuccessCount}명 지급이 완료되었습니다.`;
+    }
+    if (this.isIssueFailed) {
+      return this.issueProgressMessage || "지급 중 오류가 발생했습니다.";
+    }
+    if (this.showCouponUploadResults) {
+      return "검증이 완료되었습니다. 결과를 확인한 뒤 쿠폰을 지급할 수 있습니다.";
+    }
+    return "";
+  }
+
+  get couponValidationLoadingTitle() {
+    return "업로드 진행 안내";
+  }
+
+  get couponValidationLoadingGuideTitle() {
+    return "[업로드 진행 안내]";
+  }
+
+  get couponValidationLoadingMessage1() {
+    return "현재 파일 업로드가 진행 중입니다.";
+  }
+
+  get couponValidationLoadingMessage2() {
+    return "업로드가 완료될 때까지 새로운 파일을 업로드할 수 없습니다.";
+  }
+
+  get couponValidationLoadingMessage3() {
+    return "최대 업로드 권장 건수: 10,000건";
+  }
+
+  get couponValidationLoadingMessage4() {
+    return "권장 건수 초과 시 처리 시간이 지연될 수 있습니다.";
+  }
+
+  get couponValidationLoadingMessage5() {
+    return "업로드 완료 후 다시 시도해 주시기 바랍니다.";
+  }
+
+  get issueProgressStatusClass() {
+    if (this.isIssueCompleted) {
+      return "issue-progress-panel issue-progress-panel--completed";
+    }
+    if (this.isIssueFailed) {
+      return "issue-progress-panel issue-progress-panel--failed";
+    }
+    return "issue-progress-panel";
+  }
+
+  get issueProgressTitle() {
+    if (this.isIssueCompleted) {
+      return this.issueFailCount > 0 ? "쿠폰 지급 완료" : "쿠폰 지급 성공";
+    }
+    if (this.isIssueFailed) {
+      return "쿠폰 지급 실패";
+    }
+    return "쿠폰 지급 진행 중";
+  }
+
+  get issueProgressDescription() {
+    if (this.isIssueCompleted) {
+      if (this.issueFailCount > 0) {
+        return `성공 ${this.issueSuccessCount}명 / 실패 ${this.issueFailCount}명입니다.`;
+      }
+      return `총 ${this.issueSuccessCount}명 지급이 완료되었습니다.`;
+    }
+    if (this.isIssueFailed) {
+      return this.issueProgressMessage || "지급 중 오류가 발생했습니다.";
+    }
+    return "쿠폰을 순차적으로 지급하고 있습니다.";
+  }
+
+  get issueProgressCountText() {
+    const totalCount = this.successCount || 0;
+    const processedCount = Math.min(totalCount, this.issueProcessedCount || 0);
+    return `${processedCount} / ${totalCount}`;
+  }
+
+  get issueProgressPercent() {
+    if (!this.successCount) {
+      return 0;
+    }
+    return Math.min(100, Math.round(((this.issueProcessedCount || 0) / this.successCount) * 100));
+  }
+
+  get issueProgressSummaryLabel() {
+    if (this.isIssueCompleted) {
+      return `총 ${this.successCount}명 중 ${this.issueProcessedCount}명 처리가 완료되었습니다.`;
+    }
+    if (this.isIssueFailed) {
+      return this.issueProgressMessage || "지급 처리 중 문제가 발생했습니다.";
+    }
+    return `총 ${this.successCount}명 중 ${this.issueProcessedCount}명 처리되었습니다.`;
+  }
+
+  get issueProgressMetaText() {
+    if (this.isIssueCompleted) {
+      return `성공 ${this.issueSuccessCount}명 / 실패 ${this.issueFailCount}명`;
+    }
+    if (this.isIssueFailed) {
+      return this.issueProgressMessage || "";
+    }
+    return `남은 인원 ${Math.max(0, this.successCount - this.issueProcessedCount)}명`;
   }
 
   get selectedLimitCountText() {
@@ -403,7 +616,7 @@ export default class Couponview extends LightningElement {
   }
 
   get hasPolicyUploadPreviewRows() {
-    return this.policyUploadType === "productIncludeItems" && this.policyUploadPreviewRows.length > 0;
+    return this.policyUploadPreviewRows.length > 0;
   }
 
   get hasPolicyUploadErrors() {
@@ -418,14 +631,65 @@ export default class Couponview extends LightningElement {
     return this.policyUploadErrors.length;
   }
 
+  get hasPolicyUploadResult() {
+    return this.policyUploadPreviewRows.length > 0 || this.policyUploadErrors.length > 0;
+  }
+
+  get policyUploadActionButtonLabel() {
+    return "완료";
+  }
+
+  get isPolicyUploadActionDisabled() {
+    return this.isPolicyUploadLoading;
+  }
+
+  get policyUploadProgressTitle() {
+    return `${this.policyUploadTitle} 결과 확인`;
+  }
+
+  get policyUploadProgressClass() {
+    return "issue-progress-panel";
+  }
+
+  get policyUploadProgressDescription() {
+    if (!this.hasPolicyUploadResult) {
+      return "파일을 업로드하면 등록 가능한 목록과 오류 목록을 바로 확인할 수 있습니다.";
+    }
+    return `정상 ${this.policyUploadSuccessCount}건 / 오류 ${this.policyUploadFailCount}건을 확인했습니다.`;
+  }
+
+  get policyUploadProgressCountText() {
+    const totalCount = this.policyUploadSuccessCount + this.policyUploadFailCount;
+    return `${this.policyUploadSuccessCount} / ${totalCount}`;
+  }
+
+  get policyUploadProgressPercent() {
+    const totalCount = this.policyUploadSuccessCount + this.policyUploadFailCount;
+    if (!totalCount) {
+      return 0;
+    }
+    return Math.min(100, Math.round((this.policyUploadSuccessCount / totalCount) * 100));
+  }
+
+  get policyUploadProgressMeta() {
+    if (!this.hasPolicyUploadResult) {
+      return "업로드 결과가 이 영역에 표시됩니다.";
+    }
+    return `정상 ${this.policyUploadSuccessCount}건 / 오류 ${this.policyUploadFailCount}건`;
+  }
+
   get policyUploadDropzoneClass() {
     return this.isPolicyUploadDragOver ? "policy-upload-dropzone policy-upload-dropzone--active" : "policy-upload-dropzone";
   }
 
   get policyUploadGuideText() {
     return this.policyUploadType === "productIncludeItems"
-      ? "코드 컬럼(ProductCode__c)이 포함된 CSV 파일을 업로드하면 선택 목록에 일괄 반영할 수 있습니다."
-      : "코드 컬럼(StoreCode__c)이 포함된 CSV 파일을 업로드하면 선택 목록에 일괄 반영할 수 있습니다.";
+      ? "코드 컬럼(ProductCode)이 포함된 CSV 파일을 업로드하면 선택 목록에 일괄 반영할 수 있습니다."
+      : "코드 컬럼(StoreCode)이 포함된 CSV 파일을 업로드하면 선택 목록에 일괄 반영할 수 있습니다.";
+  }
+
+  get policyUploadWarningText() {
+    return "최대 5천건만 업로드하세요. 초과 시 업로드가 지연되거나 실패할 수 있습니다.";
   }
 
   get isDiscountRateDisabled() {
@@ -825,6 +1089,16 @@ export default class Couponview extends LightningElement {
     this.isPolicyUploadDragOver = false;
   }
 
+  clearPolicyUploadFile() {
+    if (this.isPolicyUploadLoading) {
+      return;
+    }
+    this.policyUploadFileName = "";
+    this.policyUploadPreviewRows = [];
+    this.policyUploadErrors = [];
+    this.isPolicyUploadDragOver = false;
+  }
+
   handlePolicyUploadClick() {
     const input = this.template.querySelector(".policy-upload-file-input");
     if (input) {
@@ -866,6 +1140,7 @@ export default class Couponview extends LightningElement {
       return;
     }
     this.processPolicyUploadFile(file);
+    event.target.value = null;
   }
 
   processPolicyUploadFile(file) {
@@ -938,10 +1213,52 @@ export default class Couponview extends LightningElement {
   }
 
   handleUploadClick() {
+    this.previewMembers = [];
+    this.successCount = 0;
+    this.failCount = 0;
+    this.successMemberIds = [];
+    this.uploadFileName = "";
+    this.isUploadDragOver = false;
+    this.isUploadProcessing = false;
+    this.issueErrorMessage = "";
+    this.isIssueErrorModalOpen = false;
+    this.resetIssueProgress();
+    this.isUploadModalOpen = true;
+  }
+
+  handleCouponUploadFileClick() {
     const input = this.template.querySelector(".coupon-upload-file-input");
     if (input) {
       input.click();
     }
+  }
+
+  handleUploadDragEnter(event) {
+    event.preventDefault();
+    this.isUploadDragOver = true;
+  }
+
+  handleUploadDragOver(event) {
+    event.preventDefault();
+    this.isUploadDragOver = true;
+  }
+
+  handleUploadDragLeave(event) {
+    event.preventDefault();
+    const relatedTarget = event.relatedTarget;
+    if (!relatedTarget || !event.currentTarget.contains(relatedTarget)) {
+      this.isUploadDragOver = false;
+    }
+  }
+
+  handleUploadDrop(event) {
+    event.preventDefault();
+    this.isUploadDragOver = false;
+    const file = event.dataTransfer?.files && event.dataTransfer.files[0];
+    if (!file) {
+      return;
+    }
+    this.processCouponUploadFile(file);
   }
 
   handleFileChange(event) {
@@ -949,6 +1266,22 @@ export default class Couponview extends LightningElement {
     if (!file) {
       return;
     }
+    this.processCouponUploadFile(file);
+    event.target.value = null;
+  }
+
+  processCouponUploadFile(file) {
+    this.previewMembers = [];
+    this.successCount = 0;
+    this.failCount = 0;
+    this.successMemberIds = [];
+    this.issueErrorMessage = "";
+    this.isIssueErrorModalOpen = false;
+    this.resetIssueProgress();
+    this.uploadFileName = file.name;
+    this.isUploadProcessing = true;
+    this.isUploadModalOpen = true;
+
     const reader = new FileReader();
     reader.onload = async () => {
       try {
@@ -957,16 +1290,89 @@ export default class Couponview extends LightningElement {
         this.successCount = result.successCount || 0;
         this.failCount = result.failCount || 0;
         this.successMemberIds = result.successMemberIds || [];
-        this.isUploadModalOpen = true;
       } catch (error) {
         this.issueErrorMessage = this.getErrorMessage(error);
         this.isIssueErrorModalOpen = true;
+      } finally {
+        this.isUploadProcessing = false;
       }
     };
     reader.readAsDataURL(file);
   }
 
+  clearCouponUploadFile() {
+    if (this.isUploadProcessing || this.isIssueInProgress) {
+      return;
+    }
+    this.previewMembers = [];
+    this.successCount = 0;
+    this.failCount = 0;
+    this.successMemberIds = [];
+    this.uploadFileName = "";
+    this.isUploadDragOver = false;
+    this.issueErrorMessage = "";
+    this.isIssueErrorModalOpen = false;
+    this.resetIssueProgress();
+  }
+
+  resetIssueProgress() {
+    this.stopIssueProgressPolling();
+    this.issueJobId = "";
+    this.issueRequestToken = "";
+    this.issueStatus = "";
+    this.issueProcessedCount = 0;
+    this.issueSuccessCount = 0;
+    this.issueFailCount = 0;
+    this.issueProgressMessage = "";
+    this.isIssueLoading = false;
+  }
+
+  startIssueProgressPolling() {
+    this.stopIssueProgressPolling();
+    this.issueProgressTimer = window.setInterval(() => {
+      this.refreshIssueProgress();
+    }, 2000);
+  }
+
+  stopIssueProgressPolling() {
+    if (this.issueProgressTimer) {
+      window.clearInterval(this.issueProgressTimer);
+      this.issueProgressTimer = null;
+    }
+  }
+
+  async refreshIssueProgress() {
+    if (!this.issueJobId) {
+      return;
+    }
+
+    try {
+      const result = await getIssueCouponProgress({
+        issueJobId: this.issueJobId,
+        totalCount: this.successCount,
+        requestToken: this.issueRequestToken
+      });
+
+      this.issueStatus = result?.status || "PROCESSING";
+      this.issueProcessedCount = result?.processedCount || 0;
+      this.issueSuccessCount = result?.successCount || 0;
+      this.issueFailCount = result?.failCount || 0;
+      this.issueProgressMessage = result?.message || "";
+
+      if (result?.isCompleted || result?.isFailed) {
+        this.stopIssueProgressPolling();
+      }
+    } catch (error) {
+      this.stopIssueProgressPolling();
+      this.issueStatus = "FAILED";
+      this.issueProgressMessage = this.getErrorMessage(error);
+    }
+  }
+
   closeUploadModal() {
+    if (this.isUploadProcessing || this.isIssueInProgress) {
+      return;
+    }
     this.isUploadModalOpen = false;
   }
 
@@ -976,14 +1382,38 @@ export default class Couponview extends LightningElement {
   }
 
   async handleIssueCoupon() {
+    if (this.isIssueCompleted || this.isIssueFailed) {
+      this.closeUploadModal();
+      return;
+    }
+
     this.isIssueLoading = true;
     try {
-      await issueCoupon({ memberIds: this.successMemberIds, voucherDefinitionId: this.recordId });
-      this.isUploadModalOpen = false;
-      this.dispatchEvent(new ShowToastEvent({ title: "완료", message: "쿠폰 지급 요청을 처리했습니다.", variant: "success" }));
+      const result = await issueCoupon({ memberIds: this.successMemberIds, voucherDefinitionId: this.recordId });
+      this.issueJobId = result?.issueJobId || "";
+      this.issueRequestToken = result?.requestToken || "";
+      this.issueStatus = result?.status || "PROCESSING";
+      this.issueProcessedCount = result?.processedCount || 0;
+      this.issueSuccessCount = result?.successCount || 0;
+      this.issueFailCount = result?.failCount || 0;
+      this.issueProgressMessage = result?.message || "";
+
+      if (this.issueJobId) {
+        await this.refreshIssueProgress();
+        if (this.isIssueInProgress) {
+          this.startIssueProgressPolling();
+        }
+      } else {
+        this.issueStatus = "COMPLETED";
+        this.issueProcessedCount = this.successCount;
+        this.issueSuccessCount = result?.successCount || this.successCount;
+        this.issueFailCount = result?.failCount || 0;
+      }
     } catch (error) {
       this.issueErrorMessage = this.getErrorMessage(error);
       this.isIssueErrorModalOpen = true;
+      this.issueStatus = "FAILED";
+      this.issueProgressMessage = this.getErrorMessage(error);
     } finally {
       this.isIssueLoading = false;
     }

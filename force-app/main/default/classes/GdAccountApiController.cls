@@ -1,4 +1,4 @@
-@RestResource(urlMapping='/gd/account')
+//@RestResource(urlMapping='/gd/account')
 global with sharing class GdAccountApiController {
   private static GdAccountService accountService;
 
@@ -18,7 +18,7 @@ global with sharing class GdAccountApiController {
    * 매장 및 회사 등록
    * Account create
    */
-  @HttpPost
+  //@HttpPost
   global static void createAccount() {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();
@@ -50,7 +50,7 @@ global with sharing class GdAccountApiController {
    * 매장 및 회사 수정
    * Account update
    */
-  @HttpPatch
+  //@HttpPatch
   global static void updateAccount() {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();

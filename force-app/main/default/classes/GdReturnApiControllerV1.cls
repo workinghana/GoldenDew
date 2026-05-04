@@ -6,6 +6,13 @@ global with sharing class GdReturnApiControllerV1 {
   private static GdReturnService returnService;
   private static GdReturnItemService returnItemService;
   private static GdReturnDepositService returnDepositService;
+  private static GdPointService pointService;
+
+  private static void logTiming(String label, Long startMs, Integer startCpu) {
+    Long elapsedMs = Datetime.now().getTime() - startMs;
+    Integer elapsedCpu = Limits.getCpuTime() - startCpu;
+    System.debug(LoggingLevel.WARN, '[TIMING] ' + label + ' | 누적 ' + elapsedMs + 'ms | CPU ' + elapsedCpu + 'ms');
+  }
 
   // 테스트 클래스 용도
   @TestVisible
@@ -46,6 +53,18 @@ global with sharing class GdReturnApiControllerV1 {
     return returnDepositService;
   }
 
+  // 테스트 클래스 용도
+  @TestVisible
+  private static void setPointService(GdPointService mock) {
+    pointService = mock;
+  }
+
+  private static GdPointService getPointService() {
+    if (pointService == null)
+      pointService = new GdPointServiceImpl();
+    return pointService;
+  }
+
   /**
    * [판매반품, 교환반품] 반품 등록 API
    */
@@ -58,6 +77,8 @@ global with sharing class GdReturnApiControllerV1 {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();
     try {
+      Long totalStartMs = Datetime.now().getTime();
+      Integer totalStartCpu = Limits.getCpuTime();
       String raw = RestContext.request.requestBody == null ? null : RestContext.request.requestBody.toString();
       logger.setRequestUrl(req.requestURI); // 요청 URL
       logger.setRequestDatetime(Datetime.now()); // 요청 시간
@@ -79,18 +100,31 @@ global with sharing class GdReturnApiControllerV1 {
         logger.setErrorMessage('JSON 역직렬화 실패: ' + e.getMessage());
         throw new CustomException(400, 'JSON 역직렬화 실패: ' + e.getMessage());
       }
+      logTiming('GdReturnApiControllerV1.createReturn.parseRequest', totalStartMs, totalStartCpu);
+
+      // === [기본 정책 검증] 환불 한도 / 데이터 결함 차단 (옛/신규 모두) ===
+      // 누계 환불 + 이번 시도 > 원판매 금액 시 400 throw (기본 정책 위반)
+      GdReturnBranchHandler.validateReturnAmountWithinPolicy(reqData);
+
+      // === [Option C 분기 flag — 표준 로직 후 응답 wrap 용] ===
+      // IsEnabled=false 또는 신규 거래 시 false → wrap 없이 표준 응답 그대로
+      Boolean shouldBranchOptC = GdMigrationUtil.shouldApplyOptionCBranchBySaleNo(
+        (String) reqData.get('OriginalOrderId')
+      );
 
       {
         // 반품 처리
         ApiResult orderResult = getReturnService().createReturn(reqData);
         reqData.put('orderId', orderResult.data.get('orderId'));
         reqData.put('originalOrderId', orderResult.data.get('originalOrderId'));
+        logTiming('GdReturnApiControllerV1.createReturn.createReturn', totalStartMs, totalStartCpu);
       }
 
       {
         // 반품 상세 처리
         if (reqData.containsKey('OrderItem')) {
           ApiResult orderItemResult = getReturnItemService().createReturnItem(reqData);
+          logTiming('GdReturnApiControllerV1.createReturn.createReturnItem', totalStartMs, totalStartCpu);
         }
       }
 
@@ -114,6 +148,7 @@ global with sharing class GdReturnApiControllerV1 {
           if (returnDepositResult.data.containsKey('CancelPointsCreditedList')) {
             resData.put('CancelPointsCreditedList', returnDepositResult.data.get('CancelPointsCreditedList'));
           }
+          logTiming('GdReturnApiControllerV1.createReturn.insertSaleDepositHistoryByUpdate', totalStartMs, totalStartCpu);
         }
       }
 
@@ -127,6 +162,7 @@ global with sharing class GdReturnApiControllerV1 {
       }
       oList[0].Status = 'returnSuccess';
       Database.SaveResult updateResult = Database.update(oList[0]);
+      logTiming('GdReturnApiControllerV1.createReturn.updateOrderStatus', totalStartMs, totalStartCpu);
 
       if (!updateResult.isSuccess()) {
         Database.Error err = updateResult.getErrors()[0];
@@ -138,6 +174,14 @@ global with sharing class GdReturnApiControllerV1 {
 
       ApiResult result = ApiResult.ok(200, '반품 등록 완료', resData);
 
+      // === [Option C 분기 wrap — silent fail 감지 시 응답 enrich] ===
+      // shouldBranchOptC=true 시만 호출. 표준 로직 후 CancelPointsCreditedList null 검사.
+      // 미감지 시 result 그대로 반환.
+      if (shouldBranchOptC) {
+        result = GdReturnBranchHandler.wrapResponseIfSilentFail(result, reqData, logger);
+      }
+
+      logTiming('GdReturnApiControllerV1.createReturn.total', totalStartMs, totalStartCpu);
       RestResponseUtil.handleSuccess(result, logger);
     } catch (CustomException ce) {
       RestResponseUtil.handleCustomException(ce, sp, ce.code, ce.message, logger);
@@ -153,6 +197,7 @@ global with sharing class GdReturnApiControllerV1 {
   /**
    * * 개발 완료
    * [판매반품, 교환반품] 전체 삭제 API
+   * 반품 전체 삭제
    */
   @HttpDelete
   global static void deleteReturn() {
@@ -171,13 +216,52 @@ global with sharing class GdReturnApiControllerV1 {
 
       // 반품 삭제
       ApiResult returnResult = getReturnService().deleteReturn(saleNo);
-      Id orderId = (Id) ValidationUtil.stringValidationEx(returnResult.data.get('orderId'), 'orderId', true, false);
+      Id orderId = (Id) ValidationUtil.stringValidationEx(returnResult.data.get('orderId'), 'orderId', true, false); // 반품 Id
 
       // 반품 상세 삭제
       getReturnItemService().deleteReturnItem(orderId);
 
-      // 반품 입금 전체 삭제
-      getReturnDepositService().deleteAllReturnDeposits(orderId);
+      // ! 반품 입금 전체 삭제 사용 여부 : 보류
+      // // 반품 입금 전체 삭제
+      // getReturnDepositService().deleteAllReturnDeposits(orderId);
+
+      // 에코포인트 적립 취소 건 복원 Start.
+      List<PointCreditDTO> ecoRestore = getPointService().restoreEcoPointsFromReturn(orderId);
+      resData.put('CancelPointList', ecoRestore);
+      // Id apiForcedDebitJstId = SObjectUtil.findIdByName(JournalSubType.SObjectType, 'Api Forced Debit', true); // api 요청에 의한 강제 차감
+
+      // List<TransactionJournal> tjList = [
+      //   SELECT
+      //     Id,
+      //     JournalSubTypeId,
+      //     PaymentMethod,
+      //     TransactionAmount,
+      //     OrderId,
+      //     LoyaltyProgramId,
+      //     MemberId,
+      //     SaleId__c,
+      //     DepositNo__c,
+      //     IsDeleted__c,
+      //     DeleteDateTime__c,
+      //     VoucherCode,
+      //     JournalDate,
+      //     Order.EndDate,
+      //     InsertId__c,
+      //     Order.ActualPaymentAmount__c,
+      //     Promotion.PromotionNo__c,
+      //     AdditionalNotes__c
+      //   FROM TransactionJournal
+      //   WHERE SaleId__c = :orderId AND AdditionalNotes__c = 'FULL_RETURN_ECO_POINT_CANCEL' AND JournalSubTypeId = :apiForcedDebitJstId
+      //   LIMIT 1
+      // ];
+
+      // if (!tjList.isEmpty()) {
+      //   List<PointCreditDTO> ecoRestoreResult = restoreEcoPointsFromReturn(newTj, sourceTj.Id);
+      //   if (!ecoRestoreResult.isEmpty()) {
+      //     data.put(ECO_POINT_RESTORE_RESULT_KEY, ecoRestoreResult);
+      //   }
+      // }
+      // 에코포인트 적립 취소 건 복원 End.
 
       List<Order> oList = [SELECT Id, Status FROM Order WHERE Id = :orderId LIMIT 1];
       if (oList.isEmpty()) {
@@ -196,6 +280,24 @@ global with sharing class GdReturnApiControllerV1 {
       }
 
       ApiResult result = ApiResult.ok(200, '[판매반품, 교환반품] 전체 삭제 완료', resData);
+
+      // === [Option C 분기 wrap] 옛 환불 취소 시 자동 복원 (Phase 6.8) ===
+      // 분기 판별: 환불 Order 자체가 아니라 OriginalOrderId (원판매) 의 SaleNo 로 판별.
+      // (옛 판매에 대한 환불이라면 환불 Order 가 신규 거래라도 자동 복원 대상)
+      try {
+        List<Order> rtnOrderList = [
+          SELECT OriginalOrderId__c, OriginalOrderId__r.SaleNo__c
+          FROM Order WHERE Id = :orderId LIMIT 1
+        ];
+        String origSaleNo = (!rtnOrderList.isEmpty() && rtnOrderList[0].OriginalOrderId__r != null)
+          ? rtnOrderList[0].OriginalOrderId__r.SaleNo__c : null;
+        if (String.isNotBlank(origSaleNo)
+            && GdMigrationUtil.shouldApplyOptionCBranchBySaleNo(origSaleNo)) {
+          result = GdReturnDeleteBranchHandler.wrapResponseForOldReturn(result, saleNo, logger);
+        }
+      } catch (Exception e) {
+        System.debug('OptC deleteReturn branch check exception: ' + e.getMessage());
+      }
 
       RestResponseUtil.handleSuccess(result, logger);
     } catch (ValidationException ve) {

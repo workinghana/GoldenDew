@@ -1,10 +1,10 @@
 @IsTest
 private class ErpPromotionProductApiClientTest {
-  /* =====================================================
-   * HTTP 성공 Mock (200 + JSON body)
-   * ===================================================== */
+  private static String lastEndpoint;
+
   private class MockHttpSuccess implements HttpCalloutMock {
     public HttpResponse respond(HttpRequest req) {
+      ErpPromotionProductApiClientTest.lastEndpoint = req.getEndpoint();
       HttpResponse res = new HttpResponse();
       res.setStatusCode(200);
       res.setStatus('OK');
@@ -14,14 +14,11 @@ private class ErpPromotionProductApiClientTest {
     }
   }
 
-  /* =====================================================
-   * null 요청 → IllegalArgumentException
-   * ===================================================== */
   @IsTest
   static void test_createPromotionProduct_nullReq_throwsIAE() {
     try {
       ErpPromotionProductApiClient.createPromotionProduct(null);
-      System.assert(false, '예외 발생해야 함');
+      System.assert(false, 'Expected exception');
     } catch (IllegalArgumentException e) {
       System.assert(e.getMessage().contains('required'), e.getMessage());
     }
@@ -31,7 +28,7 @@ private class ErpPromotionProductApiClientTest {
   static void test_updatePromotionProduct_nullReq_throwsIAE() {
     try {
       ErpPromotionProductApiClient.updatePromotionProduct(null);
-      System.assert(false, '예외 발생해야 함');
+      System.assert(false, 'Expected exception');
     } catch (IllegalArgumentException e) {
       System.assert(e.getMessage().contains('required'), e.getMessage());
     }
@@ -41,15 +38,12 @@ private class ErpPromotionProductApiClientTest {
   static void test_deletePromotionProduct_nullReq_throwsIAE() {
     try {
       ErpPromotionProductApiClient.deletePromotionProduct(null);
-      System.assert(false, '예외 발생해야 함');
+      System.assert(false, 'Expected exception');
     } catch (IllegalArgumentException e) {
       System.assert(e.getMessage().contains('required'), e.getMessage());
     }
   }
 
-  /* =====================================================
-   * createPromotionProduct - 성공 경로
-   * ===================================================== */
   @IsTest
   static void test_createPromotionProduct_success() {
     Test.setMock(HttpCalloutMock.class, new MockHttpSuccess());
@@ -59,20 +53,35 @@ private class ErpPromotionProductApiClientTest {
     item.no_prom = 'PROM-001';
     item.cd_item = 'ITEM-001';
     item.id_insert = 'tester';
+    item.id_update = 'tester';
     req.promotionItemList.add(item);
 
     Test.startTest();
     ErpApiResponseDto res = ErpPromotionProductApiClient.createPromotionProduct(req);
     Test.stopTest();
 
-    System.assertNotEquals(null, res, '응답 DTO 반환');
+    System.assertNotEquals(null, res, 'Response DTO should be returned.');
     System.assertEquals(true, res.success, 'success = true');
     System.assertEquals('OK', res.message, 'message = OK');
   }
 
-  /* =====================================================
-   * updatePromotionProduct - 성공 경로
-   * ===================================================== */
+  @IsTest
+  static void test_createPromotionProduct_missingIdUpdate_throwsIAE() {
+    ErpPromotionProductReqDto.CreateRequestList req = new ErpPromotionProductReqDto.CreateRequestList();
+    ErpPromotionProductReqDto.PromotionItem item = new ErpPromotionProductReqDto.PromotionItem();
+    item.no_prom = 'PROM-001';
+    item.cd_item = 'ITEM-001';
+    item.id_insert = 'tester';
+    req.promotionItemList.add(item);
+
+    try {
+      ErpPromotionProductApiClient.createPromotionProduct(req);
+      System.assert(false, 'Expected exception');
+    } catch (IllegalArgumentException e) {
+      System.assert(e.getMessage().contains('id_update'), e.getMessage());
+    }
+  }
+
   @IsTest
   static void test_updatePromotionProduct_success() {
     Test.setMock(HttpCalloutMock.class, new MockHttpSuccess());
@@ -92,12 +101,26 @@ private class ErpPromotionProductApiClientTest {
     System.assertEquals(true, res.success);
   }
 
-  /* =====================================================
-   * deletePromotionProduct - 성공 경로 (query params 방식)
-   * ===================================================== */
+  @IsTest
+  static void test_updatePromotionProduct_missingIdUpdate_throwsIAE() {
+    ErpPromotionProductReqDto.UpdateRequestList req = new ErpPromotionProductReqDto.UpdateRequestList();
+    ErpPromotionProductReqDto.PromotionItem item = new ErpPromotionProductReqDto.PromotionItem();
+    item.no_prom = 'PROM-UPD-001';
+    item.cd_item = 'ITEM-UPD-001';
+    req.promotionItemList.add(item);
+
+    try {
+      ErpPromotionProductApiClient.updatePromotionProduct(req);
+      System.assert(false, 'Expected exception');
+    } catch (IllegalArgumentException e) {
+      System.assert(e.getMessage().contains('id_update'), e.getMessage());
+    }
+  }
+
   @IsTest
   static void test_deletePromotionProduct_success() {
     Test.setMock(HttpCalloutMock.class, new MockHttpSuccess());
+    lastEndpoint = null;
 
     ErpPromotionProductReqDto.DeleteRequestList req = new ErpPromotionProductReqDto.DeleteRequestList();
     ErpPromotionProductReqDto.PromotionItem item = new ErpPromotionProductReqDto.PromotionItem();
@@ -112,11 +135,12 @@ private class ErpPromotionProductApiClientTest {
 
     System.assertNotEquals(null, res);
     System.assertEquals(true, res.success);
+    System.assertNotEquals(null, lastEndpoint);
+    System.assert(lastEndpoint.contains('no_prom=PROM-DEL-001'));
+    System.assert(lastEndpoint.contains('cd_item=ITEM-DEL-001'));
+    System.assert(lastEndpoint.contains('id_delete=tester'));
   }
 
-  /* =====================================================
-   * ErpPromotionProductReqDto 헬퍼 메서드 커버
-   * ===================================================== */
   @IsTest
   static void test_dto_dateToYmd() {
     Date d = Date.newInstance(2026, 3, 5);
@@ -133,7 +157,7 @@ private class ErpPromotionProductApiClientTest {
     Datetime dt = Datetime.newInstanceGmt(2026, 3, 5, 0, 0, 0);
     String result = ErpPromotionProductReqDto.dtToYmd(dt);
     System.assertNotEquals(null, result);
-    System.assertEquals(8, result.length(), 'YYYYMMDD 형식');
+    System.assertEquals(8, result.length(), 'YYYYMMDD format');
   }
 
   @IsTest

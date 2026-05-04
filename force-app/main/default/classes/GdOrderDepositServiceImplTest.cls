@@ -124,7 +124,7 @@ private class GdOrderDepositServiceImplTest {
       OrderNo__c = TEST_ORDER_NO,
       SaleNo__c = 'SAL-001',
       ActualPaymentAmount__c = 100000,
-      IsReductionOrder = false,
+      IsReductionOrder__c = false,
       MemberNo__c = orderContact.Id,
       AccountId = acnt.Id
     );
@@ -161,6 +161,10 @@ private class GdOrderDepositServiceImplTest {
     ];
   }
 
+  private static Decimal dec(String value) {
+    return Decimal.valueOf(value);
+  }
+
   private static Map<String, Object> buildGeneralCreateReq() {
     Order ord = getTestOrder();
 
@@ -177,7 +181,7 @@ private class GdOrderDepositServiceImplTest {
           'ActivityDate' => Date.today(),
           'PaymentMethod' => '11',
           'DepositType__c' => '01',
-          'TransactionAmount' => 10000
+          'TransactionAmount' => dec('10000')
         }
       },
       'MemberNo__c' => TEST_MEMBER_NO_1,
@@ -207,7 +211,7 @@ private class GdOrderDepositServiceImplTest {
           'ActivityDate' => Date.today(),
           'PaymentMethod' => '81',
           'DepositType__c' => '01',
-          'TransactionAmount' => 3000
+          'TransactionAmount' => dec('3000')
         }
       },
       'MemberNo__c' => TEST_MEMBER_NO_1,
@@ -217,34 +221,6 @@ private class GdOrderDepositServiceImplTest {
       'storeTypeFour' => '01',
       'isGoldenBar' => false
     };
-  }
-
-  @IsTest
-  static void getOrderDepositList_orderNotFound_throws() {
-    GdOrderDepositServiceImpl svc = new GdOrderDepositServiceImpl();
-    Boolean isThrown = false;
-
-    try {
-      svc.getOrderDepositList('NOT-EXISTS');
-    } catch (Exception e) {
-      isThrown = true;
-    }
-
-    System.assertEquals(true, isThrown);
-  }
-
-  @IsTest
-  static void getOrderDepositList_depositNotFound_throws() {
-    GdOrderDepositServiceImpl svc = new GdOrderDepositServiceImpl();
-    Boolean isThrown = false;
-
-    try {
-      svc.getOrderDepositList(TEST_ORDER_NO);
-    } catch (Exception e) {
-      isThrown = true;
-    }
-
-    System.assertEquals(true, isThrown);
   }
 
   @IsTest
@@ -306,7 +282,7 @@ private class GdOrderDepositServiceImplTest {
               'ActivityDate' => Date.today(),
               'PaymentMethod' => '11',
               'DepositType__c' => '01',
-              'TransactionAmount' => 1000
+              'TransactionAmount' => dec('1000')
             }
           },
           'MemberNo__c' => 'NOT-FOUND',
@@ -339,20 +315,6 @@ private class GdOrderDepositServiceImplTest {
     ];
     System.assertEquals(1, tjList.size());
     System.assertEquals('11', tjList[0].PaymentMethod);
-  }
-
-  @IsTest
-  static void getOrderDepositList_success() {
-    setMockServices();
-    GdOrderDepositServiceImpl svc = new GdOrderDepositServiceImpl();
-
-    svc.createOrderDepositHistory(buildGeneralCreateReq());
-
-    Test.startTest();
-    ApiResult result = svc.getOrderDepositList(TEST_ORDER_NO);
-    Test.stopTest();
-
-    System.assertNotEquals(null, result);
   }
 
   // @IsTest
@@ -391,7 +353,7 @@ private class GdOrderDepositServiceImplTest {
               'ActivityDate' => Date.today(),
               'PaymentMethod' => '81',
               'DepositType__c' => '01',
-              'TransactionAmount' => 1000
+              'TransactionAmount' => dec('1000')
             }
           },
           'MemberNo__c' => TEST_MEMBER_NO_1,
@@ -452,7 +414,7 @@ private class GdOrderDepositServiceImplTest {
               'ActivityDate' => Date.today(),
               'PaymentMethod' => '11',
               'DepositType__c' => '01',
-              'TransactionAmount' => 1000
+              'TransactionAmount' => dec('1000')
             }
           },
           'orderId' => '801000000000000AAA'
@@ -481,7 +443,7 @@ private class GdOrderDepositServiceImplTest {
             'ActivityDate' => Date.today(),
             'PaymentMethod' => '11',
             'DepositType__c' => '01',
-            'TransactionAmount' => 5000
+            'TransactionAmount' => dec('5000')
           }
         },
         'orderId' => ord.Id
@@ -515,7 +477,7 @@ private class GdOrderDepositServiceImplTest {
             'ActivityDate' => Date.today(),
             'PaymentMethod' => '11',
             'DepositType__c' => '03',
-            'TransactionAmount' => 5000
+            'TransactionAmount' => dec('5000')
           }
         },
         'orderId' => ord.Id
@@ -549,7 +511,7 @@ private class GdOrderDepositServiceImplTest {
             'ActivityDate' => Date.today(),
             'PaymentMethod' => '81',
             'DepositType__c' => '01',
-            'TransactionAmount' => 1000
+            'TransactionAmount' => dec('1000')
           }
         },
         'orderId' => ord.Id
@@ -576,7 +538,7 @@ private class GdOrderDepositServiceImplTest {
             'ActivityDate' => Date.today(),
             'PaymentMethod' => '81',
             'DepositType__c' => '03',
-            'TransactionAmount' => 1000
+            'TransactionAmount' => dec('1000')
           }
         },
         'orderId' => ord.Id
@@ -603,7 +565,7 @@ private class GdOrderDepositServiceImplTest {
             'ActivityDate' => Date.today(),
             'PaymentMethod' => '11',
             'DepositType__c' => '01',
-            'TransactionAmount' => 1000,
+            'TransactionAmount' => dec('1000'),
             'CouponNo' => 'COUPON-005'
           }
         },
@@ -631,7 +593,7 @@ private class GdOrderDepositServiceImplTest {
             'ActivityDate' => Date.today(),
             'PaymentMethod' => '11',
             'DepositType__c' => '03',
-            'TransactionAmount' => 1000,
+            'TransactionAmount' => dec('1000'),
             'CouponNo' => 'COUPON-006'
           }
         },
@@ -660,7 +622,7 @@ private class GdOrderDepositServiceImplTest {
               'ActivityDate' => Date.today(),
               'PaymentMethod' => '81',
               'DepositType__c' => '99',
-              'TransactionAmount' => 1000
+              'TransactionAmount' => dec('1000')
             }
           },
           'orderId' => ord.Id

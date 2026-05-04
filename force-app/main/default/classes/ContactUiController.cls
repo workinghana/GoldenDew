@@ -24,6 +24,21 @@ public with sharing class ContactUiController {
   }
 
   @TestVisible
+  private static String getMemberTypeLabel(String memberTypeCode) {
+    if (String.isBlank(memberTypeCode)) {
+      return null;
+    }
+
+    Schema.DescribeFieldResult fieldDesc = Contact.MemberType__c.getDescribe();
+    for (Schema.PicklistEntry entry : fieldDesc.getPicklistValues()) {
+      if (entry.getValue() == memberTypeCode) {
+        return entry.getLabel();
+      }
+    }
+    return memberTypeCode;
+  }
+
+  @TestVisible
   private static String buildAddress(Contact c) {
     if (c == null)
       return null;
@@ -57,12 +72,15 @@ public with sharing class ContactUiController {
         Contact.StoreRegi__r.Name,
         Contact.IsMarried__c,
         Contact.WeddingAnniversaryDate__c,
+        Contact.IsMobileVerified__c,
         Contact.MemberNo__c,
         Contact.MailingStreet,
         Contact.MailingCity,
         Contact.Grade__c,
         Contact.MemberDropDate__c,
-        Contact.IsWithdrawn__c
+        Contact.IsWithdrawn__c,
+        Contact.MemberType__c,
+        Contact.TierQualifyingSpend3Y__c
       FROM LoyaltyProgramMember
       WHERE Id = :loyaltyProgramMemberId
       LIMIT 1
@@ -89,6 +107,8 @@ public with sharing class ContactUiController {
     public Boolean isMarried;
     @AuraEnabled
     public Date weddingAnniversaryDate;
+    @AuraEnabled
+    public Boolean isMobileVerified;
 
     @AuraEnabled
     public String storeName;
@@ -109,6 +129,12 @@ public with sharing class ContactUiController {
     @AuraEnabled
     public Boolean isWithdrawn;
 
+    @AuraEnabled
+    public String memberType;
+
+    @AuraEnabled
+    public Decimal tierQualifyingSpend3Y;
+
     public MemberProfileDTO(LoyaltyProgramMember lpm) {
       if (lpm != null && lpm.Contact != null) {
         name = lpm.Contact.Name;
@@ -121,6 +147,7 @@ public with sharing class ContactUiController {
 
         isMarried = lpm.Contact.IsMarried__c;
         weddingAnniversaryDate = lpm.Contact.WeddingAnniversaryDate__c;
+        isMobileVerified = lpm.Contact.IsMobileVerified__c;
 
         /* 🔹 관리 매장 이름 */
 
@@ -135,6 +162,9 @@ public with sharing class ContactUiController {
 
         withdrawDate = lpm.Contact.MemberDropDate__c;
         isWithdrawn = lpm.Contact.IsWithdrawn__c;
+
+        memberType = ContactUiController.getMemberTypeLabel(lpm.Contact.MemberType__c);
+        tierQualifyingSpend3Y = lpm.Contact.TierQualifyingSpend3Y__c;
       }
 
       enrollmentDate = (lpm != null) ? lpm.EnrollmentDate : null;

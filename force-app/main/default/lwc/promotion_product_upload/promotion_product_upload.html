@@ -1,72 +1,76 @@
 <template>
-  <lightning-card title="프로모션 상품 업로드" icon-name="standard:product_request">
+  <lightning-card title="프로모션 제품 업로드" icon-name="standard:product_request">
     <div class="slds-p-around_medium upload-card-body">
       <lightning-button label="파일 업로드" variant="brand" onclick={handleOpenModal}></lightning-button>
     </div>
   </lightning-card>
 
-  <input class="file-input" type="file" accept=".csv" onchange={handleFileChange} />
+  <input class="hidden-file-input policy-upload-file-input" type="file" accept=".csv" onchange={handleFileChange} />
 
   <template if:true={isModalOpen}>
-    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
-      <div class="slds-modal__container product-upload-modal">
+    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open policy-upload-entry-modal">
+      <div class="slds-modal__container policy-upload-entry-container">
         <header class="slds-modal__header">
           <button class="slds-button slds-button_icon slds-modal__close" onclick={handleCloseModal} title="닫기">
             <lightning-icon icon-name="utility:close" alternative-text="닫기" size="small"></lightning-icon>
           </button>
-          <h2 class="slds-text-heading_medium">프로모션 상품 업로드</h2>
+          <h2 class="slds-text-heading_medium">프로모션 제품 업로드</h2>
         </header>
-
-        <div class="slds-modal__content slds-p-around_large modal-content">
+        <div class="slds-modal__content slds-p-around_large policy-upload-entry-content">
           <template if:true={isParsing}>
-            <lightning-spinner alternative-text="파일 검증 중"></lightning-spinner>
+            <lightning-spinner alternative-text="Loading"></lightning-spinner>
           </template>
 
-          <template if:true={isUploading}>
-            <lightning-spinner alternative-text="업로드 중"></lightning-spinner>
-          </template>
-
-          <div class="upload-action-row">
-            <lightning-button label="파일 선택" onclick={handleSelectClick}></lightning-button>
-            <div class="file-name">
-              <template if:true={fileName}>
-                <span>{fileName}</span>
-              </template>
-              <template if:false={fileName}>
-                <span>CSV 파일을 선택해주세요. 헤더는 제품 코드(ProductCode__c)만 있으면 됩니다.</span>
-              </template>
-            </div>
+          <div class="policy-upload-dropzone">
+            <lightning-icon icon-name="utility:upload" size="large" class="policy-upload-dropzone-icon"></lightning-icon>
+            <div class="policy-upload-dropzone-title">CSV 파일 업로드</div>
+            <div class="policy-upload-dropzone-text">{uploadGuideText}</div>
+            <div class="policy-upload-warning-text">{uploadWarningText}</div>
+            <template if:true={fileName}>
+              <div class="policy-upload-file-row">
+                <div class="policy-upload-file-name">{fileName}</div>
+                <button type="button" class="policy-upload-file-clear" onclick={handleClearFile} title="파일 제거">x</button>
+              </div>
+            </template>
+            <lightning-button label="파일 선택" variant="brand" onclick={handleSelectClick}></lightning-button>
           </div>
 
-          <template if:true={hasPreviewResult}>
+          <template if:true={isUploading}>
+            <div class="validation-loading-card policy-upload-entry-guide">
+              <lightning-spinner alternative-text="Loading" size="small"></lightning-spinner>
+              <div class="validation-loading-title">업로드를 진행하고 있습니다</div>
+              <div class="validation-loading-text">완료 후 정상 건수와 오류 목록이 갱신됩니다.</div>
+            </div>
+          </template>
+
+          <div class="policy-upload-block">
             <div class="upload-summary">
               <div class="upload-summary-card upload-summary-card--success">
-                <div class="upload-summary-label">성공 건수</div>
+                <div class="upload-summary-label">정상 건수</div>
                 <div class="upload-summary-value">{successCount}</div>
               </div>
               <div class="upload-summary-card upload-summary-card--error">
-                <div class="upload-summary-label">실패 건수</div>
+                <div class="upload-summary-label">오류 건수</div>
                 <div class="upload-summary-value">{failCount}</div>
               </div>
             </div>
+          </div>
 
-            <template if:true={hasErrors}>
-              <div class="result-section-title">오류 목록</div>
-              <lightning-datatable key-field="key" data={errorRows} columns={errorColumns} hide-checkbox-column></lightning-datatable>
-            </template>
-
-            <template if:false={hasErrors}>
-              <div class="empty-errors">오류가 없습니다. 업로드를 진행할 수 있습니다.</div>
-            </template>
-          </template>
+          <div class="policy-upload-block">
+            <div class="policy-upload-title">오류 목록</div>
+            <div class="policy-upload-table-wrap">
+              <div class="policy-upload-table-inner">
+                <lightning-datatable key-field="key" data={errorRows} columns={errorColumns} hide-checkbox-column></lightning-datatable>
+              </div>
+            </div>
+          </div>
         </div>
-
         <footer class="slds-modal__footer">
           <lightning-button label="닫기" variant="neutral" onclick={handleCloseModal}></lightning-button>
           <lightning-button label={uploadButtonLabel} variant="brand" onclick={handleUploadClick} disabled={isUploadDisabled}></lightning-button>
         </footer>
       </div>
     </section>
-    <div class="slds-backdrop slds-backdrop_open"></div>
+    <div class="slds-backdrop slds-backdrop_open policy-upload-backdrop"></div>
   </template>
 </template>

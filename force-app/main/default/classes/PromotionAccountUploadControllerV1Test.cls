@@ -36,7 +36,7 @@ private class PromotionAccountUploadControllerV1Test {
     Promotion promotion = [SELECT Id, PromotionNo__c FROM Promotion LIMIT 1];
     Account accountRecord = [SELECT StoreCode__c, Name FROM Account ORDER BY CreatedDate ASC LIMIT 1];
 
-    String csvText = 'StoreCode__c' + '\n' + accountRecord.StoreCode__c;
+    String csvText = 'StoreCode' + '\n' + accountRecord.StoreCode__c;
 
     Test.startTest();
     PromotionAccountUploadControllerV1.UploadPreviewResult result = PromotionAccountUploadControllerV1.parseUploadFile(
@@ -58,7 +58,7 @@ private class PromotionAccountUploadControllerV1Test {
     Promotion promotion = [SELECT Id FROM Promotion LIMIT 1];
     Account accountRecord = [SELECT StoreCode__c, Name FROM Account ORDER BY CreatedDate ASC LIMIT 1];
 
-    String csvText = 'StoreCode__c' + '\n' + accountRecord.StoreCode__c + '\n' + accountRecord.StoreCode__c + '\n' + 'NOT-FOUND';
+    String csvText = 'StoreCode' + '\n' + accountRecord.StoreCode__c + '\n' + accountRecord.StoreCode__c + '\n' + 'NOT-FOUND';
 
     Test.startTest();
     PromotionAccountUploadControllerV1.UploadPreviewResult result = PromotionAccountUploadControllerV1.parseUploadFile(
@@ -87,7 +87,7 @@ private class PromotionAccountUploadControllerV1Test {
     Promotion promotion = [SELECT Id FROM Promotion LIMIT 1];
     Account accountRecord = [SELECT Id, StoreCode__c FROM Account ORDER BY CreatedDate ASC LIMIT 1];
 
-    String csvText = 'StoreCode__c' + '\n' + accountRecord.StoreCode__c;
+    String csvText = 'StoreCode' + '\n' + accountRecord.StoreCode__c;
 
     Test.startTest();
     PromotionAccountUploadControllerV1.UploadResult result = PromotionAccountUploadControllerV1.insertPromotionAccounts(
@@ -109,7 +109,7 @@ private class PromotionAccountUploadControllerV1Test {
 
     insert new PromotionAccount__c(PromotionId__c = promotion.Id, AccountId__c = accountRecord.Id);
 
-    String csvText = 'StoreCode__c' + '\n' + accountRecord.StoreCode__c;
+    String csvText = 'StoreCode' + '\n' + accountRecord.StoreCode__c;
 
     Test.startTest();
     PromotionAccountUploadControllerV1.UploadResult result = PromotionAccountUploadControllerV1.insertPromotionAccounts(

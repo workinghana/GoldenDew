@@ -19,6 +19,9 @@ public with sharing class GdProductServiceImpl implements GdProductService {
       String displayUrl = ValidationUtil.stringValidation(reqData.get('DisplayUrl'), 'DisplayUrl', false);
       Boolean isActive = ValidationUtil.booleanValidation(reqData.get('IsActive'), 'IsActive', false);
 
+      // 26.04.04 WT 수정 :BrandCode__c 추가
+      String brandCode = ValidationUtil.stringValidationEx(reqData.get('BrandCode__c'), 'BrandCode__c', false, true);
+
       String largeCategoryCode = ValidationUtil.stringValidationEx(reqData.get('LargeCategoryCode__c'), 'LargeCategoryCode__c', false, true); // 대분류 코드
       String mediumCategoryCode = ValidationUtil.stringValidationEx(reqData.get('MediumCategoryCode__c'), 'MediumCategoryCode__c', false, true); // 중분류 코드
       String smallCategoryCode = ValidationUtil.stringValidationEx(reqData.get('SmallCategoryCode__c'), 'SmallCategoryCode__c', false, true); // 소분류 코드
@@ -28,6 +31,14 @@ public with sharing class GdProductServiceImpl implements GdProductService {
         false,
         false
       ); // 품목계정분류코드
+
+      String clarity = ValidationUtil.stringValidation(reqData.get('Clarity2__c'), 'Clarity2__c', false);
+      String color = ValidationUtil.stringValidation(reqData.get('Color2__c'), 'Color2__c', false);
+      String cut = ValidationUtil.stringValidation(reqData.get('Cut2__c'), 'Cut2__c', false);
+      String scopeWeight = ValidationUtil.stringValidation(reqData.get('ScopeWeight2__c'), 'ScopeWeight2__c', false);
+      String shape = ValidationUtil.stringValidation(reqData.get('Shape2__c'), 'Shape2__c', false);
+      String unit = ValidationUtil.stringValidation(reqData.get('Unit2__c'), 'Unit2__c', false);
+      String size = ValidationUtil.stringValidation(reqData.get('Size__c'), 'Size__c', false);
 
       if ([SELECT COUNT() FROM Product2 WHERE ProductCode = :productCode] > 0) {
         throw new CustomException(400, '중복된 품목 번호 입니다. ' + productCode);
@@ -41,6 +52,14 @@ public with sharing class GdProductServiceImpl implements GdProductService {
       p.IsActive = (isActive == null) ? false : isActive;
       p.ProductAccountCategoryCode__c = productAccountCategoryCode;
 
+      p.Clarity2__c = clarity;
+      p.Color2__c = color;
+      p.Cut2__c = cut;
+      p.ScopeWeight2__c = scopeWeight;
+      p.Shape2__c = shape;
+      p.Unit2__c = unit;
+      p.Size__c = size;
+
       Database.SaveResult result = Database.insert(p);
 
       if (!result.isSuccess()) {
@@ -48,14 +67,31 @@ public with sharing class GdProductServiceImpl implements GdProductService {
         throw new CustomException(400, err.getMessage());
       }
 
+      // 26.04.04 WT 수정 : 기존 코드
+      // if (largeCategoryCode != null) {
+      //   String whereClause = 'WHERE LargeCategoryCode__c = :largeCategoryCode ';
+      //   if (mediumCategoryCode != null) {
+      //     whereClause += 'AND MediumCategoryCode__c = :mediumCategoryCode ';
+      //     if (smallCategoryCode != null) {
+      //       whereClause += 'AND SmallCategoryCode__c = :smallCategoryCode ';
+      //     }
+      //   }
+
+      // 26.04.04 WT 수정 : 수정 코드
       if (largeCategoryCode != null) {
         String whereClause = 'WHERE LargeCategoryCode__c = :largeCategoryCode ';
         if (mediumCategoryCode != null) {
           whereClause += 'AND MediumCategoryCode__c = :mediumCategoryCode ';
-          if (smallCategoryCode != null) {
-            whereClause += 'AND SmallCategoryCode__c = :smallCategoryCode ';
-          }
         }
+        if (smallCategoryCode != null) {
+          whereClause += 'AND SmallCategoryCode__c = :smallCategoryCode ';
+        }
+        if (productAccountCategoryCode != null) {
+          whereClause += 'AND SystemCode__c = :productAccountCategoryCode ';
+        }
+        // if (brandCode != null) {
+        //   whereClause += 'AND BrandCode__c = :brandCode ';
+        // }
 
         String soql = 'SELECT Id ' + 'FROM ProductCategory ' + whereClause + 'LIMIT 1';
 
@@ -101,6 +137,9 @@ public with sharing class GdProductServiceImpl implements GdProductService {
       String displayUrl = ValidationUtil.stringValidation(reqData.get('DisplayUrl'), 'DisplayUrl', false);
       Boolean isActive = ValidationUtil.booleanValidation(reqData.get('IsActive'), 'IsActive', false);
 
+      // 26.04.04 WT 수정 : BrandCode__c 추가
+      String brandCode = ValidationUtil.stringValidationEx(reqData.get('BrandCode__c'), 'SystemCode__c', false, true);
+
       String largeCategoryCode = ValidationUtil.stringValidationEx(reqData.get('LargeCategoryCode__c'), 'LargeCategoryCode__c', false, true); //대분류 코드
       String mediumCategoryCode = ValidationUtil.stringValidationEx(reqData.get('MediumCategoryCode__c'), 'MediumCategoryCode__c', false, true); //중분류 코드
       String smallCategoryCode = ValidationUtil.stringValidationEx(reqData.get('SmallCategoryCode__c'), 'SmallCategoryCode__c', false, true); //소분류 코드
@@ -110,6 +149,14 @@ public with sharing class GdProductServiceImpl implements GdProductService {
         false,
         false
       ); // 품목계정분류코드
+
+      String clarity = ValidationUtil.stringValidation(reqData.get('Clarity2__c'), 'Clarity2__c', false);
+      String color = ValidationUtil.stringValidation(reqData.get('Color2__c'), 'Color2__c', false);
+      String cut = ValidationUtil.stringValidation(reqData.get('Cut2__c'), 'Cut2__c', false);
+      String scopeWeight = ValidationUtil.stringValidation(reqData.get('ScopeWeight2__c'), 'ScopeWeight2__c', false);
+      String shape = ValidationUtil.stringValidation(reqData.get('Shape2__c'), 'Shape2__c', false);
+      String unit = ValidationUtil.stringValidation(reqData.get('Unit2__c'), 'Unit2__c', false);
+      String size = ValidationUtil.stringValidation(reqData.get('Size__c'), 'Size__c', false);
 
       List<Product2> pList = [SELECT Id FROM Product2 WHERE ProductCode = :productCode LIMIT 1];
       if (pList.isEmpty()) {
@@ -133,6 +180,14 @@ public with sharing class GdProductServiceImpl implements GdProductService {
         p.ProductAccountCategoryCode__c = productAccountCategoryCode;
       }
 
+      p.Clarity2__c = clarity;
+      p.Color2__c = color;
+      p.Cut2__c = cut;
+      p.ScopeWeight2__c = scopeWeight;
+      p.Shape2__c = shape;
+      p.Unit2__c = unit;
+      p.Size__c = size;
+
       Database.SaveResult result = Database.update(p);
 
       if (!result.isSuccess()) {
@@ -140,14 +195,21 @@ public with sharing class GdProductServiceImpl implements GdProductService {
         throw new CustomException(400, err.getMessage());
       }
 
+      // 26.04.04 WT 수정 : 수정 코드
       if (largeCategoryCode != null) {
         String whereClause = 'WHERE LargeCategoryCode__c = :largeCategoryCode ';
         if (mediumCategoryCode != null) {
           whereClause += 'AND MediumCategoryCode__c = :mediumCategoryCode ';
-          if (smallCategoryCode != null) {
-            whereClause += 'AND SmallCategoryCode__c = :smallCategoryCode ';
-          }
         }
+        if (smallCategoryCode != null) {
+          whereClause += 'AND SmallCategoryCode__c = :smallCategoryCode ';
+        }
+        if (productAccountCategoryCode != null) {
+          whereClause += 'AND SystemCode__c = :productAccountCategoryCode ';
+        }
+        // if (brandCode != null) {
+        //   whereClause += 'AND BrandCode__c = :brandCode ';
+        // }
 
         String soql = 'SELECT Id ' + 'FROM ProductCategory ' + whereClause + 'LIMIT 1';
 
@@ -166,8 +228,9 @@ public with sharing class GdProductServiceImpl implements GdProductService {
         ];
 
         // 1) 기존이 있으면 삭제
+        // 26.04.04 WT 수정 : [0] 뺴고 복수의 레코드 삭제로 수정 (골든듀 제품 : 카테고리 1:1 구조 반영)
         if (!oldList.isEmpty()) {
-          delete oldList[0];
+          delete oldList;
         }
 
         // 2) 새로 insert
@@ -194,12 +257,19 @@ public with sharing class GdProductServiceImpl implements GdProductService {
    * @param promotionNo 프로모션 번호
    * @return ApiResult
    */
+
+  // 26.04.04  수정 : 프로모션 활성화 조건에 IsActive 필드 제거 및 게시 기간 조건 추가 반영
   public ApiResult getProductByPromotion(String promotionNo) {
     try {
       Map<String, Object> data = new Map<String, Object>();
 
       // 프로모션 제품(PromotionProduct) 조회
-      List<PromotionProduct> ppList = [SELECT Product.ProductCode FROM PromotionProduct WHERE Promotion.PromotionNo__c = :promotionNo LIMIT 1000];
+      List<PromotionProduct> ppList = [
+        SELECT Product.ProductCode
+        FROM PromotionProduct
+        WHERE Promotion.PromotionNo__c = :promotionNo AND Promotion.IsActive = TRUE
+        LIMIT 1000
+      ];
 
       data.put('적용 가능 품목 목록', ppList);
 

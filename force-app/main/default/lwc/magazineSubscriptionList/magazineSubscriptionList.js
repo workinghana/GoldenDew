@@ -65,7 +65,7 @@ export default class MagazineSubscriptionTable extends NavigationMixin(Lightning
     },
     {
       label: "신청 일시",
-      fieldName: "Magazine_ApplicationDate__c",
+      fieldName: "Magazine_Response_Time__c",
       type: "date",
       sortable: true,
       initialWidth: 150

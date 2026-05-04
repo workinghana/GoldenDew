@@ -166,4 +166,56 @@ private class BirthdayCouponIssueBatchTest {
 
     System.assert(true);
   }
+
+  @IsTest
+  static void test_execute_upgradeCoupon_setsFaceValueZero() {
+    createMember(true);
+
+    LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
+    Id categoryId = [SELECT Id FROM VoucherCategory__c WHERE Code__c = 'BirthdayCoupon' LIMIT 1].Id;
+    Id accountId = [SELECT Id FROM Account WHERE CompanyCode__c = '1000' LIMIT 1].Id;
+    Id tierId = [SELECT Id FROM LoyaltyTier LIMIT 1].Id;
+
+    Product2 upgradeProduct = new Product2(Name = 'Birthday Upgrade Product', IsActive = true);
+    insert upgradeProduct;
+
+    VoucherDefinition upgradeVd = new VoucherDefinition(
+      Name = 'Birthday Upgrade Voucher',
+      LoyaltyProgramId = lp.Id,
+      IsActive = true,
+      Description = 'Birthday upgrade voucher',
+      ProductId = upgradeProduct.Id,
+      Type = 'FixedValue',
+      FaceValue = 1000,
+      ExpirationType = 'FixedDate',
+      ExpirationDate = Date.today().addDays(30),
+      EffectiveDate = Date.today(),
+      VoucherCategoryId__c = categoryId,
+      AccountId__c = accountId,
+      CouponManNo__c = 'CPN-BIRTH-UPG',
+      CouponTypeCode__c = '01',
+      ResponsibleDepartment__c = 'Marketing',
+      InsertId__c = 'TestUser',
+      ResponsiblePerson__c = 'Manager',
+      IsUpgrade__c = true
+    );
+    insert upgradeVd;
+
+    insert new VoucherLimit__c(VoucherDefinitionId__c = upgradeVd.Id, Type__c = 'GradeIncludeList', Value__c = tierId, IsActive__c = true);
+
+    Test.startTest();
+    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    Test.stopTest();
+
+    List<Voucher> issuedVoucherList = [
+      SELECT Id, FaceValue
+      FROM Voucher
+      WHERE VoucherDefinitionId = :upgradeVd.Id
+    ];
+
+    System.assert(!issuedVoucherList.isEmpty(), 'Upgrade birthday coupon should be issued');
+    for (Voucher issuedVoucher : issuedVoucherList) {
+      System.assertEquals(0, issuedVoucher.FaceValue, 'Upgrade birthday coupon should be normalized to face value 0');
+    }
+  }
 }

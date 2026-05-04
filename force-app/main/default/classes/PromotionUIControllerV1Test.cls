@@ -6,6 +6,11 @@ private class PromotionUIControllerV1Test {
     return e.isEmpty() ? null : e[0].getValue();
   }
 
+  private static String firstPointTypeCode() {
+    List<Schema.PicklistEntry> entries = Promotion.PointTypeCode__c.getDescribe().getPicklistValues();
+    return entries.isEmpty() ? null : entries[0].getValue();
+  }
+
   /* ============================== */
   private static LoyaltyProgram getOrCreateLP() {
     List<LoyaltyProgram> lpList = [
@@ -119,14 +124,20 @@ private class PromotionUIControllerV1Test {
   /* ============================== */
   private static void insertPoint(Id promotionId) {
     Id subtypeId = createCurrencySubtype();
+    String pointLimitType = pick(PromotionPointLimit__c.Type__c);
 
-    insert new PromotionPointLimit__c(
+    PromotionPointLimit__c pointLimit = new PromotionPointLimit__c(
       PromotionId__c = promotionId,
       Name = 'POINT',
-      Type__c = pick(PromotionPointLimit__c.Type__c),
-      Value__c = 100,
+      Type__c = pointLimitType,
       LoyaltyPgmCurrencySubtypeId__c = subtypeId
     );
+
+    if (pointLimitType == 'rate' || pointLimitType == 'amount') {
+      pointLimit.Value__c = 100;
+    }
+
+    insert pointLimit;
   }
 
   /* ============================== */
@@ -213,5 +224,42 @@ private class PromotionUIControllerV1Test {
 
     System.assert(res != null);
     System.assert(res.size() >= 0);
+  }
+
+  @IsTest
+  static void test_pointAccrualTypes_fromPointLimitAndExcludedPointType() {
+    Promotion p = createPromotion(false);
+    insertPoint(p.Id);
+
+    String excludedPointTypeCode = firstPointTypeCode();
+    if (!String.isBlank(excludedPointTypeCode)) {
+      p.PointTypeCode__c = excludedPointTypeCode;
+      update p;
+    }
+
+    Test.startTest();
+    List<PromotionUIControllerV1.PromotionDetailDTO> res = PromotionUIControllerV1.getPromotionHistory(p.Id);
+    Test.stopTest();
+
+    System.assertEquals(1, res.size());
+    System.assertEquals(true, res[0].isPointAccrualAvailable);
+    System.assert(res[0].pointAccrualAvailablePointTypes.contains('SUB'));
+    if (!String.isBlank(excludedPointTypeCode)) {
+      System.assert(!String.isBlank(res[0].pointAccrualUnavailablePointTypes));
+    }
+  }
+
+  @IsTest
+  static void test_pointAccrualTypes_allPointWhenNoExcludedPointType() {
+    Promotion p = createPromotion(false);
+
+    Test.startTest();
+    List<PromotionUIControllerV1.PromotionDetailDTO> res = PromotionUIControllerV1.getPromotionHistory(p.Id);
+    Test.stopTest();
+
+    System.assertEquals(1, res.size());
+    System.assertEquals(true, res[0].isPointAccrualAvailable);
+    System.assertEquals('전체 포인트', res[0].pointAccrualAvailablePointTypes);
+    System.assertEquals(null, res[0].pointAccrualUnavailablePointTypes);
   }
 }

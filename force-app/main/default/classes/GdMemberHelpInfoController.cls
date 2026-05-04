@@ -1,5 +1,5 @@
 // ! 이관 대상
-@RestResource(urlMapping='/gd/member/help-info')
+//@RestResource(urlMapping='/gd/member/help-info')
 global with sharing class GdMemberHelpInfoController {
   private static GdMemberHelpInfoService memberHelpInfoService;
 
@@ -17,7 +17,7 @@ global with sharing class GdMemberHelpInfoController {
   }
 
   //회원도움창조회
-  @HttpPost
+  //@HttpPost
   global static void getMemberHelpInfo() {
     RestRequest req = RestContext.request;
     RestResponse res = RestContext.response;

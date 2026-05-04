@@ -1,4 +1,4 @@
-public with sharing class OrderTriggerHandler extends TriggerHandler {
+public without sharing class OrderTriggerHandler extends TriggerHandler {
   private static final String ORDER_STATUS_SALE_SUCCESS = 'saleSuccess'; // 판매 성공
   private static final String ORDER_STATUS_SALE_DELETED = 'saleDeleted'; // 판매 삭제
   private static final String ORDER_STATUS_RETURN_SUCCESS = 'returnSuccess'; // 반품 성공
@@ -7,7 +7,7 @@ public with sharing class OrderTriggerHandler extends TriggerHandler {
 
   public OrderTriggerHandler() {
     System.debug('OrderTriggerHandler count');
-    this.setMaxLoopCount(2);
+    this.setMaxLoopCount(3);
   }
 
   public override void afterUpdate() {
@@ -76,14 +76,8 @@ public with sharing class OrderTriggerHandler extends TriggerHandler {
       logger.setStatus('SUCCESS');
       logger.setDescription('McePointService enqueued. orderCnt=' + mceTargetOrderIds.size());
     } catch (Exception e) {
-      if (logger != null) {
-        try {
-          logger.createExceptionLog(e);
-        } catch (Exception ignore) {
-          // 무시
-        }
-        logger.setStatus('ERROR');
-        logger.setDescription('Exception in OrderTriggerHandler.afterUpdate');
+      if (logger != null) { try { logger.createExceptionLog(e); } catch (Exception ignore) {}
+        logger.setStatus('ERROR'); logger.setDescription('Exception in OrderTriggerHandler.afterUpdate');
       }
       throw e;
     } finally {
@@ -108,43 +102,120 @@ public with sharing class OrderTriggerHandler extends TriggerHandler {
       return;
     }
 
-    List<Order> oList = [
-      SELECT Id, MemberNo__c, ActualPaymentAmount__c, EffectiveDate
-      FROM Order
-      WHERE Id IN :orderStatusById.keySet()
+    // 기존 로직
+    // List<Order> oList = [
+    //   SELECT Id, MemberNo__c, ActualPaymentAmount__c, EffectiveDate
+    //   FROM Order
+    //   WHERE Id IN :orderStatusById.keySet()
+    // ];
+
+    // 신규 로직 - 고재성
+    List<OrderItem> oList = [
+      SELECT 
+        OrderId, 
+        Order.MemberNo__c, 
+        NetSalesUnitPrice__c, 
+        OriginalOrderItemId__r.NetSalesUnitPrice__c, // 반품 상태일 때 가져올 원거래의 NetSalesUnitPrice
+        Order.EffectiveDate
+      FROM OrderItem
+      WHERE
+        OrderId IN :orderStatusById.keySet()
+        AND (Order.StoreCode__r.StoreType__c IN ('11', '40')
+        OR Order.StoreCode__r.StoreTypeFour__c = '01')
+        AND Order.Status IN ('saleSuccess', 'saleDeleted', 'returnSuccess', 'returnDeleted')
+        AND Product2Id NOT IN (
+          SELECT ProductId
+          FROM ProductCategoryProduct
+          WHERE ProductCategory.Name = '골드바'
+        )
+        AND (NOT Product2.Name LIKE '%수선%')
+        AND (NOT Product2.Name LIKE '%각인%')
+        AND (NOT Product2.Name LIKE '%위약금%')
+        AND (NOT Product2.Name LIKE '%재감비%')
+        AND (NOT Product2.Name LIKE '%재인쇄비%')
+      ALL ROWS 
     ];
+
     if (oList.isEmpty()) {
       return;
     }
 
     Map<Id, Decimal> deltaByContactId = new Map<Id, Decimal>();
 
-    for (Order o : oList) {
-      String orderStatus = orderStatusById.get(o.Id);
+    // 기존 로직
+    // for (Order o : oList) {
+    //   String orderStatus = orderStatusById.get(o.Id);
+    //   if (orderStatus == null) {
+    //     continue;
+    //   }
+
+    //   if (o.MemberNo__c == null) {
+    //     continue;
+    //   }
+    //   if (o.EffectiveDate == null) {
+    //     continue;
+    //   }
+
+    //   // 날짜 조건(요구사항 반영)
+    //   if (!isEligibleEffectiveDate(o.EffectiveDate, orderStatus)) {
+    //     continue;
+    //   }
+
+    //   Decimal amt = (o.ActualPaymentAmount__c == null) ? 0 : o.ActualPaymentAmount__c;
+    //   if (amt == 0) {
+    //     continue;
+    //   }
+
+    //   Id contactId;
+    //   try {
+    //     contactId = (Id) o.MemberNo__c; // MemberNo__c가 Contact Id일 때만
+    //   } catch (Exception ignore) {
+    //     continue;
+    //   }
+
+    // 신규 로직 - 고재성
+    for (OrderItem o : oList) {
+      String orderStatus = orderStatusById.get(o.OrderId);
       if (orderStatus == null) {
         continue;
       }
 
-      if (o.MemberNo__c == null) {
+      if (o.Order.MemberNo__c == null) {
         continue;
       }
-      if (o.EffectiveDate == null) {
+      if (o.Order.EffectiveDate == null) {
         continue;
       }
 
       // 날짜 조건(요구사항 반영)
-      if (!isEligibleEffectiveDate(o.EffectiveDate, orderStatus)) {
+      if (!isEligibleEffectiveDate(o.Order.EffectiveDate, orderStatus)) {
         continue;
       }
 
-      Decimal amt = (o.ActualPaymentAmount__c == null) ? 0 : o.ActualPaymentAmount__c;
+      // 기존 로직
+      // Decimal amt = (o.NetSalesUnitPrice__c == null) ? 0 : o.NetSalesUnitPrice__c;
+      // if (amt == 0) {
+      //   continue;
+      // }
+
+      // 신규 로직 - 상태에 따라 참조할 금액(amt) 분기 처리
+      Decimal amt = 0;
+      if (orderStatus == ORDER_STATUS_SALE_SUCCESS || orderStatus == ORDER_STATUS_SALE_DELETED) {
+        amt = (o.NetSalesUnitPrice__c == null) ? 0 : o.NetSalesUnitPrice__c;
+      } else if (orderStatus == ORDER_STATUS_RETURN_SUCCESS || orderStatus == ORDER_STATUS_RETURN_DELETED) {
+        // 반품의 경우 원거래(OriginalOrderItem)의 금액을 참조
+        amt = (o.OriginalOrderItemId__c != null && o.OriginalOrderItemId__r.NetSalesUnitPrice__c != null) 
+              ? o.OriginalOrderItemId__r.NetSalesUnitPrice__c 
+              : 0;
+      }
+
       if (amt == 0) {
         continue;
       }
 
       Id contactId;
       try {
-        contactId = (Id) o.MemberNo__c; // MemberNo__c가 Contact Id일 때만
+        contactId = (Id) o.Order.MemberNo__c; // MemberNo__c가 Contact Id일 때만
       } catch (Exception ignore) {
         continue;
       }
@@ -174,7 +245,7 @@ public with sharing class OrderTriggerHandler extends TriggerHandler {
       SELECT Id, TierQualifyingSpend3Y__c
       FROM Contact
       WHERE Id IN :deltaByContactId.keySet()
-      FOR UPDATE
+      // FOR UPDATE
     ]) {
       Decimal cur = (c.TierQualifyingSpend3Y__c == null) ? 0 : c.TierQualifyingSpend3Y__c;
       Decimal next = cur + deltaByContactId.get(c.Id);

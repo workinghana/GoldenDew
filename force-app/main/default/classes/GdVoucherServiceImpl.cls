@@ -6,6 +6,8 @@
  * @see GdVoucherService
  */
 public with sharing class GdVoucherServiceImpl implements GdVoucherService {
+  @TestVisible
+  private static Boolean bypassUnlimitedReissueTestShortcut = false;
   private static final String JOURNAL_TYPE_NAME_REDEMPTION = 'Redemption'; // 포인트/쿠폰 사용
   private static final String JOURNAL_TYPE_NAME_REDEMPTION_REVERSAL = 'Redemption Reversal'; // 포인트/쿠폰 사용 취소
 
@@ -117,7 +119,7 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
 
       // 쿠폰 마스터의 카테고리가 '신규 가입 쿠폰' 카테고리인 쿠폰 마스터 조회
       List<VoucherDefinition> vdList = [
-        SELECT Id, Name
+        SELECT Id, Name, IsUpgrade__c, DiscountPercent
         FROM VoucherDefinition
         WHERE
           VoucherCategoryId__r.Code__c = :VOUCHER_CATEGORY_NAME_SIGNUP_COUPON
@@ -175,8 +177,16 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
         throw new CustomException(400, err.getMessage());
       }
 
+      Set<Id> upgradeVoucherDefinitionIds = new Set<Id>();
       List<Map<String, Object>> reqList = new List<Map<String, Object>>();
       for (VoucherDefinition vd : vdList) {
+        if (vd.IsUpgrade__c == true) {
+          if (vd.DiscountPercent != null && vd.DiscountPercent > 0) {
+            throw new CustomException(400, '업그레이드 쿠폰은 정률 쿠폰일 수 없습니다.');
+          }
+          upgradeVoucherDefinitionIds.add(vd.Id);
+        }
+
         Map<String, Object> req = new Map<String, Object>();
         req.put('loyaltyProgramMemberId', loyaltyProgramMemberId);
         req.put('programName', lpList[0].Name);
@@ -194,7 +204,43 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       System.debug('reqList : ' + reqList);
       List<LoyaltyManagement.IssueVoucherOutput> resList = LoyaltyVoucherService.issueVoucher(reqList);
 
+      List<Id> issuedVoucherIds = new List<Id>();
+      for (LoyaltyManagement.IssueVoucherOutput res : resList) {
+        if (res != null && res.getVoucherId() != null) {
+          issuedVoucherIds.add(res.getVoucherId());
+        }
+      }
+
+      if (!upgradeVoucherDefinitionIds.isEmpty() && !issuedVoucherIds.isEmpty()) {
+        List<Voucher> upgradeVoucherList = [
+          SELECT Id, VoucherDefinitionId, FaceValue
+          FROM Voucher
+          WHERE Id IN :issuedVoucherIds AND VoucherDefinitionId IN :upgradeVoucherDefinitionIds
+        ];
+
+        for (Voucher voucher : upgradeVoucherList) {
+          voucher.FaceValue = 0;
+        }
+
+        if (!upgradeVoucherList.isEmpty()) {
+          update upgradeVoucherList;
+        }
+      }
+
       tj.Status = 'Processed';
+      System.debug(
+        LoggingLevel.WARN,
+        '[GDV][redeemVoucher] inserting TransactionJournal status=' +
+          tj.Status +
+          ', memberId=' +
+          tj.MemberId +
+          ', voucherCode=' +
+          tj.VoucherCode +
+          ', journalTypeId=' +
+          tj.JournalTypeId +
+          ', journalSubTypeId=' +
+          tj.JournalSubTypeId
+      );
 
       Database.SaveResult updateResult = Database.update(tj);
 
@@ -305,10 +351,19 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
         Database.Error err = insertResult.getErrors()[0];
         throw new CustomException(400, err.getMessage());
       }
+      System.debug(LoggingLevel.WARN, '[GDV][redeemVoucher] inserted TransactionJournal id=' + tj.Id + ', status=' + tj.Status);
       // 거래 이력(TransactionJournal) 생성 End.
 
+      Set<Id> upgradeVoucherDefinitionIds = new Set<Id>();
       List<Map<String, Object>> reqList = new List<Map<String, Object>>();
       for (VoucherDefinition vd : vdList) {
+        if (vd.IsUpgrade__c == true) {
+          if (vd.DiscountPercent != null && vd.DiscountPercent > 0) {
+            throw new CustomException(400, '업그레이드 쿠폰은 정률 쿠폰일 수 없습니다.');
+          }
+          upgradeVoucherDefinitionIds.add(vd.Id);
+        }
+
         Map<String, Object> req = new Map<String, Object>();
         req.put('loyaltyProgramMemberId', loyaltyProgramMemberId);
         req.put('programName', lpList[0].Name);
@@ -317,6 +372,29 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
         reqList.add(req);
       }
       List<LoyaltyManagement.IssueVoucherOutput> resList = LoyaltyVoucherService.issueVoucher(reqList);
+
+      List<Id> issuedVoucherIds = new List<Id>();
+      for (LoyaltyManagement.IssueVoucherOutput res : resList) {
+        if (res != null && res.getVoucherId() != null) {
+          issuedVoucherIds.add(res.getVoucherId());
+        }
+      }
+
+      if (!upgradeVoucherDefinitionIds.isEmpty() && !issuedVoucherIds.isEmpty()) {
+        List<Voucher> upgradeVoucherList = [
+          SELECT Id, VoucherDefinitionId, FaceValue
+          FROM Voucher
+          WHERE Id IN :issuedVoucherIds AND VoucherDefinitionId IN :upgradeVoucherDefinitionIds
+        ];
+
+        for (Voucher voucher : upgradeVoucherList) {
+          voucher.FaceValue = 0;
+        }
+
+        if (!upgradeVoucherList.isEmpty()) {
+          update upgradeVoucherList;
+        }
+      }
 
       tj.Status = 'Processed';
 
@@ -557,12 +635,40 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       Integer faceValue = ValidationUtil.integerValidation(reqData.get('FaceValue'), 'FaceValue', false); // 할인 금액
       Integer discountPercent = ValidationUtil.integerValidation(reqData.get('DiscountPercent'), 'DiscountPercent', false); // 할인율
 
-      List<Voucher> vList = [
-        SELECT Id, Status, EffectiveDate, Reason, FaceValue, DiscountPercent, ExpirationDate
-        FROM Voucher
-        WHERE LoyaltyProgramMember.Contact.MemberNo__c = :memberNo AND VoucherCode = :voucherCode
-        LIMIT 1
-      ];
+      // 기존
+      // List<Voucher> vList = [
+      //   SELECT Id, Status, EffectiveDate, Reason, FaceValue, DiscountPercent, ExpirationDate
+      //   FROM Voucher
+      //   WHERE LoyaltyProgramMember.Contact.MemberNo__c = :memberNo AND VoucherCode = :voucherCode
+      //   LIMIT 1
+      // ];
+
+      // 26.05.01 GD - 쿠폰 코드 분할
+      List<Voucher> vList = new List<Voucher>();
+
+      if (String.isNotBlank(voucherCode) && voucherCode.contains(';-;')) {
+          String couponManNo = voucherCode.substringBefore(';-;');
+          voucherCode = voucherCode.substringAfter(';-;'); 
+          
+          vList = [
+              SELECT Id, Status, EffectiveDate, Reason, FaceValue, DiscountPercent, ExpirationDate
+              FROM Voucher
+              WHERE LoyaltyProgramMember.Contact.MemberNo__c = :memberNo 
+                AND VoucherCode = :voucherCode 
+                AND VoucherDefinition.CouponManNo__c = :couponManNo
+              LIMIT 1
+          ];
+      } else {
+          vList = [
+              SELECT Id, Status, EffectiveDate, Reason, FaceValue, DiscountPercent, ExpirationDate
+              FROM Voucher
+              WHERE LoyaltyProgramMember.Contact.MemberNo__c = :memberNo 
+                AND VoucherCode = :voucherCode
+              LIMIT 1
+          ];
+      }
+      //
+
       if (vList.isEmpty()) {
         throw new CustomException(400, '해당 쿠폰이 존재하지 않습니다.');
       }
@@ -636,13 +742,39 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       Id loyaltyProgramMemberId = lpmlist[0].Id;
       Id loyaltyProgramId = lpmlist[0].ProgramId;
 
-      //쿠폰 조회
-      List<Voucher> vList = [
-        SELECT Id, Status, Reason, VoucherCode
-        FROM Voucher
-        WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId AND VoucherCode = :voucherCode
-        LIMIT 1
-      ];
+      // 기존 쿠폰 조회
+      // List<Voucher> vList = [
+      //   SELECT Id, Status, Reason, VoucherCode
+      //   FROM Voucher
+      //   WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId AND VoucherCode = :voucherCode
+      //   LIMIT 1
+      // ];
+
+      // 26.05.01 GD - 쿠폰 코드 분할 쿠폰 조회
+      List<Voucher> vList = new List<Voucher>();
+
+      if (String.isNotBlank(voucherCode) && voucherCode.contains(';-;')) {
+          String couponManNo = voucherCode.substringBefore(';-;');
+          voucherCode = voucherCode.substringAfter(';-;'); 
+          
+          vList = [
+              SELECT Id, Status, Reason, VoucherCode
+              FROM Voucher
+              WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId
+                AND VoucherCode = :voucherCode 
+                AND VoucherDefinition.CouponManNo__c = :couponManNo
+              LIMIT 1
+          ];
+      } else {
+          vList = [
+              SELECT Id, Status, Reason, VoucherCode
+              FROM Voucher
+              WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId
+                AND VoucherCode = :voucherCode
+              LIMIT 1
+          ];
+      }
+      //
 
       if (vList.isEmpty()) {
         throw new CustomException(400, '해당 쿠폰이 존재하지 않습니다.');
@@ -707,6 +839,10 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       String memberNo = ValidationUtil.stringValidation(reqData.get('MemberNo__c'), 'MemberNo__c', true); // 회원 번호
       String orderId = ValidationUtil.stringValidation(reqData.get('orderId'), 'orderId', false); // 주문 번호 (선택)
       Date useDate = ValidationUtil.dateValidation(reqData.get('useDate'), 'useDate', false); // 사용 일자
+      System.debug(
+        LoggingLevel.WARN,
+        '[GDV][redeemVoucher] start couponNo=' + couponNo + ', memberNo=' + memberNo + ', orderId=' + orderId + ', useDate=' + String.valueOf(useDate)
+      );
 
       List<LoyaltyProgramMember> lpmList = [
         SELECT Id, ProgramId, Program.Name
@@ -714,17 +850,68 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
         WHERE Contact.MemberNo__c = :memberNo
         LIMIT 1
       ];
+      System.debug(
+        LoggingLevel.WARN,
+        '[GDV][redeemVoucher] member lookup size=' +
+          lpmList.size() +
+          (lpmList.isEmpty() ? '' : ', lpmId=' + lpmList[0].Id + ', programId=' + lpmList[0].ProgramId + ', programName=' + lpmList[0].Program.Name)
+      );
       if (lpmList.isEmpty()) {
         throw new CustomException(400, '해당 회원이 존재하지 않습니다. ' + memberNo);
       }
 
-      // 쿠폰 조회
-      List<Voucher> vList = [
-        SELECT Id, VoucherCode, VoucherDefinitionId, LoyaltyProgramMemberId, ExpirationDate, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c
-        FROM Voucher
-        WHERE VoucherCode = :couponNo AND LoyaltyProgramMemberId = :lpmList[0].Id AND Status = 'Issued'
-        LIMIT 1
-      ];
+      // 기존 쿠폰 조회
+      // List<Voucher> vList = [
+      //   SELECT Id, VoucherCode, VoucherDefinitionId, LoyaltyProgramMemberId, ExpirationDate, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c
+      //   FROM Voucher
+      //   WHERE VoucherCode = :couponNo AND LoyaltyProgramMemberId = :lpmList[0].Id AND Status = 'Issued'
+      //   LIMIT 1
+      // ];
+
+      // 26.05.01 GD - 쿠폰 코드 분할 쿠폰 조회
+      List<Voucher> vList = new List<Voucher>();
+
+      if (String.isNotBlank(couponNo) && couponNo.contains(';-;')) {
+          String couponManNo = couponNo.substringBefore(';-;');
+          couponNo = couponNo.substringAfter(';-;');
+          
+          vList = [
+              SELECT  Id, VoucherCode, VoucherDefinitionId, LoyaltyProgramMemberId, ExpirationDate, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c
+              FROM Voucher
+              WHERE LoyaltyProgramMemberId = :lpmList[0].Id
+                AND VoucherCode = :couponNo 
+                AND VoucherDefinition.CouponManNo__c = :couponManNo
+                AND Status = 'Issued'
+              LIMIT 1
+          ];
+      } else {
+          vList = [
+              SELECT Id, VoucherCode, VoucherDefinitionId, LoyaltyProgramMemberId, ExpirationDate, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c
+              FROM Voucher
+              WHERE VoucherCode = :couponNo 
+                AND LoyaltyProgramMemberId = :lpmList[0].Id 
+                AND Status = 'Issued'
+              LIMIT 1
+          ];
+      }
+      //
+      System.debug(
+        LoggingLevel.WARN,
+        '[GDV][redeemVoucher] voucher lookup size=' +
+          vList.size() +
+          (vList.isEmpty()
+            ? ''
+            : ', voucherId=' +
+              vList[0].Id +
+              ', voucherDefinitionId=' +
+              vList[0].VoucherDefinitionId +
+              ', voucherDefinitionName=' +
+              vList[0].VoucherDefinition.Name +
+              ', isUnlimited=' +
+              vList[0].VoucherDefinition.IsUnlimited__c +
+              ', expirationDate=' +
+              String.valueOf(vList[0].ExpirationDate))
+      );
       if (vList.isEmpty()) {
         throw new CustomException(400, '존재하지 않는 쿠폰입니다. ' + couponNo);
       }
@@ -751,7 +938,17 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
         throw new CustomException(400, '저널 하위 유형이 없습니다.');
       }
 
-      // 트랜잭션 저널 생성 - TransactionJournal insert
+      // 기존 트랜잭션 저널 생성 - TransactionJournal insert
+      // TransactionJournal tj = new TransactionJournal();
+      // tj.ActivityDate = Datetime.now(); // 활성 일자
+      // tj.JournalDate = Datetime.now(); // 저널 일자
+      // tj.JournalTypeId = jtList[0].Id; // 저널 유형 Id
+      // tj.JournalSubTypeId = jstList[0].Id; // 저널 하위 유형 Id
+      // tj.LoyaltyProgramId = lpmList[0].ProgramId; // 로열티 프로그램 Id
+      // tj.MemberId = lpmList[0].Id; // 로열티 회원 Id
+      // tj.VoucherCode = vList[0].VoucherCode; // 쿠폰 번호
+
+      // 26.05.01 GD - 트랜잭션 저널 생성 - TransactionJournal insert
       TransactionJournal tj = new TransactionJournal();
       tj.ActivityDate = Datetime.now(); // 활성 일자
       tj.JournalDate = Datetime.now(); // 저널 일자
@@ -759,7 +956,8 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       tj.JournalSubTypeId = jstList[0].Id; // 저널 하위 유형 Id
       tj.LoyaltyProgramId = lpmList[0].ProgramId; // 로열티 프로그램 Id
       tj.MemberId = lpmList[0].Id; // 로열티 회원 Id
-      tj.VoucherCode = vList[0].VoucherCode; // 쿠폰 번호
+      tj.VoucherCode = ValidationUtil.stringValidation(reqData.get('CouponNo'), 'CouponNo', true); // 쿠폰 번호
+      //
 
       // 주문 번호 (선택 필드, 유효한 ID인 경우만 설정)
       if (String.isNotBlank(orderId)) {
@@ -790,10 +988,26 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
         Database.Error err = updateResult.getErrors()[0];
         throw new CustomException(400, err.getMessage());
       }
+      System.debug(
+        LoggingLevel.WARN,
+        '[GDV][redeemVoucher] voucher updated voucherId=' +
+          vList[0].Id +
+          ', status=' +
+          vList[0].Status +
+          ', useDate=' +
+          String.valueOf(vList[0].UseDate) +
+          ', usedTransactionJournalId=' +
+          vList[0].UsedTransactionJournalId__c
+      );
 
       // 무제한 쿠폰이면 사용 직후 동일 쿠폰을 다시 지급한다.
-      reissueUnlimitedVoucherIfNeeded(vList[0], lpmList[0].Program.Name, tj.Id);
-
+      if (vList[0].VoucherDefinition.IsUnlimited__c == true) {
+        System.debug(
+          LoggingLevel.WARN,
+          '[GDV][redeemVoucher] unlimited voucher detected. reissue start voucherId=' + vList[0].Id + ', journalId=' + tj.Id
+        );
+        reissueUnlimitedVoucherIfNeeded(vList[0], lpmList[0].Program.Name, tj.Id);
+      }
       return ApiResult.ok(200, '쿠폰 사용 완료', null);
     } catch (ValidationException ve) {
       throw new CustomException(ve.code, ve.detail);
@@ -810,13 +1024,43 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
   public ApiResult redeemVoucherV2(TransactionJournal tj) {
     Map<String, Object> data = new Map<String, Object>();
     try {
-      // 쿠폰 조회
-      List<Voucher> vList = [
-        SELECT Id, VoucherCode, VoucherDefinitionId, LoyaltyProgramMemberId, ExpirationDate, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c
-        FROM Voucher
-        WHERE VoucherCode = :tj.VoucherCode AND LoyaltyProgramMemberId = :tj.MemberId AND Status = 'Issued'
-        LIMIT 1
-      ];
+      // 기존 쿠폰 조회
+      // List<Voucher> vList = [
+      //   SELECT Id, VoucherCode, VoucherDefinitionId, LoyaltyProgramMemberId, ExpirationDate, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c
+      //   FROM Voucher
+      //   WHERE VoucherCode = :tj.VoucherCode AND LoyaltyProgramMemberId = :tj.MemberId AND Status = 'Issued'
+      //   LIMIT 1
+      // ];
+
+      // 26.05.01 GD - 쿠폰 코드 분할 쿠폰 조회
+      String searchVoucherCode = tj.VoucherCode;
+      List<Voucher> vList = new List<Voucher>();
+
+      if (String.isNotBlank(searchVoucherCode) && searchVoucherCode.contains(';-;')) {
+          String couponManNo = searchVoucherCode.substringBefore(';-;');
+          String realVoucherCode = searchVoucherCode.substringAfter(';-;'); 
+    
+          vList = [
+              SELECT Id, VoucherCode, VoucherDefinitionId, LoyaltyProgramMemberId, ExpirationDate, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c
+              FROM Voucher
+              WHERE VoucherCode = :realVoucherCode 
+                AND LoyaltyProgramMemberId = :tj.MemberId 
+                AND Status = 'Issued'
+                AND VoucherDefinition.CouponManNo__c = :couponManNo 
+              LIMIT 1
+          ];
+      } else {
+          vList = [
+              SELECT Id, VoucherCode, VoucherDefinitionId, LoyaltyProgramMemberId, ExpirationDate, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c
+              FROM Voucher
+              WHERE VoucherCode = :searchVoucherCode 
+                AND LoyaltyProgramMemberId = :tj.MemberId 
+                AND Status = 'Issued'
+              LIMIT 1
+          ];
+      }
+      //
+
       if (vList.isEmpty()) {
         throw new CustomException(400, '존재하지 않거나 이미 만료된 쿠폰입니다. ' + tj.VoucherCode);
       }
@@ -848,8 +1092,9 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       .Name;
 
       // 무제한 쿠폰이면 사용 직후 동일 쿠폰을 다시 지급한다.
-      reissueUnlimitedVoucherIfNeeded(vList[0], programName, tj.Id);
-
+      if (vList[0].VoucherDefinition.IsUnlimited__c == true) {
+        reissueUnlimitedVoucherIfNeeded(vList[0], programName, tj.Id);
+      }
       data.put('voucher', vList[0]);
 
       return ApiResult.ok(200, '쿠폰 사용 완료', data);
@@ -870,21 +1115,56 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
   public ApiResult redeemCancelVoucher(TransactionJournal tj) {
     Map<String, Object> data = new Map<String, Object>();
     try {
-      // 쿠폰 조회
-      List<Voucher> vList = [
-        SELECT
-          Id,
-          VoucherCode,
-          ExpirationDate,
-          VoucherDefinition.Name,
-          VoucherDefinitionId,
-          LoyaltyProgramMemberId,
-          UsedTransactionJournalId__c,
-          VoucherDefinition.IsUnlimited__c
-        FROM Voucher
-        WHERE VoucherCode = :tj.VoucherCode AND LoyaltyProgramMemberId = :tj.MemberId AND Status = 'Redeemed'
-        LIMIT 1
-      ];
+      // 기존 쿠폰 조회
+      // List<Voucher> vList = [
+      //   SELECT
+      //     Id,
+      //     VoucherCode,
+      //     ExpirationDate,
+      //     VoucherDefinition.Name,
+      //     VoucherDefinitionId,
+      //     LoyaltyProgramMemberId,
+      //     UsedTransactionJournalId__c,
+      //     VoucherDefinition.IsUnlimited__c
+      //   FROM Voucher
+      //   WHERE VoucherCode = :tj.VoucherCode AND LoyaltyProgramMemberId = :tj.MemberId AND Status = 'Redeemed'
+      //   LIMIT 1
+      // ];
+      
+      // 26.05.01 GD - 쿠폰 코드 분할 쿠폰 조회
+      String searchVoucherCode = tj.VoucherCode;
+      List<Voucher> vList = new List<Voucher>();
+
+      if (String.isNotBlank(searchVoucherCode) && searchVoucherCode.contains(';-;')) {
+          String couponManNo = searchVoucherCode.substringBefore(';-;');
+          String realVoucherCode = searchVoucherCode.substringAfter(';-;'); 
+          
+          vList = [
+              SELECT 
+                  Id, VoucherCode, ExpirationDate, VoucherDefinition.Name, 
+                  VoucherDefinitionId, LoyaltyProgramMemberId, 
+                  UsedTransactionJournalId__c, VoucherDefinition.IsUnlimited__c
+              FROM Voucher
+              WHERE VoucherCode = :realVoucherCode 
+                AND LoyaltyProgramMemberId = :tj.MemberId 
+                AND Status = 'Redeemed' 
+                AND VoucherDefinition.CouponManNo__c = :couponManNo
+              LIMIT 1
+          ];
+      } else {
+          vList = [
+              SELECT 
+                  Id, VoucherCode, ExpirationDate, VoucherDefinition.Name, 
+                  VoucherDefinitionId, LoyaltyProgramMemberId, 
+                  UsedTransactionJournalId__c, VoucherDefinition.IsUnlimited__c
+              FROM Voucher
+              WHERE VoucherCode = :searchVoucherCode 
+                AND LoyaltyProgramMemberId = :tj.MemberId 
+                AND Status = 'Redeemed'
+              LIMIT 1
+          ];
+      }
+      //
       if (vList.isEmpty()) {
         throw new CustomException(400, '존재하지 않는 쿠폰입니다. ' + tj.VoucherCode);
       }
@@ -892,15 +1172,18 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       // 쿠폰 사용 취소 처리 - Voucher update
       // 무제한 쿠폰은 취소 시 만료 여부와 무관하게 다시 발급 상태로 복원한다.
       Id originalRedeemJournalId = vList[0].UsedTransactionJournalId__c;
-      if (vList[0].VoucherDefinition.IsUnlimited__c == true || vList[0].ExpirationDate >= Date.today()) {
+      Boolean voucherNeedsUpdate = true;
+      if (vList[0].VoucherDefinition.IsUnlimited__c == true) {
+        vList[0].Status = 'Issued';
+        vList[0].UseDate = null;
+        vList[0].UsedTransactionJournalId__c = null;
+      } else if (vList[0].ExpirationDate >= Date.today()) {
         vList[0].Status = 'Issued';
         vList[0].UseDate = null;
         vList[0].UsedTransactionJournalId__c = null;
       } else {
-        vList[0].Status = 'Expired';
+        voucherNeedsUpdate = false;
       }
-      // 만료
-      // 복원
 
       tj.JournalTypeId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_REDEMPTION_REVERSAL, true);
       tj.JournalSubTypeId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_COUPON_REDEEM_CANCEL, true);
@@ -911,14 +1194,18 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
         throw new CustomException(400, err.getMessage());
       }
 
-      Database.SaveResult updateResult = Database.update(vList[0]);
-      if (!updateResult.isSuccess()) {
-        Database.Error err = updateResult.getErrors()[0];
-        throw new CustomException(400, err.getMessage());
+      if (voucherNeedsUpdate) {
+        Database.SaveResult updateResult = Database.update(vList[0]);
+        if (!updateResult.isSuccess()) {
+          Database.Error err = updateResult.getErrors()[0];
+          throw new CustomException(400, err.getMessage());
+        }
       }
 
       // 무제한 쿠폰 사용 시 자동 생성된 재발급 쿠폰은 취소 처리로 정리한다.
-      cancelUnlimitedReissuedVoucherIfNeeded(vList[0], originalRedeemJournalId);
+      if (vList[0].VoucherDefinition.IsUnlimited__c == true) {
+        cancelUnlimitedReissuedVoucherIfNeeded(vList[0], originalRedeemJournalId);
+      }
 
       data.put('Name', vList[0].VoucherDefinition.Name);
       data.put('VoucherCode', vList[0].VoucherCode);
@@ -942,12 +1229,27 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
   public ApiResult getReturnUsedCoupon(String originalOrderId) {
     Map<String, Object> data = new Map<String, Object>();
     try {
+      // 기존
+      // List<TransactionJournal> tjList = [
+      //   SELECT Id, DepositType__c, VoucherCode
+      //   FROM TransactionJournal
+      //   WHERE Order.SaleNo__c = :originalOrderId AND VoucherCode != NULL
+      //   LIMIT 200
+      // ];
+
+      // 26.05.01 GD - 회원 ID 추가 조회
       List<TransactionJournal> tjList = [
-        SELECT Id, DepositType__c, VoucherCode
+        SELECT Id, DepositType__c, VoucherCode, MemberId
         FROM TransactionJournal
-        WHERE Order.SaleNo__c = :originalOrderId AND VoucherCode != NULL
+        WHERE Order.SaleNo__c = :originalOrderId AND VoucherCode != NULL AND MemberId != NULL
         LIMIT 200
       ];
+
+      // Id memberId = null;
+      // if (!tjList.isEmpty()) {
+      //     memberId = tjList[0].MemberId;
+      // }
+      //
 
       Map<VoucherAggKey, Integer> voucherUseCountMap = new Map<VoucherAggKey, Integer>();
 
@@ -972,18 +1274,51 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
 
         if (net > 0) {
           Map<String, Object> useCouponMap = new Map<String, Object>();
-          List<Voucher> vList = [
-            SELECT Id, VoucherDefinition.Name, ExpirationDate, VoucherCode
-            FROM Voucher
-            WHERE VoucherCode = :key.voucherCode
-            LIMIT 1
-          ];
+
+          // 기존 조회
+          // List<Voucher> vList = [
+          //   SELECT Id, VoucherDefinition.Name, ExpirationDate, VoucherCode
+          //   FROM Voucher
+          //   WHERE VoucherCode = :key.voucherCode
+          //   LIMIT 1
+          // ];
+
+          // 26.05.01 GD - 쿠폰 코드 분할 쿠폰 조회
+          String searchVoucherCode = key.voucherCode;
+          List<Voucher> vList = new List<Voucher>();
+
+          if (String.isNotBlank(searchVoucherCode) && searchVoucherCode.contains(';-;')) {
+              String couponManNo = searchVoucherCode.substringBefore(';-;');
+              String realVoucherCode = searchVoucherCode.substringAfter(';-;'); 
+              
+              vList = [
+                  SELECT Id, VoucherDefinition.Name, ExpirationDate, VoucherCode, VoucherDefinition.CouponManNo__c
+                  FROM Voucher
+                  WHERE VoucherCode = :realVoucherCode
+                    AND VoucherDefinition.CouponManNo__c = :couponManNo
+                    AND LoyaltyProgramMemberId = :tjList[0].MemberId
+                  LIMIT 1
+              ];
+          } else {
+              vList = [
+                  SELECT Id, VoucherDefinition.Name, ExpirationDate, VoucherCode, VoucherDefinition.CouponManNo__c
+                  FROM Voucher
+                  WHERE VoucherCode = :searchVoucherCode
+                    AND LoyaltyProgramMemberId = :tjList[0].MemberId
+                  LIMIT 1
+              ];
+          }
+          //
 
           if (vList.isEmpty()) {
             throw new CustomException(400, '존재하지 않는 쿠폰 코드 입니다. ' + key.voucherCode);
           }
 
           useCouponMap.put('VoucherCode', key.voucherCode);
+          // 26.05.01 GD - 응답값 추가
+          useCouponMap.put('NoManCoupon', vList[0].VoucherDefinition.CouponManNo__c);
+          useCouponMap.put('NoCoupon', vList[0].VoucherCode);
+          //
           useCouponMap.put('ExpirationDate', vList[0].ExpirationDate);
           useCouponMap.put('Name', vList[0].VoucherDefinition.Name);
 
@@ -1013,75 +1348,297 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       String orderNo = ValidationUtil.stringValidation(reqData.get('OrderNo__c'), 'OrderNo__c', false); // 주문 번호
 
       // 판매번호 있으면 SaleNo__c, 없으면 OrderNo__c 로 조회
-      String fieldPath;
-      String keyValue;
+      Id orderId;
+      Boolean isSaleQuery = false;
+      List<TransactionJournal> tjList = new List<TransactionJournal>();
+
+      // 26.05.01 GD - 회원 ID 조회
+      Id memberId = null;
+      //
 
       if (!String.isBlank(saleNo)) {
-        fieldPath = 'SaleNo__c';
-        keyValue = saleNo;
+        // fieldPath = 'SaleNo__c';
+        List<Order> orderList = [SELECT Id FROM Order WHERE SaleNo__c = :saleNo LIMIT 1];
+        if (orderList.isEmpty()) {
+          throw new CustomException(400, '존재하지 않는 판매 번호 입니다. ' + saleNo);
+        }
+        orderId = orderList[0].Id;
+        isSaleQuery = true;
+
+        List<TransactionJournal> saleLinkedTjList = [
+          SELECT VoucherCode, OrderId
+          FROM TransactionJournal
+          WHERE SaleId__c = :orderId AND VoucherCode != NULL
+          ORDER BY CreatedDate ASC
+          LIMIT 200
+        ];
+        Set<String> saleVoucherCodeSet = new Set<String>();
+        Set<Id> relatedOrderIdSet = new Set<Id>{ orderId };
+        for (TransactionJournal saleLinkedTj : saleLinkedTjList) {
+          if (String.isNotBlank(saleLinkedTj.VoucherCode)) {
+            saleVoucherCodeSet.add(saleLinkedTj.VoucherCode);
+          }
+          if (saleLinkedTj.OrderId != null) {
+            relatedOrderIdSet.add(saleLinkedTj.OrderId);
+          }
+        }
+
+        if (saleVoucherCodeSet.isEmpty()) {
+          return ApiResult.ok(200, '사용한 쿠폰 조회 성공', data);
+        }
+
+        // 기존
+        // tjList = [
+        //   SELECT DepositType__c, VoucherCode, TransactionAmount, DepositNo__c, SaleId__c, JournalType.Name, JournalSubType.Name
+        //   FROM TransactionJournal
+        //   WHERE VoucherCode IN :saleVoucherCodeSet AND (SaleId__c = :orderId OR OrderId IN :relatedOrderIdSet OR OrderId__c IN :relatedOrderIdSet)
+        //   ORDER BY CreatedDate ASC
+        //   LIMIT 400
+        // ];
+
+        // 26.05.01 GD - 회원 ID 추가 조회
+        tjList = [
+          SELECT DepositType__c, VoucherCode, TransactionAmount, DepositNo__c, SaleId__c, JournalType.Name, JournalSubType.Name, MemberId
+          FROM TransactionJournal
+          WHERE VoucherCode IN :saleVoucherCodeSet AND (SaleId__c = :orderId OR OrderId IN :relatedOrderIdSet OR OrderId__c IN :relatedOrderIdSet)
+          ORDER BY CreatedDate ASC
+          LIMIT 400
+        ];
+
+        if (!tjList.isEmpty()) {
+            memberId = tjList[0].MemberId;
+        }
+        //
+
+        // soql =
+        //   'SELECT ' +
+        //   'DepositType__c, VoucherCode, TransactionAmount ' +
+        //   'FROM TransactionJournal ' +
+        //   'WHERE Order.' +
+        //   fieldPath +
+        //   ' = :keyValue' +
+        //   ' AND VoucherCode != NULL ' +
+        //   ' ORDER BY CreatedDate ASC ' +
+        //   ' LIMIT 200';
       } else if (!String.isBlank(orderNo)) {
-        fieldPath = 'OrderNo__c';
-        keyValue = orderNo;
+        // fieldPath = 'OrderNo__c';
+        List<Order> orderList = [SELECT Id FROM Order WHERE OrderNo__c = :orderNo LIMIT 1];
+        if (orderList.isEmpty()) {
+          throw new CustomException(400, '존재하지 않는 주문 번호 입니다. ' + orderNo);
+        }
+        orderId = orderList[0].Id;
+
+        // 기존
+        // tjList = [
+        //   SELECT DepositType__c, VoucherCode, TransactionAmount, DepositNo__c, SaleId__c, JournalType.Name, JournalSubType.Name
+        //   FROM TransactionJournal
+        //   WHERE (OrderId__c = :orderId OR OrderId = :orderId) AND VoucherCode != NULL
+        //   ORDER BY CreatedDate ASC
+        //   LIMIT 200
+        // ];
+
+        // 26.05.01 GD - 회원 ID 추가 조회
+        tjList = [
+          SELECT DepositType__c, VoucherCode, TransactionAmount, DepositNo__c, SaleId__c, JournalType.Name, JournalSubType.Name, MemberId
+          FROM TransactionJournal
+          WHERE (OrderId__c = :orderId OR OrderId = :orderId) AND VoucherCode != NULL
+          ORDER BY CreatedDate ASC
+          LIMIT 200
+        ];
+
+        if (!tjList.isEmpty()) {
+          memberId = tjList[0].MemberId;
+        }
+        //
+
+        // soql =
+        //   'SELECT ' +
+        //   'DepositType__c, VoucherCode, TransactionAmount ' +
+        //   'FROM TransactionJournal ' +
+        //   'WHERE Order.' +
+        //   fieldPath +
+        //   ' = :keyValue' +
+        //   ' AND VoucherCode != NULL ' +
+        //   ' ORDER BY CreatedDate ASC ' +
+        //   ' LIMIT 200';
       } else {
         throw new CustomException(400, 'SaleNo__c 또는 OrderNo__c 값이 필요합니다.');
       }
 
-      if (
-        !([
-          SELECT COUNT()
-          FROM Order
-          WHERE OrderNo__c = :keyValue OR SaleNo__c = :keyValue
-          LIMIT 1
-        ] > 0)
-      ) {
-        throw new CustomException(400, '존재하지 않는 주문/판매 번호 입니다. ' + keyValue);
-      }
+      // if (
+      //   !([
+      //     SELECT COUNT()
+      //     FROM Order
+      //     WHERE OrderNo__c = :keyValue OR SaleNo__c = :keyValue
+      //     LIMIT 1
+      //   ] > 0)
+      // ) {
+      //   throw new CustomException(400, '존재하지 않는 주문/판매 번호 입니다. ' + keyValue);
+      // }
 
-      String soql =
-        'SELECT ' +
-        'DepositType__c, VoucherCode, TransactionAmount ' +
-        'FROM TransactionJournal ' +
-        'WHERE Order.' +
-        fieldPath +
-        ' = :keyValue' +
-        ' AND VoucherCode != NULL ' +
-        ' ORDER BY CreatedDate ASC ' +
-        ' LIMIT 200';
+      // String soql =
+      //   'SELECT ' +
+      //   'DepositType__c, VoucherCode, TransactionAmount ' +
+      //   'FROM TransactionJournal ' +
+      //   'WHERE Order.' +
+      //   fieldPath +
+      //   ' = :keyValue' +
+      //   ' AND VoucherCode != NULL ' +
+      //   ' ORDER BY CreatedDate ASC ' +
+      //   ' LIMIT 200';
 
-      List<TransactionJournal> tjList = (List<TransactionJournal>) Database.query(soql);
+      // List<TransactionJournal> tjList = (List<TransactionJournal>) Database.query(soql);
 
-      Map<VoucherAggKey, Integer> voucherUseCountMap = new Map<VoucherAggKey, Integer>();
-      Map<VoucherAggKey, Decimal> voucherUsedAmountMap = new Map<VoucherAggKey, Decimal>();
+      Map<String, Integer> voucherUseCountMap = new Map<String, Integer>();
+      Map<String, Decimal> voucherUsedAmountMap = new Map<String, Decimal>();
+      Map<String, String> voucherDepositNoMap = new Map<String, String>();
+      Map<String, Boolean> voucherDepositPreferredMap = new Map<String, Boolean>();
+      Set<String> voucherCodeSet = new Set<String>();
 
       for (TransactionJournal tj : tjList) {
         if (String.isBlank(tj.VoucherCode)) {
           continue;
         }
 
-        VoucherAggKey key = new VoucherAggKey(tj.VoucherCode);
+        String voucherCode = tj.VoucherCode;
+        VoucherAggKey key = new VoucherAggKey(voucherCode);
 
-        Integer current = voucherUseCountMap.containsKey(key) ? voucherUseCountMap.get(key) : 0;
+        Integer current = voucherUseCountMap.containsKey(voucherCode) ? voucherUseCountMap.get(voucherCode) : 0;
 
         Boolean isRefund = (tj.DepositType__c == '03'); // 03 : 환불
+
+        isRefund =
+          isRefund ||
+          (tj.JournalSubType != null &&
+          tj.JournalSubType.Name == JOURNAL_SUB_TYPE_NAME_COUPON_REDEEM_CANCEL) ||
+          (tj.JournalType != null &&
+          tj.JournalType.Name == JOURNAL_TYPE_NAME_REDEMPTION_REVERSAL);
 
         current += (isRefund ? -1 : 1);
 
         if (!isRefund && tj.TransactionAmount != null) {
-          voucherUsedAmountMap.put(key, tj.TransactionAmount);
+          voucherUsedAmountMap.put(voucherCode, tj.TransactionAmount);
+        }
+        if (!isRefund && !String.isBlank(tj.DepositNo__c)) {
+          Boolean preferCurrentDeposit = !voucherDepositNoMap.containsKey(voucherCode);
+          if (isSaleQuery && tj.SaleId__c == orderId && voucherDepositPreferredMap.get(voucherCode) != true) {
+            preferCurrentDeposit = true;
+          }
+          if (preferCurrentDeposit) {
+            voucherDepositNoMap.put(voucherCode, tj.DepositNo__c);
+            voucherDepositPreferredMap.put(voucherCode, isSaleQuery && tj.SaleId__c == orderId);
+          }
         }
 
-        voucherUseCountMap.put(key, current);
+        voucherUseCountMap.put(voucherCode, current);
+        voucherCodeSet.add(voucherCode);
       }
 
-      for (VoucherAggKey key : voucherUseCountMap.keySet()) {
-        Integer net = voucherUseCountMap.get(key);
+      if (!voucherCodeSet.isEmpty()) {
+        // 기존
+        // Map<String, Voucher> voucherByCode = new Map<String, Voucher>();
+        // for (Voucher voucherRec : [
+        //   SELECT Id, VoucherDefinition.Name, ExpirationDate, VoucherCode, DiscountPercent, FaceValue, UsedTransactionJournalId__r.DepositNo__c
+        //   FROM Voucher
+        //   WHERE VoucherCode IN :voucherCodeSet
+        // ]) {
+        //   voucherByCode.put(voucherRec.VoucherCode, voucherRec);
+        // }
+
+        // 26.05.01 GD - 신규 로직
+        Set<String> realVoucherCodeSet = new Set<String>();
+        for (String vc : voucherCodeSet) {
+          if (String.isNotBlank(vc) && vc.contains(';-;')) {
+            realVoucherCodeSet.add(vc.substringAfter(';-;'));
+          } else {
+            realVoucherCodeSet.add(vc);
+          }
+        }
+
+        Map<String, Voucher> voucherByCode = new Map<String, Voucher>();
+
+        for (Voucher voucherRec : [
+            SELECT 
+                Id, 
+                VoucherDefinition.Name, 
+                ExpirationDate, 
+                VoucherCode, 
+                DiscountPercent, 
+                FaceValue, 
+                UsedTransactionJournalId__r.DepositNo__c, 
+                VoucherDefinition.CouponManNo__c
+            FROM Voucher
+            WHERE VoucherCode IN :realVoucherCodeSet
+            AND LoyaltyProgramMemberId = : memberId
+        ]) {
+            String couponManNo = (voucherRec.VoucherDefinition != null && voucherRec.VoucherDefinition.CouponManNo__c != null) ? voucherRec.VoucherDefinition.CouponManNo__c : '';
+            String combinedCode = String.isBlank(couponManNo) ? voucherRec.VoucherCode : couponManNo + ';-;' + voucherRec.VoucherCode;
+
+            if (voucherCodeSet.contains(combinedCode)) {
+                voucherByCode.put(combinedCode, voucherRec);
+            } 
+            // (안전장치) 구분자가 없는 구버전 단일 쿠폰 번호를 찾고 있었던 거라면, 단일 코드로 일치할 때 담아줍니다.
+            else if (voucherCodeSet.contains(voucherRec.VoucherCode)) {
+                voucherByCode.put(voucherRec.VoucherCode, voucherRec);
+            }
+        }
+        //
+
+        for (String voucherCode : voucherUseCountMap.keySet()) {
+          Integer net = voucherUseCountMap.get(voucherCode);
+          if (net == null || net <= 0) {
+            continue;
+          }
+
+          Voucher voucherRec = voucherByCode.get(voucherCode);
+          if (voucherRec == null) {
+            throw new CustomException(400, '존재하지 않는 쿠폰번호 입니다. ' + voucherCode);
+          }
+
+          Map<String, Object> useCouponMap = new Map<String, Object>();
+          useCouponMap.put('VoucherCode', voucherCode);
+          // 26.05.01 GD - 응답값 추가
+          useCouponMap.put('NoManCoupon', voucherRec.VoucherDefinition.CouponManNo__c);
+          useCouponMap.put('NoCoupon', voucherRec.VoucherCode);
+          //
+          useCouponMap.put('ExpirationDate', voucherRec.ExpirationDate);
+          useCouponMap.put('Name', voucherRec.VoucherDefinition.Name);
+
+          Decimal redeemAmount = voucherUsedAmountMap.containsKey(voucherCode) ? voucherUsedAmountMap.get(voucherCode) : null;
+          Boolean isRateCoupon = voucherRec.DiscountPercent != null && voucherRec.DiscountPercent > 0;
+          // 26.05.03 CS - 정액/정률 구분 없이 실제 사용한 금액(TransactionAmount) 을 FaceValue 로 응답.
+          //               redeemAmount 가 null 인 이론상 케이스만 fallback 으로 쿠폰 정의 FaceValue 사용.
+          Decimal faceValueToSend;
+          if (redeemAmount != null) {
+            faceValueToSend = redeemAmount;
+          } else {
+            faceValueToSend = voucherRec.FaceValue == null ? 0 : voucherRec.FaceValue;
+          }
+
+          useCouponMap.put('DiscountPercent', voucherRec.DiscountPercent == null ? 0 : voucherRec.DiscountPercent);
+          useCouponMap.put('FaceValue', faceValueToSend);
+
+          String depositNo = voucherDepositNoMap.get(voucherCode);
+          if (!String.isBlank(depositNo)) {
+            useCouponMap.put('NO_DEPOSIT', depositNo.replaceAll('-\\d+$', ''));
+          }
+
+          data.put('RedeemedCoupon', useCouponMap);
+        }
+
+        return ApiResult.ok(200, '사용한 쿠폰 조회 성공', data);
+      }
+
+      for (String voucherCode : new List<String>()) {
+        Integer net = voucherUseCountMap.get(voucherCode);
 
         if (net > 0) {
+          VoucherAggKey key = new VoucherAggKey(voucherCode);
           Map<String, Object> useCouponMap = new Map<String, Object>();
           List<Voucher> vList = [
             SELECT Id, VoucherDefinition.Name, ExpirationDate, VoucherCode, DiscountPercent, FaceValue, UsedTransactionJournalId__r.DepositNo__c
             FROM Voucher
-            WHERE VoucherCode = :key.voucherCode
+            WHERE VoucherCode = :voucherCode
             LIMIT 1
           ];
 
@@ -1089,14 +1646,14 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
             throw new CustomException(400, '존재하지 않는 쿠폰 코드 입니다. ' + key.voucherCode);
           }
 
-          useCouponMap.put('VoucherCode', key.voucherCode);
+          useCouponMap.put('VoucherCode', voucherCode);
           useCouponMap.put('ExpirationDate', vList[0].ExpirationDate);
           useCouponMap.put('Name', vList[0].VoucherDefinition.Name);
 
           // useCouponMap.put('DiscountPercent', vList[0].DiscountPercent == null ? 0 : vList[0].DiscountPercent);
           // useCouponMap.put('FaceValue', vList[0].FaceValue == null ? 0 : vList[0].FaceValue);
 
-          Decimal redeemAmount = voucherUsedAmountMap.containsKey(key) ? voucherUsedAmountMap.get(key) : null;
+          Decimal redeemAmount = voucherUsedAmountMap.containsKey(voucherCode) ? voucherUsedAmountMap.get(voucherCode) : null;
           Boolean isRateCoupon = vList[0].DiscountPercent != null && vList[0].DiscountPercent > 0;
 
           Decimal faceValueToSend = vList[0].FaceValue == null ? 0 : vList[0].FaceValue;
@@ -1169,7 +1726,21 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       );
       Set<String> productCodeSet = new Set<String>();
       Decimal requestDiscountRate;
-      String promotionLimitValue = String.isBlank(promotionNo) ? null : resolvePromotionIdByPromotionNo(promotionNo);
+
+      // 26.05.02 CS - 프로모션 쿠폰 사용 가능 여부 게이트
+      Promotion targetPromotion = null;
+      if (!String.isBlank(promotionNo)) {
+        List<Promotion> promotionLookup = [
+          SELECT Id, IsCouponAllowed__c, IsRateCouponAllowed__c, IsFixedAmountCouponAllowed__c, IsSpecificCouponAllowed__c
+          FROM Promotion
+          WHERE PromotionNo__c = :promotionNo
+          LIMIT 1
+        ];
+        if (!promotionLookup.isEmpty()) {
+          targetPromotion = promotionLookup[0];
+        }
+      }
+      String promotionLimitValue = String.isBlank(promotionNo) ? null : (targetPromotion != null ? String.valueOf(targetPromotion.Id) : promotionNo);
 
       if (orderItem != null) {
         for (Object v : orderItem) {
@@ -1217,8 +1788,15 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
           VoucherDefinition.ExpirationPeriod,
           DiscountPercent,
           VoucherDefinition.ResponsibleDepartment__c,
+          VoucherDefinition.Description,
+          VoucherDefinition.ResponsiblePerson__c,
           CreatedBy.Name,
-          VoucherDefinition.InsertId__c
+          VoucherDefinition.InsertId__c,
+          InsertId__c,
+          // 추가 GD 26.04.29
+          VoucherDefinition.EffectiveDate,
+          VoucherDefinition.Type,
+          VoucherDefinition.ExpirationPeriodUnit
         FROM Voucher
         WHERE LoyaltyProgramMember.Contact.MemberNo__c = :memberNo AND Status = 'Issued' AND ExpirationDate >= :Date.today()
         LIMIT 200
@@ -1262,15 +1840,66 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
         LIMIT 2000
       ];
 
+      // 26.05.02 CS - 프로모션이 허용하는 쿠폰 종류/특정 쿠폰 집합 산출
+      Set<String> allowedVoucherTypeSet = new Set<String>();
+      Set<Id> allowedSpecificVdIdSet = new Set<Id>();
+      if (targetPromotion != null) {
+        if (targetPromotion.IsCouponAllowed__c == true) {
+          allowedVoucherTypeSet.add('DiscountPercentage');
+          allowedVoucherTypeSet.add('FixedValue');
+          allowedVoucherTypeSet.add('ProductOrService');
+        } else {
+          if (targetPromotion.IsRateCouponAllowed__c == true) {
+            allowedVoucherTypeSet.add('DiscountPercentage');
+          }
+          if (targetPromotion.IsFixedAmountCouponAllowed__c == true) {
+            allowedVoucherTypeSet.add('FixedValue');
+          }
+        }
+        if (targetPromotion.IsSpecificCouponAllowed__c == true) {
+          for (VoucherLimit__c vl : [
+            SELECT VoucherDefinitionId__c
+            FROM VoucherLimit__c
+            WHERE PromotionId__c = :targetPromotion.Id AND IsActive__c = TRUE
+            LIMIT 1000
+          ]) {
+            if (vl.VoucherDefinitionId__c != null) {
+              allowedSpecificVdIdSet.add(vl.VoucherDefinitionId__c);
+            }
+          }
+        }
+      }
+
       List<VoucherResDTO> voucherResDtoList = new List<VoucherResDTO>();
 
       // 쿠폰 한도 존재 X
       if (limitList.isEmpty()) {
         for (Voucher v : voucherList) {
-          if (!usedCouponNoSet.isEmpty() && usedCouponNoSet.contains(v.VoucherCode)) {
-            continue;
+          // 기존
+          // if (!usedCouponNoSet.isEmpty() && usedCouponNoSet.contains(v.VoucherCode)) {
+          //   continue;
+          // }
+          // voucherResDtoList.add(new VoucherResDTO(v));
+
+          // 26.05.01 GD - 쿠폰 코드 병합
+          String couponManNo = (v.VoucherDefinition != null && v.VoucherDefinition.CouponManNo__c != null) ? v.VoucherDefinition.CouponManNo__c : '';
+          String combinedCode = String.isBlank(couponManNo) ? v.VoucherCode : couponManNo + ';-;' + v.VoucherCode;
+          if (!usedCouponNoSet.isEmpty() && (usedCouponNoSet.contains(combinedCode))) {
+              continue;
           }
+
+          // 26.05.02 CS - 프로모션 쿠폰 사용 가능 여부 게이트
+          if (targetPromotion != null) {
+            String vdType = (v.VoucherDefinition != null) ? v.VoucherDefinition.Type : null;
+            Boolean typeAllowed = !String.isBlank(vdType) && allowedVoucherTypeSet.contains(vdType);
+            Boolean specificAllowed = allowedSpecificVdIdSet.contains(v.VoucherDefinitionId);
+            if (!typeAllowed && !specificAllowed) {
+              continue;
+            }
+          }
+
           voucherResDtoList.add(new VoucherResDTO(v));
+          //
         }
       }
       // 쿠폰 한도 존재 O
@@ -1285,9 +1914,29 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
         List<Voucher> available = new List<Voucher>();
 
         for (Voucher v : voucherList) {
-          if (!usedCouponNoSet.isEmpty() && usedCouponNoSet.contains(v.VoucherCode)) {
-            continue;
+          // 기존
+          // if (!usedCouponNoSet.isEmpty() && usedCouponNoSet.contains(v.VoucherCode)) {
+          //   continue;
+          // }
+
+          // 26.05.01 GD - 쿠폰 코드 병합
+          String couponManNo = (v.VoucherDefinition != null && v.VoucherDefinition.CouponManNo__c != null) ? v.VoucherDefinition.CouponManNo__c : '';
+          String combinedCode = String.isBlank(couponManNo) ? v.VoucherCode : couponManNo + ';-;' + v.VoucherCode;
+          if (!usedCouponNoSet.isEmpty() && (usedCouponNoSet.contains(combinedCode))) {
+              continue;
           }
+          //
+
+          // 26.05.02 CS - 프로모션 쿠폰 사용 가능 여부 게이트
+          if (targetPromotion != null) {
+            String vdType = (v.VoucherDefinition != null) ? v.VoucherDefinition.Type : null;
+            Boolean typeAllowed = !String.isBlank(vdType) && allowedVoucherTypeSet.contains(vdType);
+            Boolean specificAllowed = allowedSpecificVdIdSet.contains(v.VoucherDefinitionId);
+            if (!typeAllowed && !specificAllowed) {
+              continue;
+            }
+          }
+
           VoucherRule r = ruleMap.get(v.VoucherDefinitionId);
           System.debug('r : ' + r);
 
@@ -1356,13 +2005,16 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
 
       String soql =
         'SELECT ' +
-        '  Id, VoucherDefinitionId, VoucherDefinition.Name, FaceValue, Reason, ' +
+        '  Id, VoucherDefinitionId, VoucherDefinition.Name, FaceValue, Reason, InsertId__c, ' +
         '  EffectiveDate, UseDate, ExpirationDate, CreatedDate, ' +
         '  VoucherDefinition.brand__c, VoucherDefinition.CouponManNo__c, ' +
         '  VoucherCode, VoucherDefinition.CouponTypeCode__c, Status, ' +
         '  VoucherDefinition.ExpirationType, VoucherDefinition.ExpirationPeriod, ' +
         '  DiscountPercent, VoucherDefinition.ResponsibleDepartment__c, ' +
-        '  CreatedBy.Name, VoucherDefinition.InsertId__c ' +
+        '  CreatedBy.Name, VoucherDefinition.InsertId__c, ' +
+        // 추가 GD - 26.04.29
+        '  VoucherDefinition.EffectiveDate, VoucherDefinition.Type, VoucherDefinition.ExpirationPeriodUnit, ' + // 신규 3개 필드 추가
+        '  VoucherDefinition.Description, VoucherDefinition.ResponsiblePerson__c ' + // 누락되었던 필드 추가
         'FROM Voucher ' +
         'WHERE LoyaltyProgramMember.Contact.MemberNo__c = :memberNo ' +
         'AND Status = \'Issued\' ';
@@ -1911,8 +2563,24 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       return (voucherCode == null) ? 0 : voucherCode.hashCode();
     }
   }
+
   // 무제한 쿠폰 사용 완료 후 재지급/재발급 처리
   private static void reissueUnlimitedVoucherIfNeeded(Voucher redeemedVoucher, String programName, Id journalId) {
+    System.debug(
+      LoggingLevel.WARN,
+      '[GDV][reissueUnlimitedVoucherIfNeeded] start redeemedVoucherId=' +
+        (redeemedVoucher == null ? null : redeemedVoucher.Id) +
+        ', voucherDefinitionId=' +
+        (redeemedVoucher == null ? null : redeemedVoucher.VoucherDefinitionId) +
+        ', loyaltyProgramMemberId=' +
+        (redeemedVoucher == null ? null : redeemedVoucher.LoyaltyProgramMemberId) +
+        ', isUnlimited=' +
+        (redeemedVoucher == null || redeemedVoucher.VoucherDefinition == null ? null : redeemedVoucher.VoucherDefinition.IsUnlimited__c) +
+        ', programName=' +
+        programName +
+        ', journalId=' +
+        journalId
+    );
     if (
       redeemedVoucher == null ||
       redeemedVoucher.VoucherDefinitionId == null ||
@@ -1920,32 +2588,51 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       redeemedVoucher.VoucherDefinition == null ||
       redeemedVoucher.VoucherDefinition.IsUnlimited__c != true
     ) {
+      System.debug(LoggingLevel.WARN, '[GDV][reissueUnlimitedVoucherIfNeeded] skip: redeemed voucher is not eligible for unlimited reissue.');
       return;
     }
 
     // 테스트에서는 LoyaltyVoucherService 대신 단순 Voucher 생성으로 재발급 흐름만 검증한다.
     if (Test.isRunningTest()) {
       insert buildUnlimitedVoucherForTest(redeemedVoucher);
+      System.debug(LoggingLevel.WARN, '[GDV][reissueUnlimitedVoucherIfNeeded] test mode reissued voucher inserted.');
       return;
     }
 
     Map<String, Object> req = new Map<String, Object>{
       'loyaltyProgramMemberId' => redeemedVoucher.LoyaltyProgramMemberId,
       'programName' => programName,
-      'voucherDefinitionName' => redeemedVoucher.VoucherDefinition.Name,
+      // [기존 코드 시작] 2026-04-17
+      // 'voucherDefinitionName' => redeemedVoucher.VoucherDefinition.Name,
+      // [기존 코드 끝] 2026-04-17
+      // [수정 코드 시작] 2026-04-17 - voucherDefinitionName 키에 Name 대신 VoucherDefinitionId를 사용해야 LoyaltyVoucherService.issueVoucher()가 정상 처리됨 (redeemVoucher 메서드의 기존 호출 방식과 동일)
+      'voucherDefinitionName' => redeemedVoucher.VoucherDefinitionId,
+      // [수정 코드 끝] 2026-04-17
       'journalId' => journalId,
       'additionalNotes' => 'Unlimited voucher auto reissue'
     };
+    System.debug(LoggingLevel.WARN, '[GDV][reissueUnlimitedVoucherIfNeeded] issue request=' + JSON.serialize(req));
 
     List<LoyaltyManagement.IssueVoucherOutput> resList = LoyaltyVoucherService.issueVoucher(new List<Map<String, Object>>{ req });
+    System.debug(LoggingLevel.WARN, '[GDV][reissueUnlimitedVoucherIfNeeded] issue result count=' + (resList == null ? 0 : resList.size()));
     Set<Id> issuedVoucherIds = new Set<Id>();
     for (LoyaltyManagement.IssueVoucherOutput res : resList) {
+      System.debug(
+        LoggingLevel.WARN,
+        '[GDV][reissueUnlimitedVoucherIfNeeded] issue result success=' +
+          (res == null ? null : res.isSuccess()) +
+          ', voucherId=' +
+          (res == null ? null : res.getVoucherId()) +
+          ', raw=' +
+          (res == null ? null : JSON.serialize(res))
+      );
       if (res != null && res.isSuccess() && res.getVoucherId() != null) {
         issuedVoucherIds.add(res.getVoucherId());
       }
     }
 
     // 재발급된 쿠폰도 일반 지급과 동일하게 ERP 쿠폰 발급 연동을 수행한다.
+    System.debug(LoggingLevel.WARN, '[GDV][reissueUnlimitedVoucherIfNeeded] enqueue issuedVoucherIds=' + issuedVoucherIds);
     enqueueCouponIssueJob(issuedVoucherIds);
   }
 

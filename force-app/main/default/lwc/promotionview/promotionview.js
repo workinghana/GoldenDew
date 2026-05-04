@@ -1,13 +1,11 @@
 import { LightningElement, api, wire } from "lwc";
 import { getRecord } from "lightning/uiRecordApi";
-import { refreshApex } from "@salesforce/apex";
 
 import getPromotionHistory from "@salesforce/apex/PromotionUIControllerV1.getPromotionHistory";
 
-/* ================= Promotion (LDS) 필드 ================= */
 const PROMOTION_FIELDS = [
   "Promotion.Name",
-  "Promotion.PromotionCode",
+  "Promotion.PromotionNo__c",
   "Promotion.DisplayName",
   "Promotion.IsActive",
   "Promotion.StartDate",
@@ -21,30 +19,28 @@ const PROMOTION_FIELDS = [
 export default class Promotionview extends LightningElement {
   @api recordId;
 
-  /* ===== LDS 데이터 ===== */
   promotion;
   error;
 
-  /* ===== Apex 가공 데이터 ===== */
   storegroup;
   storedetail;
   productNames;
   pointAccrualAvailable;
+  pointAccrualAvailablePointTypes;
+  pointAccrualUnavailablePointTypes;
   couponAvailable;
 
-  /* ===== Apex wire 결과 ===== */
   wiredPromotionHistoryResult;
   timer;
 
-  /* ================= Promotion (LDS) ================= */
   @wire(getRecord, { recordId: "$recordId", fields: PROMOTION_FIELDS })
   wiredPromotion({ data, error }) {
     if (data) {
       this.promotion = {
         name: data.fields.Name.value,
-        PromotionCode: data.fields.PromotionCode.value,
+        PromotionNo: data.fields.PromotionNo__c?.value,
         DisplayName: data.fields.DisplayName.value,
-        IsActive: data.fields.IsActive.value,
+        IsActive: data.fields.IsActive?.value,
         StartDate: data.fields.StartDate.value,
         EndDate: data.fields.EndDate.value,
         PublishStartDate: data.fields.PublishStartDate__c?.value,
@@ -53,14 +49,17 @@ export default class Promotionview extends LightningElement {
         IsPointUsageAllowed: data.fields.IsPointUsageAllowed__c?.value
       };
       this.error = undefined;
-    } else if (error) {
+      return;
+    }
+
+    if (error) {
       this.error = error;
       this.promotion = null;
+      // eslint-disable-next-line no-console
       console.error(error);
     }
   }
 
-  /* ================= Promotion (Apex 가공) ================= */
   @wire(getPromotionHistory, { promotionId: "$recordId" })
   wiredPromotionHistory(result) {
     this.wiredPromotionHistoryResult = result;
@@ -71,45 +70,79 @@ export default class Promotionview extends LightningElement {
       this.storedetail = dto.storedetail;
       this.productNames = dto.productNames;
       this.pointAccrualAvailable = dto.isPointAccrualAvailable;
+      this.pointAccrualAvailablePointTypes = dto.pointAccrualAvailablePointTypes;
+      this.pointAccrualUnavailablePointTypes = dto.pointAccrualUnavailablePointTypes;
       this.couponAvailable = dto.isCouponAvailable;
-    } else if (result.error) {
+      return;
+    }
+
+    if (result.error) {
+      // eslint-disable-next-line no-console
       console.error(result.error);
       this.storegroup = null;
       this.storedetail = null;
       this.productNames = null;
       this.pointAccrualAvailable = null;
+      this.pointAccrualAvailablePointTypes = null;
+      this.pointAccrualUnavailablePointTypes = null;
+      this.couponAvailable = null;
     }
   }
-
-  /* ================= 화면 Getter ================= */
 
   get promotionName() {
     return this.promotion?.name ?? "---";
   }
 
-  get promotionCode() {
-    return this.promotion?.PromotionCode ?? "---";
+  get isPromotionPublishActive() {
+    if (!this.promotion?.IsActive) {
+      return false;
+    }
+
+    const publishStartDate = this.promotion.PublishStartDate;
+    const publishEndDate = this.promotion.PublishEndDate;
+    if (!publishStartDate || !publishEndDate) {
+      return false;
+    }
+
+    const now = new Date();
+    const today = `${now.getFullYear()}-` + `${String(now.getMonth() + 1).padStart(2, "0")}-` + `${String(now.getDate()).padStart(2, "0")}`;
+
+    return publishStartDate <= today && publishEndDate >= today;
+  }
+
+  get promotionPublishActiveText() {
+    return this.isPromotionPublishActive ? "활성" : "비활성";
+  }
+
+  get promotionPublishActiveClass() {
+    return this.isPromotionPublishActive ? "status-text status-active" : "status-text status-inactive";
+  }
+
+  get promotionIsActiveText() {
+    return this.promotion?.IsActive ? "활성" : "비활성";
+  }
+
+  get promotionIsActiveClass() {
+    return this.promotion?.IsActive ? "status-text status-active" : "status-text status-inactive";
+  }
+
+  get promotionNumber() {
+    return this.promotion?.PromotionNo ?? "---";
   }
 
   get displayName() {
-    if (!this.promotion) return "프로모션 표시명 미존재";
+    if (!this.promotion) {
+      return "프로모션 표시명 미정";
+    }
 
-    return this.promotion.DisplayName || this.promotion.name || "프로모션 표시명 미존재";
-  }
-
-  get activeText() {
-    if (!this.promotion) return "";
-    return this.promotion.IsActive ? "활성" : "비활성";
-  }
-
-  get activeStatusClass() {
-    if (!this.promotion) return "promotion-status-badge";
-
-    return this.promotion.IsActive ? "promotion-status-badge status-active" : "promotion-status-badge status-inactive";
+    return this.promotion.DisplayName || this.promotion.name || "프로모션 표시명 미정";
   }
 
   get periodText() {
-    if (!this.promotion) return "";
+    if (!this.promotion) {
+      return "";
+    }
+
     return `${this.promotion.StartDate} ~ ${this.promotion.EndDate}`;
   }
 
@@ -117,22 +150,36 @@ export default class Promotionview extends LightningElement {
     if (!this.promotion?.PublishStartDate || !this.promotion?.PublishEndDate) {
       return "해당 기간 미설정";
     }
+
     return `${this.promotion.PublishStartDate} ~ ${this.promotion.PublishEndDate}`;
   }
 
+  getDisplayText(value, fallbackText) {
+    if (typeof value === "string") {
+      return value.trim() ? value : fallbackText;
+    }
+
+    return value ?? fallbackText;
+  }
+
   get storeGroupText() {
-    return this.storegroup ?? "정보 없음";
+    return this.getDisplayText(this.storegroup, "적용 없음");
   }
 
   get storeDetailText() {
-    return this.storedetail ?? "정보 없음";
+    return this.getDisplayText(this.storedetail, "적용 없음");
   }
 
   get productNamesText() {
-    return this.productNames ?? "정보 없음";
+    return this.getDisplayText(this.productNames, "정보 없음");
   }
+
   get pointAccrualText() {
-    return this.pointAccrualAvailable ? "적립 가능" : "적립 불가";
+    return this.pointAccrualAvailablePointTypes ?? (this.pointAccrualAvailable ? "적립 가능" : "적립 불가");
+  }
+
+  get pointAccrualUnavailableText() {
+    return this.pointAccrualUnavailablePointTypes ?? "해당 없음";
   }
 
   get PointUsageAllowed() {

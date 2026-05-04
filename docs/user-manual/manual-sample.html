@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Goldendew 사용자 매뉴얼 (샘플)</title>
+<style>
+  /* ===== 기본 설정 ===== */
+  @page {
+    size: A4;
+    margin: 20mm 18mm 22mm 18mm;
+    @bottom-right {
+      content: counter(page);
+      font-family: "Malgun Gothic", sans-serif;
+      font-size: 9pt;
+      color: #6B46C1;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    font-family: "Malgun Gothic", "맑은 고딕", "Pretendard", -apple-system, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.7;
+    color: #1f2937;
+    background: #ffffff;
+  }
+
+  /* ===== 색상 팔레트 =====
+     메인 보라: #6B46C1
+     진한 보라: #553C9A
+     연보라 악센트: #EDE9FE, #F5F3FF
+     텍스트 보라: #5B21B6
+  */
+
+  /* ===== 표지 ===== */
+  .cover {
+    height: 257mm;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    background: linear-gradient(160deg, #F5F3FF 0%, #EDE9FE 55%, #DDD6FE 100%);
+    border-radius: 4px;
+    page-break-after: always;
+    position: relative;
+  }
+  .cover::before {
+    content: "";
+    position: absolute;
+    top: 40mm; left: 0; right: 0;
+    height: 2px;
+    background: #6B46C1;
+    opacity: 0.25;
+  }
+  .cover::after {
+    content: "";
+    position: absolute;
+    bottom: 40mm; left: 0; right: 0;
+    height: 2px;
+    background: #6B46C1;
+    opacity: 0.25;
+  }
+  .cover .brand {
+    font-size: 14pt;
+    letter-spacing: 4px;
+    color: #5B21B6;
+    margin-bottom: 18mm;
+  }
+  .cover h1 {
+    font-size: 32pt;
+    font-weight: 700;
+    color: #2D1B69;
+    margin: 0 0 6mm 0;
+    letter-spacing: -0.5px;
+  }
+  .cover .subtitle {
+    font-size: 13pt;
+    color: #5B21B6;
+    margin-bottom: 20mm;
+  }
+  .cover .badge {
+    display: inline-block;
+    padding: 6px 20px;
+    background: #ffffff;
+    border: 1.5px solid #6B46C1;
+    border-radius: 999px;
+    color: #6B46C1;
+    font-weight: 600;
+    font-size: 10pt;
+  }
+  .cover .meta {
+    position: absolute;
+    bottom: 25mm;
+    font-size: 9.5pt;
+    color: #5B21B6;
+  }
+
+  /* ===== 섹션/제목 ===== */
+  .chapter {
+    page-break-before: always;
+  }
+  h2.chapter-title {
+    font-size: 22pt;
+    color: #2D1B69;
+    margin: 0 0 2mm 0;
+    padding-bottom: 4mm;
+    border-bottom: 3px solid #6B46C1;
+  }
+  .chapter-sub {
+    font-size: 10.5pt;
+    color: #6B7280;
+    margin-bottom: 10mm;
+  }
+
+  h3.screen-title {
+    font-size: 17pt;
+    color: #2D1B69;
+    margin: 12mm 0 4mm 0;
+    padding: 6px 0 6px 12px;
+    border-left: 5px solid #6B46C1;
+    background: linear-gradient(90deg, #F5F3FF 0%, transparent 70%);
+  }
+  h3.screen-title .num {
+    color: #6B46C1;
+    margin-right: 8px;
+    font-weight: 700;
+  }
+
+  h4.section-heading {
+    font-size: 12.5pt;
+    color: #5B21B6;
+    margin: 8mm 0 3mm 0;
+    padding-bottom: 2mm;
+    border-bottom: 1px dashed #C4B5FD;
+  }
+
+  h4.section-heading .emoji {
+    margin-right: 6px;
+  }
+
+  /* ===== 문단/리스트 ===== */
+  p { margin: 3mm 0; }
+  ul, ol { margin: 3mm 0 3mm 6mm; padding: 0; }
+  li { margin: 1.5mm 0; }
+
+  code, .kbd {
+    background: #F5F3FF;
+    color: #5B21B6;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: Consolas, monospace;
+    font-size: 9.5pt;
+    border: 1px solid #DDD6FE;
+  }
+
+  strong.hl {
+    color: #5B21B6;
+    font-weight: 700;
+  }
+
+  /* ===== 콜아웃 박스 ===== */
+  .callout {
+    margin: 5mm 0;
+    padding: 4mm 5mm 4mm 5mm;
+    border-radius: 6px;
+    border-left: 5px solid;
+    font-size: 10pt;
+    line-height: 1.65;
+    page-break-inside: avoid;
+  }
+  .callout .callout-title {
+    font-weight: 700;
+    margin-bottom: 2mm;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  /* 빨간 경고 박스 */
+  .callout.warning {
+    background: #FEF2F2;
+    border-left-color: #DC2626;
+    color: #7F1D1D;
+  }
+  .callout.warning .callout-title { color: #B91C1C; }
+
+  /* 노란 팁 박스 */
+  .callout.tip {
+    background: #FEFCE8;
+    border-left-color: #CA8A04;
+    color: #713F12;
+  }
+  .callout.tip .callout-title { color: #A16207; }
+
+  /* 파란 안내 박스 */
+  .callout.info {
+    background: #EFF6FF;
+    border-left-color: #3B82F6;
+    color: #1E3A8A;
+  }
+  .callout.info .callout-title { color: #1D4ED8; }
+
+  /* 보라 강조 박스 (대표색 포인트) */
+  .callout.note {
+    background: #F5F3FF;
+    border-left-color: #6B46C1;
+    color: #4C1D95;
+  }
+  .callout.note .callout-title { color: #5B21B6; }
+
+  /* ===== 단계 리스트 ===== */
+  ol.steps {
+    counter-reset: step;
+    list-style: none;
+    margin-left: 0;
+    padding: 0;
+  }
+  ol.steps > li {
+    counter-increment: step;
+    position: relative;
+    padding: 2mm 0 4mm 14mm;
+    margin: 0;
+    page-break-inside: avoid;
+  }
+  ol.steps > li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 2mm;
+    width: 9mm;
+    height: 9mm;
+    line-height: 9mm;
+    text-align: center;
+    background: #6B46C1;
+    color: #fff;
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: 10.5pt;
+  }
+  ol.steps > li strong { color: #2D1B69; }
+
+  /* ===== 스크린샷 자리 표시자 ===== */
+  .screenshot {
+    margin: 5mm 0;
+    padding: 14mm 4mm;
+    background: #FAFAFA;
+    border: 2px dashed #C4B5FD;
+    border-radius: 8px;
+    text-align: center;
+    color: #6B46C1;
+    font-size: 10pt;
+    page-break-inside: avoid;
+  }
+  .screenshot .label {
+    display: inline-block;
+    background: #EDE9FE;
+    color: #5B21B6;
+    padding: 3px 14px;
+    border-radius: 999px;
+    font-size: 9pt;
+    font-weight: 700;
+    margin-bottom: 3mm;
+  }
+  .screenshot .desc {
+    color: #6B7280;
+    font-size: 9.5pt;
+    margin-top: 2mm;
+  }
+
+  /* ===== 테이블 ===== */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 4mm 0;
+    font-size: 10pt;
+  }
+  table th {
+    background: #EDE9FE;
+    color: #4C1D95;
+    padding: 3mm 4mm;
+    text-align: left;
+    border-bottom: 2px solid #6B46C1;
+    font-weight: 700;
+  }
+  table td {
+    padding: 3mm 4mm;
+    border-bottom: 1px solid #E5E7EB;
+    vertical-align: top;
+  }
+  table tr:nth-child(even) td {
+    background: #FAFAFA;
+  }
+
+  /* ===== 목차 ===== */
+  .toc {
+    page-break-after: always;
+  }
+  .toc h2 {
+    font-size: 20pt;
+    color: #2D1B69;
+    border-bottom: 3px solid #6B46C1;
+    padding-bottom: 3mm;
+    margin-top: 0;
+  }
+  .toc ul {
+    list-style: none;
+    padding-left: 0;
+  }
+  .toc > ul > li {
+    font-weight: 700;
+    color: #5B21B6;
+    margin: 4mm 0 2mm 0;
+    font-size: 12pt;
+  }
+  .toc > ul > li > ul > li {
+    font-weight: 400;
+    color: #374151;
+    font-size: 10.5pt;
+    margin: 1mm 0;
+    padding-left: 5mm;
+    border-left: 2px solid #EDE9FE;
+  }
+
+  /* ===== 대상자 뱃지 ===== */
+  .audience-tag {
+    display: inline-block;
+    padding: 3px 10px;
+    background: #EDE9FE;
+    color: #5B21B6;
+    font-size: 9pt;
+    font-weight: 600;
+    border-radius: 4px;
+    margin-right: 5px;
+  }
+
+  /* ===== 구성 요소 카드 ===== */
+  .ui-map {
+    margin: 4mm 0;
+    border: 1px solid #E5E7EB;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .ui-map-header {
+    background: #F5F3FF;
+    padding: 3mm 4mm;
+    font-weight: 700;
+    color: #5B21B6;
+    border-bottom: 1px solid #DDD6FE;
+  }
+  .ui-map-body {
+    padding: 3mm 4mm;
+  }
+  .ui-item {
+    display: flex;
+    gap: 4mm;
+    padding: 2mm 0;
+    border-bottom: 1px dashed #E5E7EB;
+  }
+  .ui-item:last-child { border-bottom: none; }
+  .ui-item .num-chip {
+    flex: 0 0 8mm;
+    height: 8mm;
+    line-height: 8mm;
+    text-align: center;
+    background: #6B46C1;
+    color: #fff;
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: 10pt;
+  }
+  .ui-item .text strong { color: #2D1B69; }
+
+  /* ===== FAQ ===== */
+  .faq-item {
+    margin: 4mm 0;
+    padding: 4mm;
+    background: #FAFAFA;
+    border-left: 3px solid #6B46C1;
+    border-radius: 0 4px 4px 0;
+    page-break-inside: avoid;
+  }
+  .faq-q {
+    font-weight: 700;
+    color: #2D1B69;
+    margin-bottom: 2mm;
+  }
+  .faq-q::before {
+    content: "Q.";
+    display: inline-block;
+    background: #6B46C1;
+    color: #fff;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9pt;
+    margin-right: 5px;
+  }
+  .faq-a::before {
+    content: "A.";
+    display: inline-block;
+    background: #E5E7EB;
+    color: #374151;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 9pt;
+    margin-right: 5px;
+    font-weight: 700;
+  }
+  .faq-a {
+    color: #374151;
+    font-size: 10pt;
+  }
+</style>
+</head>
+<body>
+
+<!-- ========================================================= -->
+<!-- 표지                                                         -->
+<!-- ========================================================= -->
+<section class="cover">
+  <div class="brand">G O L D E N D E W</div>
+  <h1>Goldendew 사용자 매뉴얼</h1>
+  <div class="subtitle">회원 관리 시스템 · 현업 사용자를 위한 화면별 이용 안내</div>
+  <div class="badge">SAMPLE · 회원 관리 파트</div>
+  <div class="meta">Version 0.1 &nbsp;·&nbsp; 2026-04-16</div>
+</section>
+
+<!-- ========================================================= -->
+<!-- 이 매뉴얼에 대해                                             -->
+<!-- ========================================================= -->
+<section class="chapter">
+  <h2 class="chapter-title">이 매뉴얼에 대해</h2>
+  <p class="chapter-sub">처음 시스템을 사용하시는 분도 따라하실 수 있도록, 화면을 보면서 하나씩 설명드립니다.</p>
+
+  <h4 class="section-heading">📘 매뉴얼 구성</h4>
+  <p>이 매뉴얼은 Goldendew 시스템에서 여러분이 실제로 보게 될 <strong class="hl">화면 단위</strong>로 구성되어 있습니다. 각 화면마다 아래의 순서로 설명드려요.</p>
+  <ol>
+    <li><strong>화면이 어떤 일을 하는 곳인지</strong> 짧게 소개합니다.</li>
+    <li><strong>어디에서 이 화면을 볼 수 있는지</strong> 경로를 안내합니다.</li>
+    <li><strong>화면 구성</strong>을 스크린샷과 번호로 하나씩 짚어드려요.</li>
+    <li><strong>실제 사용 방법</strong>을 단계별로 따라가듯 설명합니다.</li>
+    <li><strong>주의사항과 자주 묻는 질문</strong>으로 마무리합니다.</li>
+  </ol>
+
+  <h4 class="section-heading">🎨 매뉴얼에서 쓰는 표시</h4>
+  <p>본문 중간중간 아래와 같은 색깔 박스가 보일 거예요. 각각 의미가 달라요.</p>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠ 꼭 확인하세요 (빨간 박스)</div>
+    실수하면 <strong>되돌릴 수 없거나</strong>, 많은 고객에게 영향을 주는 작업입니다. 반드시 한 번 더 확인하고 진행해 주세요.
+  </div>
+
+  <div class="callout tip">
+    <div class="callout-title">💡 알아두면 좋아요 (노란 박스)</div>
+    몰라도 작업은 되지만, 알면 훨씬 편해지는 팁이나 단축 사용법을 알려드립니다.
+  </div>
+
+  <div class="callout info">
+    <div class="callout-title">ℹ 참고 (파란 박스)</div>
+    용어 설명, 화면이 그렇게 동작하는 배경 등 <strong>알아두면 좋은 배경 정보</strong>입니다.
+  </div>
+
+  <div class="callout note">
+    <div class="callout-title">📌 중요 포인트 (보라 박스)</div>
+    이 매뉴얼의 <strong>핵심 내용</strong>이나, 업무에서 자주 쓰게 되는 주요 규칙을 강조해 드립니다.
+  </div>
+
+  <h4 class="section-heading">👥 주요 사용자 역할</h4>
+  <p>이 매뉴얼은 주로 아래 분들을 위해 쓰였습니다. 화면별로 어떤 분이 주로 쓰시는지 <span class="audience-tag">대상자</span> 태그로 표시해 드립니다.</p>
+  <table>
+    <thead>
+      <tr><th style="width:35%">역할</th><th>주요 업무</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>고객센터 담당자</strong></td>
+        <td>회원 조회, 보유 혜택·주문 내역 확인, 고객 문의 대응</td>
+      </tr>
+      <tr>
+        <td><strong>마케팅 담당자</strong></td>
+        <td>쿠폰·포인트·프로모션 설정, 회원 대상 대량 혜택 지급</td>
+      </tr>
+      <tr>
+        <td><strong>매장 운영 담당자</strong></td>
+        <td>매장별 판매·적립 현황, 프로모션 적용 매장 확인</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ========================================================= -->
+<!-- 목차                                                         -->
+<!-- ========================================================= -->
+<section class="toc">
+  <h2>목차</h2>
+  <ul>
+    <li>이 매뉴얼에 대해
+      <ul>
+        <li>매뉴얼 구성</li>
+        <li>매뉴얼에서 쓰는 표시 (색깔 박스 의미)</li>
+        <li>주요 사용자 역할</li>
+      </ul>
+    </li>
+    <li>1. 회원 관리
+      <ul>
+        <li>1.1 회원 요약 화면 &nbsp;—&nbsp; 고객의 전반을 한눈에 보기</li>
+        <li>1.2 회원 대시보드 &nbsp;—&nbsp; 핵심 혜택 정보만 간추려 보기</li>
+      </ul>
+    </li>
+    <li>(이후 챕터는 샘플 확인 후 이어서 작성 예정)
+      <ul>
+        <li>2. 포인트 관리 · 3. 쿠폰 관리 · 4. 프로모션 · 5. 주문/판매 · 6. 매거진 구독</li>
+      </ul>
+    </li>
+  </ul>
+</section>
+
+<!-- ========================================================= -->
+<!-- 챕터 1                                                      -->
+<!-- ========================================================= -->
+<section class="chapter">
+  <h2 class="chapter-title">1. 회원 관리</h2>
+  <p class="chapter-sub">고객(회원) 한 분의 정보를 조회하고, 보유 혜택과 등급 상태를 확인하는 화면들입니다.</p>
+
+  <div class="callout note">
+    <div class="callout-title">📌 이 챕터를 먼저 읽어주세요</div>
+    회원 관리 화면은 <strong>고객센터 업무의 시작점</strong>입니다. 회원 한 분을 찾은 뒤, 이 화면에서 등급·포인트·쿠폰·주문 이력 등 다른 모든 화면으로 이동하게 돼요.
+  </div>
+
+  <!-- ===================================================== -->
+  <!-- 1.1 회원 요약                                            -->
+  <!-- ===================================================== -->
+  <h3 class="screen-title"><span class="num">1.1</span>회원 요약 화면</h3>
+  <p>
+    <span class="audience-tag">고객센터 담당자</span>
+    <span class="audience-tag">마케팅 담당자</span>
+  </p>
+
+  <h4 class="section-heading">📖 어떤 화면인가요?</h4>
+  <p>
+    <strong class="hl">회원 한 분의 전반적인 정보를 한 화면에서 보여주는 가장 중심이 되는 화면</strong>입니다.
+    이름·생년월일·연락처 같은 기본 정보는 물론, <strong>보유 포인트·보유 쿠폰·회원 등급·마케팅 수신 동의</strong>까지
+    고객 응대에 필요한 거의 모든 정보를 한 번에 확인할 수 있습니다.
+  </p>
+  <p>
+    또한 이 화면에서 바로 <strong class="hl">해당 회원에게 쿠폰을 발급</strong>하거나
+    <strong class="hl">포인트를 지급</strong>할 수도 있습니다.
+  </p>
+
+  <h4 class="section-heading">🧭 어디에서 볼 수 있나요?</h4>
+  <ol>
+    <li>상단 검색창에 <strong>회원 이름</strong>이나 <strong>회원번호</strong>를 입력해 회원을 찾습니다.</li>
+    <li>검색 결과에서 원하는 회원을 클릭합니다.</li>
+    <li>회원 상세 페이지가 열리면, 페이지 상단 영역에 <strong>회원 요약</strong> 화면이 자동으로 표시됩니다.</li>
+  </ol>
+
+  <div class="screenshot">
+    <div class="label">📷 스크린샷 위치</div>
+    <div>여기에 <strong>회원 요약 화면 전체</strong> 스크린샷을 삽입해 주세요.</div>
+    <div class="desc">(상단 타이틀 · 쿠폰 발급/포인트 지급 버튼 · 아래 4개 카드 전체가 보이도록)</div>
+  </div>
+
+  <h4 class="section-heading">🖼 화면 구성</h4>
+  <p>화면은 크게 <strong>① 상단 타이틀 영역</strong>과, 그 아래 <strong>4개의 카드</strong>로 구성돼 있습니다.</p>
+
+  <div class="ui-map">
+    <div class="ui-map-header">회원 요약 화면의 구성 요소</div>
+    <div class="ui-map-body">
+      <div class="ui-item">
+        <div class="num-chip">1</div>
+        <div class="text">
+          <strong>타이틀과 작업 버튼</strong><br>
+          화면 맨 위 “회원 요약” 제목 옆에 <code>쿠폰 발급</code>(보라색)과 <code>포인트 지급</code>(회색) 버튼이 있습니다.
+          이 회원에게 바로 혜택을 드릴 때 사용합니다.
+        </div>
+      </div>
+      <div class="ui-item">
+        <div class="num-chip">2</div>
+        <div class="text">
+          <strong>회원 카드 (가장 왼쪽)</strong><br>
+          회원번호·생년월일·연락처·이메일·주소 · 가입일시·관리 매장·가입 매장·결혼 유무·결혼 기념일이 표시됩니다.
+          탈퇴한 회원이라면 <strong>탈퇴일시</strong>도 함께 보입니다.
+        </div>
+      </div>
+      <div class="ui-item">
+        <div class="num-chip">3</div>
+        <div class="text">
+          <strong>보유 혜택 카드</strong><br>
+          회원이 지금 쓸 수 있는 <strong>포인트(P)</strong>와 <strong>쿠폰(장 수)</strong>을 큰 숫자로 보여줍니다.
+        </div>
+      </div>
+      <div class="ui-item">
+        <div class="num-chip">4</div>
+        <div class="text">
+          <strong>회원 등급 카드</strong><br>
+          현재 등급(예: VIP, Gold)과 <strong>최근 3년 누적 구매금액</strong>, 그리고 이 정보가 마지막으로 갱신된 일자를 보여줍니다.
+        </div>
+      </div>
+      <div class="ui-item">
+        <div class="num-chip">5</div>
+        <div class="text">
+          <strong>마케팅 수신 카드</strong><br>
+          Email · SMS · 매거진 각각의 <strong>수신 동의 여부</strong>와 매거진의 <strong>구독 날짜</strong>가 표시됩니다.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h4 class="section-heading">🧩 주요 기능 ① &nbsp; 회원에게 쿠폰 발급하기</h4>
+  <ol class="steps">
+    <li><strong>회원 요약 화면</strong>에서 오른쪽 위의 <code>쿠폰 발급</code> 버튼(보라색)을 클릭합니다.</li>
+    <li>화면 가운데에 <strong>쿠폰 발급 창(플로우)</strong>이 열립니다.</li>
+    <li>발급할 쿠폰을 선택하고, 안내에 따라 다음 단계로 진행합니다.</li>
+    <li>마지막 단계에서 <strong>완료</strong> 버튼을 누르면 해당 회원에게 쿠폰이 발급됩니다.</li>
+    <li>창을 닫은 뒤, <strong>보유 혜택 카드의 쿠폰 장 수</strong>가 1장 늘어난 것을 확인합니다.</li>
+  </ol>
+
+  <div class="screenshot">
+    <div class="label">📷 스크린샷 위치</div>
+    <div><strong>쿠폰 발급 창(모달)</strong>이 열린 모습을 캡쳐해 주세요.</div>
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠ 꼭 확인하세요 — 발급 전에 회원명을 다시 한번!</div>
+    한 번 발급된 쿠폰은 <strong>사실상 회수가 어렵습니다.</strong>
+    동명이인이거나 검색 결과가 여러 건이었던 경우, 잘못된 고객에게 쿠폰이 나갈 수 있어요.
+    <strong>쿠폰 발급 창을 열기 전에 회원 카드의 회원번호·생년월일을 반드시 재확인</strong>해 주세요.
+  </div>
+
+  <div class="callout tip">
+    <div class="callout-title">💡 알아두면 좋아요 — 많은 회원에게 한 번에 주고 싶다면</div>
+    여러 명의 회원에게 같은 쿠폰을 한꺼번에 주실 때는, 이 화면을 한 명씩 여는 대신
+    <strong>[쿠폰 관리]의 ‘지급 대상 업로드’ 기능(엑셀 일괄 지급)</strong>을 쓰시는 게 훨씬 빠릅니다.
+    (→ 3장 쿠폰 관리 편에서 안내)
+  </div>
+
+  <h4 class="section-heading">🧩 주요 기능 ② &nbsp; 회원에게 포인트 지급하기</h4>
+  <ol class="steps">
+    <li>화면 오른쪽 위의 <code>포인트 지급</code> 버튼(회색)을 클릭합니다.</li>
+    <li>열린 창에서 <strong>지급할 포인트 종류</strong>(예: 감사 포인트, 보상 포인트 등)를 선택합니다.</li>
+    <li><strong>지급할 포인트 금액</strong>과 <strong>유효기간(만료일)</strong>을 입력합니다.</li>
+    <li>내용을 다시 확인한 뒤 <strong>완료</strong>를 누르면 포인트가 즉시 적립됩니다.</li>
+    <li>창을 닫고 <strong>보유 혜택 카드의 포인트 숫자</strong>가 늘어난 것을 확인합니다.</li>
+  </ol>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠ 꼭 확인하세요 — 포인트는 “회사의 돈”입니다</div>
+    포인트는 결제 수단과 같습니다. <strong>실수로 100만 P를 입력</strong>하면 그대로 지급돼 버려요.
+    지급 전에 <strong>숫자의 자릿수</strong>를 꼭 한 번 더 세어 주세요.
+    또한 <strong>유효기간(만료일)</strong>을 비워두면 기본 정책(예: 2년 후)이 자동 적용될 수 있으니,
+    이벤트성 포인트일수록 만료일을 직접 설정하시는 게 좋습니다.
+  </div>
+
+  <h4 class="section-heading">🧩 주요 기능 ③ &nbsp; 회원 정보 읽어내기</h4>
+  <p>화면에 보이는 각 정보의 의미는 다음과 같습니다.</p>
+  <table>
+    <thead>
+      <tr><th style="width:28%">표시 항목</th><th>의미</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>회원번호</strong></td><td>시스템 내에서 회원을 구분하는 고유 번호. 고객 문의 시 먼저 받아두면 좋습니다.</td></tr>
+      <tr><td><strong>생년월일</strong></td><td>생일 쿠폰 자동 발송의 기준이 됩니다.</td></tr>
+      <tr><td><strong>관리 매장 / 가입 매장</strong></td><td>
+        <strong>가입 매장</strong>은 고객이 처음 가입한 매장이고, <strong>관리 매장</strong>은 현재 이 회원을 담당하는 매장입니다.
+        두 값은 다를 수 있습니다(예: 이사 후 변경).
+      </td></tr>
+      <tr><td><strong>누적 구매금액</strong></td><td>최근 3년간의 합계이며, 이 값이 <strong>등급 산정 기준</strong>입니다.</td></tr>
+      <tr><td><strong>마케팅 수신 (Email/SMS/매거진)</strong></td><td>
+        <strong>‘동의’가 아닌 경우</strong> 해당 채널로 어떤 안내도 발송되지 않습니다.
+        고객이 “왜 연락을 못 받았느냐”고 문의하시면, 여기부터 확인하세요.
+      </td></tr>
+    </tbody>
+  </table>
+
+  <h4 class="section-heading">❓ 자주 묻는 질문</h4>
+
+  <div class="faq-item">
+    <div class="faq-q">회원 카드에 정보가 일부만 보여요. 빈칸이 있는 건 정상인가요?</div>
+    <div class="faq-a">네, 고객이 가입 시 <strong>입력하지 않은 항목</strong>은 빈칸으로 보일 수 있습니다. 결혼 기념일·이메일 등은 필수 항목이 아니므로 자주 비어 있을 수 있어요.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">‘탈퇴일시’가 보이는 회원은 어떻게 되는 건가요?</div>
+    <div class="faq-a">회원이 탈퇴한 경우에만 이 항목이 나타납니다. 탈퇴 회원은 <strong>포인트·쿠폰 발급 대상에서 제외</strong>해야 하므로, 탈퇴일시가 보이면 혜택 지급 작업을 중단해 주세요.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">‘보유 쿠폰’에는 숫자가 있는데, 실제로 어떤 쿠폰인지 궁금해요.</div>
+    <div class="faq-a">이 화면에서는 <strong>장 수만</strong> 보여드립니다. 쿠폰 목록·종류를 확인하시려면 회원 상세 페이지 내 다른 탭(쿠폰 목록)에서 확인해 주세요.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">포인트 지급 후 ‘보유 포인트’ 숫자가 바로 반영되지 않아요.</div>
+    <div class="faq-a">포인트 적립은 즉시 처리되지만, 화면 숫자는 <strong>페이지를 새로고침</strong>하거나 잠시 후 자동 갱신되면서 보이는 경우가 있습니다. 5초 이상 지나도 반영되지 않으면 운영팀에 문의해 주세요.</div>
+  </div>
+
+  <!-- ===================================================== -->
+  <!-- 1.2 회원 대시보드                                         -->
+  <!-- ===================================================== -->
+  <h3 class="screen-title"><span class="num">1.2</span>회원 대시보드</h3>
+  <p>
+    <span class="audience-tag">고객센터 담당자</span>
+  </p>
+
+  <h4 class="section-heading">📖 어떤 화면인가요?</h4>
+  <p>
+    앞서 본 <strong>회원 요약 화면(1.1)</strong>이 “전체 정보 한눈에 보기”라면,
+    <strong class="hl">회원 대시보드</strong>는 그중에서도 <strong>고객이 가장 궁금해할 핵심 정보만 뽑아서</strong>
+    크게 보여주는 화면입니다.
+  </p>
+  <p>
+    고객이 전화로 “저 지금 포인트 얼마 있어요?”, “언제 등급이 올라가요?”라고 물으실 때,
+    이 화면만 펴두면 <strong>즉답</strong>할 수 있도록 설계되어 있습니다.
+  </p>
+
+  <div class="callout info">
+    <div class="callout-title">ℹ 참고 — 1.1 회원 요약과 뭐가 다른가요?</div>
+    두 화면 모두 같은 회원의 정보를 보여주지만, 용도가 달라요.<br>
+    · <strong>1.1 회원 요약</strong> &nbsp;:&nbsp; 세밀한 정보 + 쿠폰 발급/포인트 지급 <strong>작업까지 하는 화면</strong><br>
+    · <strong>1.2 회원 대시보드</strong> &nbsp;:&nbsp; 핵심 3가지(혜택·등급·수신 동의)만 <strong>빠르게 답변용</strong>
+  </div>
+
+  <h4 class="section-heading">🧭 어디에서 볼 수 있나요?</h4>
+  <p>
+    회원 상세 페이지 안에 <strong>‘대시보드’ 탭</strong>(또는 별도 섹션)으로 배치되어 있습니다.
+    회원 요약 화면과 같은 페이지 안에 함께 놓여 있어 탭만 클릭해서 전환하면 됩니다.
+  </p>
+
+  <div class="screenshot">
+    <div class="label">📷 스크린샷 위치</div>
+    <div>여기에 <strong>회원 대시보드 화면 전체</strong> 스크린샷을 삽입해 주세요.</div>
+    <div class="desc">(좌측의 ‘사용 가능 혜택’, ‘나의 등급 정보’ 카드와, 우측의 ‘마케팅 수신 동의 정보’ 카드가 보이도록)</div>
+  </div>
+
+  <h4 class="section-heading">🖼 화면 구성</h4>
+  <p>화면은 <strong>좌우 2단</strong>으로 나뉘어 있습니다.</p>
+
+  <div class="ui-map">
+    <div class="ui-map-header">회원 대시보드의 구성 요소</div>
+    <div class="ui-map-body">
+      <div class="ui-item">
+        <div class="num-chip">1</div>
+        <div class="text">
+          <strong>[왼쪽 위] 사용 가능 혜택 카드</strong><br>
+          회원이 지금 쓸 수 있는 <strong>보유 포인트(P)</strong>와 <strong>보유 쿠폰(장 수)</strong>을 보여줍니다.
+        </div>
+      </div>
+      <div class="ui-item">
+        <div class="num-chip">2</div>
+        <div class="text">
+          <strong>[왼쪽 아래] 나의 등급 정보 카드</strong><br>
+          현재 등급 · 누적 구매금액 · <strong>다음 등급까지 남은 금액</strong>이 보입니다.
+          카드 제목 옆에 마지막 <strong>업데이트 일시</strong>도 표시됩니다.
+        </div>
+      </div>
+      <div class="ui-item">
+        <div class="num-chip">3</div>
+        <div class="text">
+          <strong>[오른쪽] 마케팅 수신 동의 정보 카드</strong><br>
+          이메일·SMS·매거진 각각의 수신 여부와, 회원이 언제 마지막으로 이 값을 바꿨는지
+          <strong>‘변경 일시’</strong>까지 함께 보여줍니다.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h4 class="section-heading">🧩 주요 기능 ① &nbsp; 등급 진급까지 얼마 남았는지 안내하기</h4>
+  <p>고객에게 가장 자주 받는 질문 중 하나가 <em>“저 언제 등급이 올라가요?”</em>입니다. 이렇게 답변해 주세요.</p>
+  <ol class="steps">
+    <li><strong>나의 등급 정보</strong> 카드에서 <strong>‘다음 등급까지 남은 금액’</strong> 값을 확인합니다.</li>
+    <li>고객에게 다음과 같이 안내합니다.<br>
+      <em>“현재 고객님은 <strong>[현재 등급]</strong>이시고, 다음 등급까지 <strong>약 ₩ [남은 금액]</strong>이 남으셨습니다.”</em></li>
+    <li>더 자세한 내역(언제 결제한 금액까지 합산됐는지)을 원하시면 <strong>업데이트 일시</strong>도 함께 안내합니다.</li>
+  </ol>
+
+  <div class="callout tip">
+    <div class="callout-title">💡 알아두면 좋아요 — ‘남은 금액’의 기준</div>
+    등급 산정은 <strong>최근 3년간의 누적 구매금액</strong>을 기준으로 자동 계산됩니다.
+    오늘 구매한 금액이 바로 반영되지 않을 수 있고, <strong>전일 자정까지의 데이터</strong>로 매일 1회 업데이트되는 방식입니다.
+    업데이트 일시를 보시면 “최근 수정일자 : …”로 표시돼 있으니 참고하세요.
+  </div>
+
+  <h4 class="section-heading">🧩 주요 기능 ② &nbsp; 마케팅 동의 상태 확인하기</h4>
+  <p>
+    고객이 <em>“왜 저한테 이벤트 문자가 안 와요?”</em> 라고 물으시면,
+    오른쪽 <strong>마케팅 수신 동의 정보</strong> 카드를 먼저 확인해 주세요.
+  </p>
+  <ol class="steps">
+    <li>이메일/SMS/매거진 중 고객이 언급한 채널의 <strong>‘수신 : 동의 / 미동의’</strong>를 확인합니다.</li>
+    <li>‘미동의’인 경우, 그 아래의 <strong>‘변경 일시’</strong>를 확인해 언제 동의가 해제되었는지 안내합니다.</li>
+    <li>고객이 다시 수신을 원하시면, <strong>마이페이지에서 직접 동의</strong>하시도록 안내해 주세요. (이 화면에서는 바꿀 수 없습니다.)</li>
+  </ol>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠ 꼭 확인하세요 — 수신 동의는 담당자가 대신 바꿀 수 없습니다</div>
+    개인정보 보호 규정상, <strong>마케팅 수신 동의 상태는 고객 본인만 변경</strong>할 수 있습니다.
+    담당자가 대신 ‘동의’로 바꿔드리면 <strong>법적 문제가 발생</strong>할 수 있으니 절대 임의로 변경하지 마세요.
+  </div>
+
+  <h4 class="section-heading">❓ 자주 묻는 질문</h4>
+
+  <div class="faq-item">
+    <div class="faq-q">‘나의 등급 정보’ 카드에 ‘다음 등급까지 남은 금액’이 안 보여요.</div>
+    <div class="faq-a">이미 <strong>최고 등급</strong>에 도달한 회원은 이 값이 표시되지 않을 수 있습니다. 또는 등급 산정 데이터가 아직 생성되지 않은 신규 회원의 경우에도 빈칸일 수 있어요.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">‘마케팅 수신 변경 일시’가 표시되지 않는 회원도 있어요.</div>
+    <div class="faq-a">가입 이후 한 번도 수신 동의를 <strong>바꾼 적이 없는</strong> 회원은 변경 일시가 빈칸입니다. 최초 가입 시 선택한 값이 지금까지 유지되고 있다는 뜻이에요.</div>
+  </div>
+
+  <div class="faq-item">
+    <div class="faq-q">대시보드에 보이는 포인트 숫자와 1.1 회원 요약의 숫자가 다르게 보이는 것 같은데요?</div>
+    <div class="faq-a">두 숫자는 같은 데이터를 보여주지만, 화면 전환 시점에 따라 약간의 시차가 있을 수 있습니다. <strong>브라우저 새로고침(F5)</strong> 후에도 다르게 보이면 운영팀에 알려 주세요.</div>
+  </div>
+
+</section>
+
+<!-- ========================================================= -->
+<!-- 샘플 안내                                                    -->
+<!-- ========================================================= -->
+<section class="chapter">
+  <h2 class="chapter-title">샘플이 여기까지입니다</h2>
+  <p class="chapter-sub">여기까지가 1차 샘플입니다. 확인 후 이어서 작성할게요.</p>
+
+  <div class="callout note">
+    <div class="callout-title">📌 확인해 주세요</div>
+    <ul style="margin-top:3mm;">
+      <li>전체적인 <strong>톤</strong>이 “너무 딱딱/너무 캐주얼”하지 않은지</li>
+      <li><strong>연보라색이 부분적으로</strong> 사용된 느낌이 의도하신 것과 맞는지 (표지, 섹션 제목, 번호 칩, 표 헤더 등)</li>
+      <li><strong>빨간 경고 박스</strong>의 사용 빈도(화면당 1~2개)가 적절한지</li>
+      <li>화면 구성 설명 방식(번호 칩 + 설명)이 읽기 편한지</li>
+      <li>스크린샷 자리 표시자의 위치가 충분한지</li>
+    </ul>
+  </div>
+
+  <p>이후 챕터는 회원 관리 → 포인트 관리 → 쿠폰 관리 → 프로모션 → 주문/판매 → 매거진 구독 순서로 이어갈 예정입니다.</p>
+</section>
+
+</body>
+</html>

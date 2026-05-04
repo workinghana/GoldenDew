@@ -48,7 +48,7 @@ private class PromotionProductUploadControllerV1Test {
     Promotion promotion = [SELECT Id, PromotionNo__c FROM Promotion LIMIT 1];
     Product2 product = [SELECT ProductCode, Name FROM Product2 ORDER BY CreatedDate ASC LIMIT 1];
 
-    String csvText = 'ProductCode__c' + '\n' + product.ProductCode;
+    String csvText = 'ProductCode' + '\n' + product.ProductCode;
 
     Test.startTest();
     PromotionProductUploadControllerV1.UploadPreviewResult result = PromotionProductUploadControllerV1.parseUploadFile(
@@ -70,7 +70,7 @@ private class PromotionProductUploadControllerV1Test {
     Promotion promotion = [SELECT Id FROM Promotion LIMIT 1];
     Product2 product = [SELECT ProductCode, Name FROM Product2 ORDER BY CreatedDate ASC LIMIT 1];
 
-    String csvText = 'ProductCode__c' + '\n' + product.ProductCode + '\n' + product.ProductCode + '\n' + 'NOT-FOUND';
+    String csvText = 'ProductCode' + '\n' + product.ProductCode + '\n' + product.ProductCode + '\n' + 'NOT-FOUND';
 
     Test.startTest();
     PromotionProductUploadControllerV1.UploadPreviewResult result = PromotionProductUploadControllerV1.parseUploadFile(
@@ -99,7 +99,7 @@ private class PromotionProductUploadControllerV1Test {
     Promotion promotion = [SELECT Id FROM Promotion LIMIT 1];
     Product2 product = [SELECT Id, ProductCode FROM Product2 ORDER BY CreatedDate ASC LIMIT 1];
 
-    String csvText = 'ProductCode__c' + '\n' + product.ProductCode;
+    String csvText = 'ProductCode' + '\n' + product.ProductCode;
 
     CommonApiClientUniversalMock.reset();
     Test.setMock(HttpCalloutMock.class, new CommonApiClientUniversalMock());
@@ -124,7 +124,7 @@ private class PromotionProductUploadControllerV1Test {
 
     insert new PromotionProduct(PromotionId = promotion.Id, ProductId = product.Id);
 
-    String csvText = 'ProductCode__c' + '\n' + product.ProductCode;
+    String csvText = 'ProductCode' + '\n' + product.ProductCode;
 
     CommonApiClientUniversalMock.reset();
     Test.setMock(HttpCalloutMock.class, new CommonApiClientUniversalMock());
@@ -142,26 +142,21 @@ private class PromotionProductUploadControllerV1Test {
   }
 
   @IsTest
-  static void testInsertPromotionProducts_chunkedInsert() {
+  static void testInsertPromotionProducts_bulkInsert() {
     Promotion promotion = [SELECT Id FROM Promotion LIMIT 1];
     List<Product2> products = createExtraProducts(3);
-    List<String> lines = new List<String>{ 'ProductCode__c' };
+    List<String> lines = new List<String>{ 'ProductCode' };
     for (Product2 product : products) {
       lines.add(product.ProductCode);
     }
 
     CommonApiClientUniversalMock.reset();
     Test.setMock(HttpCalloutMock.class, new CommonApiClientUniversalMock());
-    PromotionProductUploadControllerV1.testChunkSizeOverride = 2;
 
     PromotionProductUploadControllerV1.UploadResult result;
     Test.startTest();
-    try {
-      result = PromotionProductUploadControllerV1.insertPromotionProducts(toBase64(String.join(lines, '\n')), promotion.Id);
-    } finally {
-      PromotionProductUploadControllerV1.testChunkSizeOverride = null;
-      Test.stopTest();
-    }
+    result = PromotionProductUploadControllerV1.insertPromotionProducts(toBase64(String.join(lines, '\n')), promotion.Id);
+    Test.stopTest();
 
     System.assertEquals(true, result.success);
     System.assertEquals(3, result.successCount);

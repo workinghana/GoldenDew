@@ -1,4 +1,4 @@
-@RestResource(urlMapping='/gd/voucher')
+//@RestResource(urlMapping='/gd/voucher')
 global with sharing class GdVoucherApiController {
   private static GdVoucherDefinitionService voucherDefinitionService;
   private static GdVoucherService voucherService;
@@ -32,7 +32,7 @@ global with sharing class GdVoucherApiController {
    * 쿠폰 마스터 등록
    * VoucherDefinition 생성
    */
-  @HttpPost
+  //@HttpPost
   global static void createVoucherDefinition() {
     RestRequest req = RestContext.request;
     Savepoint sp = Database.setSavepoint();
@@ -64,7 +64,7 @@ global with sharing class GdVoucherApiController {
    * ! 개발중
    * 사용 가능한 쿠폰 조회
    */
-  @HttpGet
+  //@HttpGet
   global static void getAvailableCouponList() {
     try {
       RestRequest req = RestContext.request;

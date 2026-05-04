@@ -26,7 +26,6 @@
 
           <div class="header-right">
             <lightning-button label="지급 대상 업로드" variant="neutral" icon-name="utility:upload" onclick={handleUploadClick}></lightning-button>
-            <input class="hidden-file-input" type="file" accept=".csv" onchange={handleFileChange} />
           </div>
         </div>
 
@@ -80,7 +79,7 @@
         <template if:false={hasBenefits}>
           <div class="empty-reward">
             <div class="card-subtitle">연결된 보상이 없습니다.</div>
-            <div class="empty-reward-help">현재 포인트에 연결된 보상만 이 영역에 표시됩니다.</div>
+            <div class="empty-reward-help">현재 포인트에 연결된 보상만 영역에 표시됩니다.</div>
           </div>
         </template>
       </div>
@@ -89,68 +88,124 @@
 
   <template if:true={isUploadModalOpen}>
     <section role="dialog" class="slds-modal slds-fade-in-open">
-      <div class="slds-modal__container">
+      <div class="slds-modal__container point-upload-modal-container">
         <header class="slds-modal__header">
           <h2 class="slds-text-heading_medium">포인트 지급 업로드</h2>
         </header>
 
         <div class="slds-modal__content slds-p-around_medium">
+          <div
+            class={uploadDropzoneClass}
+            ondragenter={handleUploadDragEnter}
+            ondragover={handleUploadDragOver}
+            ondragleave={handleUploadDragLeave}
+            ondrop={handleUploadDrop}
+          >
+            <lightning-icon icon-name="utility:upload" size="large" class="upload-dropzone-icon"></lightning-icon>
+            <div class="upload-dropzone-title">CSV 파일 업로드</div>
+            <div class="upload-dropzone-text">`NO_MBR` 컬럼 또는 회원번호 컬럼이 포함된 CSV 파일을 업로드해 주세요.</div>
+            <div class="upload-warning-text">{uploadWarningText}</div>
+            <template if:true={uploadFileName}>
+              <div class="upload-file-row">
+                <div class="upload-dropzone-file-name">{uploadFileName}</div>
+                <button type="button" class="upload-file-clear" onclick={clearUploadFile} title="파일 제거">x</button>
+              </div>
+            </template>
+            <lightning-button label="파일 선택" variant="brand" onclick={handleUploadFileClick}></lightning-button>
+            <input class="hidden-file-input" type="file" accept=".csv" onchange={handleFileChange} />
+          </div>
+
           <template if:true={showValidationPulse}>
             <div class="validation-pulse" onanimationiteration={handleValidationPulse} aria-hidden="true"></div>
           </template>
 
           <template if:true={isValidationProcessing}>
             <section class="validation-loading-card" aria-live="polite">
-              <lightning-spinner alternative-text="검증 중" size="medium"></lightning-spinner>
-              <div class="validation-loading-title">포인트 검증 진행 중</div>
-              <div class="validation-loading-text">잠시만 기다려주세요. 현재 파일을 업로드 중입니다. 새 파일을 업로드 하지 마십시오.</div>
+              <lightning-spinner alternative-text={validationLoadingTitle} size="medium"></lightning-spinner>
+              <div class="validation-loading-title">{validationLoadingTitle}</div>
+              <div class="validation-loading-text">
+                <strong>{validationLoadingGuideTitle}</strong><br /><br />
+                {validationLoadingMessage1}<br />
+                {validationLoadingMessage2}<br /><br />
+                {validationLoadingMessage3}<br />
+                {validationLoadingMessage4}<br /><br />
+                {validationLoadingMessage5}
+              </div>
             </section>
           </template>
 
           <template if:false={isValidationProcessing}>
-            <div class="validation-status">{validationStatusLabel}</div>
-            <div class="validation-help">{validationStatusHelp}</div>
+            <div class="validation-status">업로드 현황</div>
+            <div class="validation-help">
+              <strong>{modalDisplayStatusLabel}</strong><br />
+              {modalDisplayStatusHelp}
+            </div>
           </template>
 
-          <template if:true={showValidationResults}>
+          <template if:true={showPointUploadResults}>
             <div class="upload-summary">
               <div class="upload-summary-card upload-summary-card--success">
                 <div class="upload-summary-label">성공 회원 수</div>
-                <div class="upload-summary-value">{successCount}</div>
+                <div class="upload-summary-value">{modalDisplaySuccessCount}</div>
               </div>
 
               <div class="upload-summary-card upload-summary-card--error">
                 <div class="upload-summary-label">실패 회원 수</div>
-                <div class="upload-summary-value">{failCount}</div>
+                <div class="upload-summary-value">{modalDisplayFailCount}</div>
               </div>
             </div>
 
-            <div class="issue-form">
-              <lightning-input
-                type="number"
-                label="지급 포인트"
-                value={pointAmount}
-                min="1"
-                max="100000000"
-                onchange={handlePointChange}
-              ></lightning-input>
+            <template if:true={hasIssueStarted}>
+              <div class={issueProgressStatusClass}>
+                <div class="issue-progress-header">
+                  <div>
+                    <div class="issue-progress-title">{issueProgressTitle}</div>
+                    <div class="issue-progress-description">{issueProgressDescription}</div>
+                  </div>
+                  <div class="issue-progress-count">{issueProgressCountText}</div>
+                </div>
+                <lightning-progress-bar value={issueProgressPercent} size="medium"></lightning-progress-bar>
+                <div class="issue-progress-meta">
+                  <span>{issueProgressSummaryLabel}</span>
+                  <span>{issueProgressMetaText}</span>
+                </div>
+              </div>
+            </template>
 
-              <lightning-radio-group
-                label="만료일 설정"
-                options={expireOptions}
-                value={expireType}
-                type="button"
-                onchange={handleExpireType}
-              ></lightning-radio-group>
+            <template if:false={hasIssueStarted}>
+              <div class="issue-form">
+                <lightning-input
+                  type="number"
+                  label="지급 포인트"
+                  value={pointAmount}
+                  min="1"
+                  max="100000000"
+                  onchange={handlePointChange}
+                ></lightning-input>
 
-              <template if:false={isAutoExpire}>
-                <lightning-input type="date" label="만료일" value={expireDate} onchange={handleExpireDateChange}></lightning-input>
-              </template>
+                <lightning-radio-group
+                  label="만료일 설정"
+                  options={expireOptions}
+                  value={expireType}
+                  type="button"
+                  onchange={handleExpireType}
+                ></lightning-radio-group>
 
-              <template if:true={isAutoExpire}>
-                <div class="expire-help">기본값은 현재 기준 2년 후로 자동 설정됩니다.</div>
-              </template>
-            </div>
+                <template if:false={isAutoExpire}>
+                  <lightning-input
+                    type="date"
+                    label="만료일"
+                    value={expireDate}
+                    min={minExpireDate}
+                    onchange={handleExpireDateChange}
+                  ></lightning-input>
+                </template>
+
+                <template if:true={isAutoExpire}>
+                  <div class="expire-help">기본값은 현재 기준 2년 후로 자동 설정됩니다.</div>
+                </template>
+              </div>
+            </template>
 
             <template if:true={hasPreviewErrors}>
               <lightning-datatable key-field="memberNo" data={previewMembers} columns={columns}></lightning-datatable>
@@ -160,7 +215,12 @@
 
         <footer class="slds-modal__footer">
           <lightning-button label="닫기" onclick={closeUploadModal} disabled={closeButtonDisabled}></lightning-button>
-          <lightning-button variant="brand" label={issueButtonLabel} onclick={handleIssuePoint} disabled={isIssueDisabled}></lightning-button>
+          <lightning-button
+            variant="brand"
+            label={modalDisplayPrimaryButtonLabel}
+            onclick={handleIssuePoint}
+            disabled={modalPrimaryButtonDisabled}
+          ></lightning-button>
         </footer>
       </div>
     </section>

@@ -38,6 +38,15 @@ global with sharing class GdReturnDepositApiControllerV1 {
 
       depositNo += '-' + deposiSeqNo;
 
+      // === [Option C 분기 라우팅] 시작 ===
+      // IsEnabled=false 시 false 반환 → 표준 로직 100% 통과 (변경 없음)
+      if (GdMigrationUtil.shouldApplyOptionCBranchByDepositNo(depositNo)) {
+        ApiResult branchResult = GdReturnDepositBranchHandler.handle(depositNo, logger);
+        RestResponseUtil.handleSuccess(branchResult, logger);
+        return;
+      }
+      // === [Option C 분기 라우팅] 끝 ===
+
       ApiResult saleDepositResult = getReturnDepositService().deleteReturnDeposit(depositNo);
 
       RestResponseUtil.handleSuccess(saleDepositResult, logger);

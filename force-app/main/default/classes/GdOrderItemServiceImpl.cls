@@ -13,6 +13,8 @@ public with sharing class GdOrderItemServiceImpl implements GdOrderItemService {
       String orderId = ValidationUtil.stringValidation(reqData.get('orderId'), 'orderId', true);
 
       List<OrderItem> oiList = new List<OrderItem>();
+      List<Map<String, Object>> parsedOrderItemList = new List<Map<String, Object>>();
+      Set<String> productCodeSet = new Set<String>();
 
       Boolean isGoldenBar = false;
 
@@ -27,50 +29,88 @@ public with sharing class GdOrderItemServiceImpl implements GdOrderItemService {
         Decimal discountRate = ValidationUtil.decimalValidation(orderItem.get('DiscountRate__c'), 'DiscountRate__c', false); // 할인율
 
         Boolean isExclude = ValidationUtil.booleanValidation(orderItem.get('isExclude'), 'isExclude', false); // 포인트 적립 제외 여부
+        parsedOrderItemList.add(
+          new Map<String, Object>{
+            'OrderSeqNo__c' => orderSeqNo,
+            'Status__c' => status,
+            'ProductCode' => productCode,
+            'Quantity' => quantity,
+            'NetSalesUnitPrice__c' => netSalesUnitPrice,
+            'DiscountRate__c' => discountRate,
+            'isExclude' => isExclude
+          }
+        );
+        productCodeSet.add(productCode);
+      }
 
-        // Product2 조회
-        List<Product2> productList = [SELECT Id FROM Product2 WHERE Product2.ProductCode = :productCode LIMIT 1];
-        if (productList.isEmpty()) {
+      Map<String, Product2> productByCode = new Map<String, Product2>();
+      for (Product2 productRecord : [SELECT Id, ProductCode FROM Product2 WHERE ProductCode IN :productCodeSet]) {
+        productByCode.put(productRecord.ProductCode, productRecord);
+      }
+
+      Id standardPricebookId = [SELECT Id FROM Pricebook2 WHERE IsStandard = TRUE LIMIT 1].Id;
+
+      Map<String, PricebookEntry> pricebookEntryByCode = new Map<String, PricebookEntry>();
+      for (PricebookEntry pricebookEntry : [
+        SELECT Id, UnitPrice, Name, ProductCode
+        FROM PricebookEntry
+        WHERE ProductCode IN :productCodeSet AND Pricebook2Id = :standardPricebookId
+      ]) {
+        if (!pricebookEntryByCode.containsKey(pricebookEntry.ProductCode)) {
+          pricebookEntryByCode.put(pricebookEntry.ProductCode, pricebookEntry);
+        }
+      }
+
+      Set<Id> productIdSet = new Set<Id>();
+      for (Product2 productRecord : productByCode.values()) {
+        productIdSet.add(productRecord.Id);
+      }
+
+      Set<Id> goldenBarProductIdSet = new Set<Id>();
+      if (!productIdSet.isEmpty()) {
+        for (ProductCategoryProduct productCategoryProduct : [
+          SELECT ProductId
+          FROM ProductCategoryProduct
+          WHERE ProductCategory.Name LIKE '%골드바%' AND ProductId IN :productIdSet
+        ]) {
+          goldenBarProductIdSet.add(productCategoryProduct.ProductId);
+        }
+      }
+
+      for (Map<String, Object> parsedOrderItem : parsedOrderItemList) {
+        String orderSeqNo = (String) parsedOrderItem.get('OrderSeqNo__c');
+        String status = (String) parsedOrderItem.get('Status__c');
+        String productCode = (String) parsedOrderItem.get('ProductCode');
+        Integer quantity = (Integer) parsedOrderItem.get('Quantity');
+        Decimal netSalesUnitPrice = (Decimal) parsedOrderItem.get('NetSalesUnitPrice__c');
+        Decimal discountRate = (Decimal) parsedOrderItem.get('DiscountRate__c');
+        Boolean isExclude = (Boolean) parsedOrderItem.get('isExclude');
+
+        Product2 productRecord = productByCode.get(productCode);
+        if (productRecord == null) {
           throw new CustomException(400, '해당 품목이 존재하지 않습니다. 품목 코드 : ' + productCode);
         }
 
-        List<ProductCategoryProduct> pcpList = [
-          SELECT Id, ProductCategory.Name
-          FROM ProductCategoryProduct
-          WHERE ProductCategory.Name LIKE '%골드바%'
-          LIMIT 1
-        ];
-        if (pcpList.size() > 0) {
+        if (goldenBarProductIdSet.contains(productRecord.Id)) {
           isGoldenBar = true;
         }
 
-        // Standard Pricebook 조회
-        Id standardPricebookId = [SELECT Id FROM Pricebook2 WHERE IsStandard = TRUE LIMIT 1].Id;
-
-        // PricebookEntry 조회
-        List<PricebookEntry> pricebookEntryList = [
-          SELECT Id, UnitPrice, Name
-          FROM PricebookEntry
-          WHERE ProductCode = :productCode AND Pricebook2Id = :standardPricebookId
-          LIMIT 1
-        ];
-        if (pricebookEntryList.isEmpty()) {
+        PricebookEntry pricebookEntry = pricebookEntryByCode.get(productCode);
+        if (pricebookEntry == null) {
           throw new CustomException(400, '해당 PricebookEntry 가 없습니다.');
         }
 
         OrderItem oi = new OrderItem(
           OrderId = orderId,
           Status__c = status,
-          PricebookEntryId = pricebookEntryList[0].Id, // 필수
+          PricebookEntryId = pricebookEntry.Id, // 필수
           Quantity = quantity,
-          UnitPrice = pricebookEntryList[0].UnitPrice,
+          UnitPrice = pricebookEntry.UnitPrice,
           OrderItemNo__c = orderId + '-' + orderSeqNo, // 주문 상세 번호 (외부 ID)
           IsExclude__c = (isExclude != null) ? isExclude : false,
           NetSalesUnitPrice__c = netSalesUnitPrice,
           DiscountRate__c = discountRate
         );
-        //
-
         oiList.add(oi);
       }
 
@@ -87,6 +127,8 @@ public with sharing class GdOrderItemServiceImpl implements GdOrderItemService {
       data.put('oiList', oiList);
       data.put('isGoldenBar', isGoldenBar);
       return ApiResult.ok(200, '주문 상세 등록 완료', data);
+    } catch (ValidationException ve) {
+      throw new CustomException(ve.code, ve.detail);
     } catch (Exception e) {
       throw e;
     }
@@ -217,6 +259,9 @@ public with sharing class GdOrderItemServiceImpl implements GdOrderItemService {
       String orderId = ValidationUtil.stringValidation(reqData.get('orderId'), 'orderId', true);
 
       List<OrderItem> oiList = new List<OrderItem>();
+      List<Map<String, Object>> normalizedSaleItems = new List<Map<String, Object>>();
+      Set<String> productCodeSet = new Set<String>();
+      Set<String> orderNoSet = new Set<String>();
 
       for (Object v : saleItemList) {
         Map<String, Object> saleItem = ValidationUtil.mapStrObjValidation(v, 'OrderItem', true);
@@ -227,46 +272,86 @@ public with sharing class GdOrderItemServiceImpl implements GdOrderItemService {
         Integer quantity = ValidationUtil.integerValidation(saleItem.get('Quantity'), 'Quantity', true); // 수량
         Decimal netSalesUnitPrice = ValidationUtil.decimalValidation(saleItem.get('NetSalesUnitPrice__c'), 'NetSalesUnitPrice__c', true); // 판매단가
         Decimal discountRate = ValidationUtil.decimalValidation(saleItem.get('DiscountRate__c'), 'DiscountRate__c', false); // 할인율
-
         Boolean isExclude = ValidationUtil.booleanValidation(saleItem.get('isExclude'), 'isExclude', false); // 포인트 적립 제외 여부
 
-        // Product2 조회
-        List<Product2> productList = [SELECT Id FROM Product2 WHERE Product2.ProductCode = :productCode LIMIT 1];
-        if (productList.isEmpty()) {
+        normalizedSaleItems.add(
+          new Map<String, Object>{
+            'saleSeqNo' => saleSeqNo,
+            'orderNo' => orderNo,
+            'productCode' => productCode,
+            'quantity' => quantity,
+            'netSalesUnitPrice' => netSalesUnitPrice,
+            'discountRate' => discountRate,
+            'isExclude' => isExclude
+          }
+        );
+
+        productCodeSet.add(productCode);
+        if (String.isNotBlank(orderNo)) {
+          orderNoSet.add(orderNo);
+        }
+      }
+
+      Map<String, Product2> productByCode = new Map<String, Product2>();
+      for (Product2 productRow : [SELECT Id, ProductCode FROM Product2 WHERE ProductCode IN :productCodeSet]) {
+        productByCode.put(productRow.ProductCode, productRow);
+      }
+
+      Id standardPricebookId = [SELECT Id FROM Pricebook2 WHERE IsStandard = TRUE LIMIT 1].Id;
+
+      Map<String, PricebookEntry> pricebookEntryByCode = new Map<String, PricebookEntry>();
+      for (PricebookEntry pricebookEntryRow : [
+        SELECT Id, UnitPrice, Name, ProductCode
+        FROM PricebookEntry
+        WHERE ProductCode IN :productCodeSet AND Pricebook2Id = :standardPricebookId
+      ]) {
+        if (!pricebookEntryByCode.containsKey(pricebookEntryRow.ProductCode)) {
+          pricebookEntryByCode.put(pricebookEntryRow.ProductCode, pricebookEntryRow);
+        }
+      }
+
+      Map<String, Order> orderByOrderNo = new Map<String, Order>();
+      if (!orderNoSet.isEmpty()) {
+        for (Order orderRow : [SELECT Id, OrderNo__c FROM Order WHERE OrderNo__c IN :orderNoSet]) {
+          orderByOrderNo.put(orderRow.OrderNo__c, orderRow);
+        }
+      }
+
+      for (Map<String, Object> saleItem : normalizedSaleItems) {
+        String saleSeqNo = (String) saleItem.get('saleSeqNo');
+        String orderNo = (String) saleItem.get('orderNo');
+        String productCode = (String) saleItem.get('productCode');
+        Integer quantity = (Integer) saleItem.get('quantity');
+        Decimal netSalesUnitPrice = (Decimal) saleItem.get('netSalesUnitPrice');
+        Decimal discountRate = (Decimal) saleItem.get('discountRate');
+        Boolean isExclude = (Boolean) saleItem.get('isExclude');
+
+        if (!productByCode.containsKey(productCode)) {
           throw new CustomException(400, '해당 품목이 존재하지 않습니다. 품목 코드 : ' + productCode);
         }
 
-        // Standard Pricebook 조회
-        Id standardPricebookId = [SELECT Id FROM Pricebook2 WHERE IsStandard = TRUE LIMIT 1].Id;
-
-        // PricebookEntry 조회
-        List<PricebookEntry> pricebookEntryList = [
-          SELECT Id, UnitPrice, Name
-          FROM PricebookEntry
-          WHERE ProductCode = :productCode AND Pricebook2Id = :standardPricebookId
-          LIMIT 1
-        ];
-        if (pricebookEntryList.isEmpty()) {
+        if (!pricebookEntryByCode.containsKey(productCode)) {
           throw new CustomException(400, '해당 PricebookEntry 가 없습니다.');
         }
 
+        PricebookEntry pricebookEntry = pricebookEntryByCode.get(productCode);
+
         OrderItem oi = new OrderItem();
         oi.OrderId = orderId;
-        oi.PricebookEntryId = pricebookEntryList[0].Id;
+        oi.PricebookEntryId = pricebookEntry.Id;
         oi.Quantity = quantity;
-        oi.UnitPrice = pricebookEntryList[0].UnitPrice;
+        oi.UnitPrice = pricebookEntry.UnitPrice;
         oi.SaleSeqNo__c = saleSeqNo;
         oi.SaleItemNo__c = orderId + '-' + saleSeqNo; // 판매 상세 번호 (외부 ID)
         oi.IsExclude__c = (isExclude != null) ? isExclude : false;
         oi.NetSalesUnitPrice__c = netSalesUnitPrice;
         oi.DiscountRate__c = discountRate;
 
-        if (orderNo != null) {
-          List<Order> oList = [SELECT Id FROM Order WHERE OrderNo__c = :orderNo LIMIT 1];
-          if (oList.isEmpty()) {
+        if (String.isNotBlank(orderNo)) {
+          if (!orderByOrderNo.containsKey(orderNo)) {
             throw new CustomException(400, '해당 주문 건이 없습니다. ' + orderNo);
           }
-          oi.OrderId__c = oList[0].Id;
+          oi.OrderId__c = orderByOrderNo.get(orderNo).Id;
         }
 
         oiList.add(oi);

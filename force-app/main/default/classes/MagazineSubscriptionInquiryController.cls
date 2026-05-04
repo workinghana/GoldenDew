@@ -44,6 +44,15 @@ public with sharing class MagazineSubscriptionInquiryController {
       pageNumber = 1;
     }
 
+    Datetime fromDateTime;
+    Datetime toExclusiveDateTime;
+    if (fromDate != null) {
+      fromDateTime = Datetime.newInstance(fromDate, Time.newInstance(0, 0, 0, 0));
+    }
+    if (toDate != null) {
+      toExclusiveDateTime = Datetime.newInstance(toDate.addDays(1), Time.newInstance(0, 0, 0, 0));
+    }
+
     String safeSortBy = String.isBlank(sortBy) ? 'Magazine_Response_Time__c' : sortBy;
     String dir = (sortDirection != null && sortDirection.toUpperCase() == 'ASC') ? 'ASC' : 'DESC';
 
@@ -63,11 +72,11 @@ public with sharing class MagazineSubscriptionInquiryController {
     List<String> whereParts = new List<String>();
     whereParts.add('UsageType__c = \'Magazine\'');
 
-    if (fromDate != null) {
-      whereParts.add('Magazine_ApplicationDate__c >= :fromDate');
+    if (fromDateTime != null) {
+      whereParts.add('Magazine_Response_Time__c >= :fromDateTime');
     }
-    if (toDate != null) {
-      whereParts.add('Magazine_ApplicationDate__c <= :toDate');
+    if (toExclusiveDateTime != null) {
+      whereParts.add('Magazine_Response_Time__c < :toExclusiveDateTime');
     }
     if (!String.isBlank(storeManaCode)) {
       whereParts.add('Magazine_StoreMana__c = :storeManaCode');

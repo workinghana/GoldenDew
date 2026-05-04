@@ -23,7 +23,9 @@ public with sharing class LoyaltyPointExpirationBatch implements Database.Batcha
   private Set<String> totalFail = new Set<String>();
 
   // private Date expiryDate = Date.valueOf('2028-01-04');
-  private Date expiryDate = Date.today(); // todo: 실제 운영 시 주석 해제
+  // private Date expiryDate = Date.today(); // todo: 실제 운영 시 주석 해제 // 기존 코드
+  private Date expiryDate = Date.today().addDays(-1); // 신규 코드 [2026-04-24 Carson]
+
 
   public Database.QueryLocator start(Database.BatchableContext bc) {
     return Database.getQueryLocator(

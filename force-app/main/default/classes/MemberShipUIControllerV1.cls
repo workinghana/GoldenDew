@@ -18,8 +18,8 @@ public with sharing class MemberShipUIControllerV1 {
 
     Integer memberCount = [
       SELECT COUNT()
-      FROM Contact
-      WHERE Grade__c = :tier.Grade__c
+      FROM LoyaltyMemberTier
+      WHERE LoyaltyTierId = :tier.Id
     ];
 
     MemberShipDetailDto dto = new MemberShipDetailDto();

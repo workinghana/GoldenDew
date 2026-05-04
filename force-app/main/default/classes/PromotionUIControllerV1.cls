@@ -38,7 +38,8 @@ public with sharing class PromotionUIControllerV1 {
         PublishEndDate__c,
         DiscountRate__c,
         ProductCatalogId,
-        IsPointUsageAllowed__c
+        IsPointUsageAllowed__c,
+        PointTypeCode__c
       FROM Promotion
       WHERE Id = :promotionId
       LIMIT 1
@@ -138,13 +139,15 @@ public with sharing class PromotionUIControllerV1 {
      * 포인트 적립 여부
      * ===================================================== */
 
-    Integer pointLimitCount = [
-      SELECT COUNT()
+    List<PromotionPointLimit__c> pointLimitList = [
+      SELECT LoyaltyPgmCurrencySubtypeName__c, LoyaltyPgmCurrencySubtypeId__r.Name
       FROM PromotionPointLimit__c
       WHERE PromotionId__c = :promotionId
     ];
 
-    dto.isPointAccrualAvailable = pointLimitCount > 0;
+    dto.pointAccrualAvailablePointTypes = buildPointAccrualAvailablePointTypes(pointLimitList, p.PointTypeCode__c);
+    dto.pointAccrualUnavailablePointTypes = getMultiPicklistLabels(Promotion.PointTypeCode__c, p.PointTypeCode__c);
+    dto.isPointAccrualAvailable = !String.isBlank(dto.pointAccrualAvailablePointTypes);
 
     /* =====================================================
      * 쿠폰 존재 여부
@@ -197,11 +200,59 @@ public with sharing class PromotionUIControllerV1 {
 
     @AuraEnabled
     public Boolean isPointAccrualAvailable;
+    @AuraEnabled
+    public String pointAccrualAvailablePointTypes;
+    @AuraEnabled
+    public String pointAccrualUnavailablePointTypes;
 
     @AuraEnabled
     public Boolean IsPointUsageAllowed;
 
     @AuraEnabled
     public Boolean isCouponAvailable;
+  }
+
+  private static String buildPointAccrualAvailablePointTypes(List<PromotionPointLimit__c> pointLimitList, String excludedPointTypeCodes) {
+    Set<String> pointTypeNames = new Set<String>();
+
+    if (pointLimitList != null) {
+      for (PromotionPointLimit__c pointLimit : pointLimitList) {
+        String pointTypeName = !String.isBlank(pointLimit.LoyaltyPgmCurrencySubtypeName__c)
+          ? pointLimit.LoyaltyPgmCurrencySubtypeName__c
+          : (pointLimit.LoyaltyPgmCurrencySubtypeId__r == null ? null : pointLimit.LoyaltyPgmCurrencySubtypeId__r.Name);
+
+        if (!String.isBlank(pointTypeName)) {
+          pointTypeNames.add(pointTypeName);
+        }
+      }
+    }
+
+    if (!pointTypeNames.isEmpty()) {
+      return String.join(new List<String>(pointTypeNames), ', ');
+    }
+
+    return String.isBlank(excludedPointTypeCodes) ? '전체 포인트' : null;
+  }
+
+  private static String getMultiPicklistLabels(Schema.SObjectField fieldRef, String rawValues) {
+    if (String.isBlank(rawValues)) {
+      return null;
+    }
+
+    Map<String, String> labelByValue = new Map<String, String>();
+    for (Schema.PicklistEntry entry : fieldRef.getDescribe().getPicklistValues()) {
+      labelByValue.put(entry.getValue(), entry.getLabel());
+    }
+
+    List<String> labels = new List<String>();
+    for (String rawValue : rawValues.split(';')) {
+      String value = rawValue == null ? null : rawValue.trim();
+      if (String.isBlank(value)) {
+        continue;
+      }
+      labels.add(labelByValue.containsKey(value) ? labelByValue.get(value) : value);
+    }
+
+    return labels.isEmpty() ? null : String.join(labels, ', ');
   }
 }

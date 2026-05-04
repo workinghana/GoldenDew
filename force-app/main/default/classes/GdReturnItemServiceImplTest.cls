@@ -105,6 +105,73 @@ private class GdReturnItemServiceImplTest {
   }
 
   @IsTest
+  static void createReturnItem_success_multipleItems() {
+    Id stdPbId = Test.getStandardPricebookId();
+    Product2 secondProduct = new Product2(Name = 'ReturnItem Test Product 2', ProductCode = 'RITEM-PROD-002', IsActive = true);
+    insert secondProduct;
+    PricebookEntry secondPbe = new PricebookEntry(Pricebook2Id = stdPbId, Product2Id = secondProduct.Id, UnitPrice = 7000, IsActive = true);
+    insert secondPbe;
+
+    Order originalOrder = getOrder(ORIG_ORDER_NO);
+    Order returnOrder = getOrder(RET_ORDER_NO);
+
+    insert new OrderItem(OrderId = originalOrder.Id, PricebookEntryId = secondPbe.Id, Quantity = 1, UnitPrice = 7000, SaleSeqNo__c = 'RISEQ-002');
+
+    Map<String, Object> reqData = new Map<String, Object>{
+      'orderId' => returnOrder.Id,
+      'originalOrderId' => originalOrder.Id,
+      'OrderItem' => new List<Object>{
+        new Map<String, Object>{ 'SaleSeqNo__c' => SALE_SEQ_NO, 'ProductCode' => PRODUCT_CODE, 'Quantity' => 1 },
+        new Map<String, Object>{ 'SaleSeqNo__c' => 'RISEQ-002', 'ProductCode' => 'RITEM-PROD-002', 'Quantity' => 1 }
+      }
+    };
+
+    Test.startTest();
+    ApiResult result = new GdReturnItemServiceImpl().createReturnItem(reqData);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(2, [SELECT COUNT() FROM OrderItem WHERE OrderId = :returnOrder.Id]);
+  }
+
+  @IsTest
+  static void createReturnItem_success_sameProductRepeatedItems() {
+    Id stdPbId = Test.getStandardPricebookId();
+    PricebookEntry sameProductPbe = [
+      SELECT Id
+      FROM PricebookEntry
+      WHERE Pricebook2Id = :stdPbId AND Product2.ProductCode = :PRODUCT_CODE
+      LIMIT 1
+    ];
+    Order originalOrder = getOrder(ORIG_ORDER_NO);
+    Order returnOrder = getOrder(RET_ORDER_NO);
+
+    insert new OrderItem(
+      OrderId = originalOrder.Id,
+      PricebookEntryId = sameProductPbe.Id,
+      Quantity = 1,
+      UnitPrice = 10000,
+      SaleSeqNo__c = 'RISEQ-003'
+    );
+
+    Map<String, Object> reqData = new Map<String, Object>{
+      'orderId' => returnOrder.Id,
+      'originalOrderId' => originalOrder.Id,
+      'OrderItem' => new List<Object>{
+        new Map<String, Object>{ 'SaleSeqNo__c' => SALE_SEQ_NO, 'ProductCode' => PRODUCT_CODE, 'Quantity' => -1 },
+        new Map<String, Object>{ 'SaleSeqNo__c' => 'RISEQ-003', 'ProductCode' => PRODUCT_CODE, 'Quantity' => -1 }
+      }
+    };
+
+    Test.startTest();
+    ApiResult result = new GdReturnItemServiceImpl().createReturnItem(reqData);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(2, [SELECT COUNT() FROM OrderItem WHERE OrderId = :returnOrder.Id AND Product2.ProductCode = :PRODUCT_CODE]);
+  }
+
+  @IsTest
   static void createReturnItem_productNotFound_throws() {
     Order originalOrder = getOrder(ORIG_ORDER_NO);
     Order returnOrder = getOrder(RET_ORDER_NO);
@@ -231,8 +298,6 @@ private class GdReturnItemServiceImplTest {
   @IsTest
   static void deleteReturnItem_success() {
     Order returnOrder = getOrder(RET_ORDER_NO);
-    Order originalOrder = getOrder(ORIG_ORDER_NO);
-    OrderItem originalOI = [SELECT Id FROM OrderItem WHERE OrderId = :originalOrder.Id LIMIT 1];
 
     Id stdPbId = Test.getStandardPricebookId();
     PricebookEntry pbe = [SELECT Id FROM PricebookEntry WHERE Pricebook2Id = :stdPbId LIMIT 1];
@@ -243,8 +308,7 @@ private class GdReturnItemServiceImplTest {
       Quantity = 1,
       UnitPrice = 10000,
       SaleSeqNo__c = 'DEL-SEQ-001',
-      SaleItemNo__c = String.valueOf(returnOrder.Id) + '-DEL-SEQ-001',
-      OriginalOrderItemId = originalOI.Id
+      SaleItemNo__c = String.valueOf(returnOrder.Id) + '-DEL-SEQ-001'
     );
 
     Test.startTest();

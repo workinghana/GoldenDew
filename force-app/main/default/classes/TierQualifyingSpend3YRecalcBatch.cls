@@ -1,5 +1,6 @@
 /**
  * TierQualifyingSpend3Y__c 재산정 Batch
+ * 3개년 금액 재산정 Batch
  *
  * 정책:
  * - 전환일이 2/1이라고 가정
@@ -91,19 +92,71 @@ public with sharing class TierQualifyingSpend3YRecalcBatch implements Database.B
       Map<Id, Decimal> sumByContactId = new Map<Id, Decimal>();
 
       // 판매(+) 합산
+      // 기존 판매(+) 합산
+      // List<AggregateResult> plusAgg = [
+      //   SELECT MemberNo__c contactId, SUM(ActualPaymentAmount__c) amt
+      //   FROM Order
+      //   WHERE MemberNo__c IN :contactIds AND EndDate >= :fromDate AND EndDate <= :toDate AND Status IN ('saleSuccess')
+      //   GROUP BY MemberNo__c
+      // ];
+
+      // 신규 판매(+) 합산 - 고재성
       List<AggregateResult> plusAgg = [
-        SELECT MemberNo__c contactId, SUM(ActualPaymentAmount__c) amt
-        FROM Order
-        WHERE MemberNo__c IN :contactIds AND EndDate >= :fromDate AND EndDate <= :toDate AND Status IN ('saleSuccess')
-        GROUP BY MemberNo__c
+        SELECT Order.MemberNo__c contactId, SUM(NetSalesUnitPrice__c) amt 
+        FROM OrderItem
+        WHERE Order.MemberNo__c IN :contactIds
+        AND Order.EndDate >= :fromDate 
+        AND Order.EndDate <= :toDate
+        AND (
+          Order.StoreCode__r.StoreType__c IN ('11', '40')
+          OR Order.StoreCode__r.StoreTypeFour__c = '01'
+        )
+        AND Order.Status IN ('saleSuccess')
+        AND Product2Id NOT IN (
+          SELECT ProductId 
+          FROM ProductCategoryProduct 
+          WHERE ProductCategory.Name = '골드바'
+        )
+        AND (NOT Product2.Name LIKE '%수선%')
+        AND (NOT Product2.Name LIKE '%각인%')
+        AND (NOT Product2.Name LIKE '%위약금%')
+        AND (NOT Product2.Name LIKE '%재감비%')
+        AND (NOT Product2.Name LIKE '%재인쇄비%')
+        GROUP BY Order.MemberNo__c
       ];
 
       // 반품/환불(-) 합산
+      // 기존 반품/환불(-) 합산
+      // List<AggregateResult> minusAgg = [
+      //   SELECT MemberNo__c contactId, SUM(ActualPaymentAmount__c) amt
+      //   FROM Order
+      //   WHERE MemberNo__c IN :contactIds AND EndDate >= :fromDate AND EndDate <= :toDate AND Status IN ('returnSuccess')
+      //   GROUP BY MemberNo__c
+      // ];
+
+      // 신규 반품/환불(-) 합산 - 고재성
       List<AggregateResult> minusAgg = [
-        SELECT MemberNo__c contactId, SUM(ActualPaymentAmount__c) amt
-        FROM Order
-        WHERE MemberNo__c IN :contactIds AND EndDate >= :fromDate AND EndDate <= :toDate AND Status IN ('returnSuccess')
-        GROUP BY MemberNo__c
+        SELECT Order.MemberNo__c contactId, SUM(NetSalesUnitPrice__c) amt 
+        FROM OrderItem
+        WHERE Order.MemberNo__c IN :contactIds
+        AND Order.EndDate >= :fromDate 
+        AND Order.EndDate <= :toDate
+        AND (
+          Order.StoreCode__r.StoreType__c IN ('11', '40')
+          OR Order.StoreCode__r.StoreTypeFour__c = '01'
+        )
+        AND Order.Status IN ('returnSuccess')
+        AND Product2Id NOT IN (
+          SELECT ProductId 
+          FROM ProductCategoryProduct 
+          WHERE ProductCategory.Name = '골드바'
+        )
+        AND (NOT Product2.Name LIKE '%수선%')
+        AND (NOT Product2.Name LIKE '%각인%')
+        AND (NOT Product2.Name LIKE '%위약금%')
+        AND (NOT Product2.Name LIKE '%재감비%')
+        AND (NOT Product2.Name LIKE '%재인쇄비%')
+        GROUP BY Order.MemberNo__c
       ];
 
       for (AggregateResult ar : plusAgg) {

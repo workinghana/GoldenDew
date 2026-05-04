@@ -34,7 +34,7 @@
                   <div class="slds-truncate" title="사용/소멸포인트">사용/소멸포인트</div>
                 </th>
                 <th scope="col">
-                  <div class="slds-truncate" title="판매번호">판매번호</div>
+                  <div class="slds-truncate" title="주문/판매번호">주문/판매번호</div>
                 </th>
                 <th scope="col">
                   <div class="slds-truncate" title="판매금액">판매금액</div>
@@ -63,16 +63,54 @@
                     <div class="slds-truncate" title={row.redemptionPointsText}>{row.redemptionPointsText}</div>
                   </td>
                   <td class="cell-center">
-                    <div class="slds-truncate" title={row.saleNo}>{row.saleNo}</div>
+                    <div class="record-link-cell">
+                      <template if:true={row.hasOrderLink}>
+                        <a class="sale-link" href="javascript:void(0)" data-id={row.recordId} onclick={handleRecordNavigate} title={row.orderNoText}
+                          >{row.orderNoText}</a
+                        >
+                      </template>
+                      <template if:true={row.hasSaleLink}>
+                        <a class="sale-link" href="javascript:void(0)" data-id={row.recordId} onclick={handleRecordNavigate} title={row.saleNoText}
+                          >{row.saleNoText}</a
+                        >
+                      </template>
+                      <template if:true={row.hasNoLink}>
+                        <div class="slds-truncate">-</div>
+                      </template>
+                    </div>
                   </td>
                   <td class="cell-center">
                     <div class="slds-truncate" title={row.saleAmountText}>{row.saleAmountText}</div>
                   </td>
                   <td class="cell-center">
-                    <div class="slds-truncate" title={row.accrualSaleNo}>{row.accrualSaleNo}</div>
+                    <template if:true={row.hasAccrualLink}>
+                      <a
+                        class="sale-link slds-truncate"
+                        href="javascript:void(0)"
+                        data-id={row.accrualRecordId}
+                        onclick={handleRecordNavigate}
+                        title={row.accrualSaleNoText}
+                        >{row.accrualSaleNoText}</a
+                      >
+                    </template>
+                    <template if:false={row.hasAccrualLink}>
+                      <div class="slds-truncate" title={row.accrualSaleNoText}>{row.accrualSaleNoText}</div>
+                    </template>
                   </td>
                   <td class="cell-center">
-                    <div class="slds-truncate" title={row.returnSaleNo}>{row.returnSaleNo}</div>
+                    <template if:true={row.hasReturnLink}>
+                      <a
+                        class="sale-link slds-truncate"
+                        href="javascript:void(0)"
+                        data-id={row.recordId}
+                        onclick={handleRecordNavigate}
+                        title={row.returnSaleNoText}
+                        >{row.returnSaleNoText}</a
+                      >
+                    </template>
+                    <template if:false={row.hasReturnLink}>
+                      <div class="slds-truncate" title={row.returnSaleNoText}>{row.returnSaleNoText}</div>
+                    </template>
                   </td>
                 </tr>
               </template>

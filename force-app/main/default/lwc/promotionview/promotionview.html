@@ -13,27 +13,26 @@
               <lightning-icon icon-name="utility:announcement" size="small"></lightning-icon>
             </div>
 
-            <div class="block-title"><span>{displayName}</span> 프로모션</div>
+            <div class="header-copy">
+              <div class="block-title"><span>{displayName}</span> 프로모션</div>
+            </div>
           </div>
         </div>
 
         <div class="card-body">
           <div class="detail-row">
-            <span class="label">프로모션 코드</span>
-            <span>{promotionCode}</span>
+            <span class="label">프로모션 번호</span>
+            <span>{promotionNumber}</span>
           </div>
 
           <div class="detail-row">
-            <span class="label">프로모션 명</span>
+            <span class="label">프로모션 이름</span>
             <span>{promotionName}</span>
           </div>
 
           <div class="detail-row">
-            <span class="label">상태</span>
-
-            <div class="status-wrapper">
-              <span class={activeStatusClass}>{activeText}</span>
-            </div>
+            <span class="label">프로모션 활성 상태</span>
+            <span class={promotionPublishActiveClass}>{promotionPublishActiveText}</span>
           </div>
         </div>
       </div>
@@ -85,8 +84,13 @@
 
         <div class="card-body">
           <div class="detail-row">
-            <span class="label">포인트 적립</span>
+            <span class="label">포인트 적립 가능</span>
             <span>{pointAccrualText}</span>
+          </div>
+
+          <div class="detail-row">
+            <span class="label">포인트 적립 불가</span>
+            <span>{pointAccrualUnavailableText}</span>
           </div>
 
           <div class="detail-row">

@@ -1,15 +1,19 @@
 @IsTest
 private class PromotionResDTOTest {
   private static Promotion buildPromotion(Boolean allFlagsOn) {
+    return buildPromotion(allFlagsOn, true, Date.today(), Date.today().addDays(20));
+  }
+
+  private static Promotion buildPromotion(Boolean allFlagsOn, Boolean isActive, Date publishStartDate, Date publishEndDate) {
     Promotion p = new Promotion(
       Name = 'TestPromotion',
       DisplayName = 'TestPromotion Display',
       PromotionCode = 'PROMO-TEST-' + (allFlagsOn ? 'Y' : 'N') + '-' + String.valueOf(Datetime.now().getTime()),
-      IsActive = true,
+      IsActive = isActive,
       StartDate = Date.today(),
       EndDate = Date.today().addDays(30),
-      PublishStartDate__c = Date.today(),
-      PublishEndDate__c = Date.today().addDays(20),
+      PublishStartDate__c = publishStartDate,
+      PublishEndDate__c = publishEndDate,
       DiscountRate__c = 5,
       IsCouponAllowed__c = allFlagsOn,
       IsFixedAmountCouponAllowed__c = allFlagsOn,
@@ -27,8 +31,11 @@ private class PromotionResDTOTest {
         Id,
         Name,
         PromotionNo__c,
+        IsActive,
         BrandCode__c,
         TypeCode__c,
+        StartDate,
+        EndDate,
         StartDateTime,
         EndDateTime,
         PublishStartDate__c,
@@ -109,13 +116,13 @@ private class PromotionResDTOTest {
     PromotionResDTO dto = new PromotionResDTO(p);
     Test.stopTest();
 
-    if (p.StartDateTime == null) {
+    if (p.StartDate == null) {
       System.assertEquals('', dto.DT_START);
     } else {
       System.assertEquals(8, dto.DT_START.length());
     }
 
-    if (p.EndDateTime == null) {
+    if (p.EndDate == null) {
       System.assertEquals('', dto.DT_END);
     } else {
       System.assertEquals(8, dto.DT_END.length());
@@ -143,5 +150,19 @@ private class PromotionResDTOTest {
     } else {
       System.assertEquals('', dto.DT_EVENT_END);
     }
+  }
+
+  @IsTest
+  static void constructor_ynActive_requiresIsActiveAndPublishPeriod() {
+    Promotion activePromotion = buildPromotion(true, true, Date.today(), Date.today().addDays(20));
+    Promotion inactivePromotion = buildPromotion(true, false, Date.today(), Date.today().addDays(20));
+
+    Test.startTest();
+    PromotionResDTO activeDto = new PromotionResDTO(activePromotion);
+    PromotionResDTO inactiveDto = new PromotionResDTO(inactivePromotion);
+    Test.stopTest();
+
+    System.assertEquals(true, activeDto.YN_ACTIVE);
+    System.assertEquals(false, inactiveDto.YN_ACTIVE);
   }
 }

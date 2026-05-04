@@ -22,6 +22,8 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
   private static final Id LOYALTY_PROGRAM_ID = SObjectUtil.findIdByName(LoyaltyProgram.SObjectType, LOYALTY_PROGRAM_NAME, true);
   @TestVisible
   private static Id loyaltyProgramIdForTest;
+  @TestVisible
+  private static Integer publishedMagazineEventCountForTest = 0;
 
   private static Id resolveLoyaltyProgramId() {
     if (Test.isRunningTest() && loyaltyProgramIdForTest != null) {
@@ -66,6 +68,7 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
     Integer fetchedCnt = 0;
     Integer insOk = 0;
     Integer insNg = 0;
+    Integer erpSkippedWithdrawn = 0;
 
     ApexLogger apiLogger;
 
@@ -183,7 +186,7 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
       Map<Id, Contact> contactById = new Map<Id, Contact>();
       if (!memberNoSet.isEmpty()) {
         for (Contact c : [
-          SELECT Id, LastName, Name, MobilePhone, Birthdate, IsMagazineSubscribed__c, MagazineSubscriptionDate__c, MemberNo__c
+          SELECT Id, LastName, Name, MobilePhone, LegalBirthdate__c, IsMagazineSubscribed__c, MagazineSubscriptionDate__c, MemberNo__c, IsWithdrawn__c // 26.05.01 법정 생년월일로 쿼리 수정
           FROM Contact
           WHERE MemberNo__c IN :memberNoSet
         ]) {
@@ -363,7 +366,15 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
 
       // 5.5) Platform Event publish (Contact update 성공 건만, 200건 chunk)
       phase = 'PUBLISH_PE_ERP_MAGAZINE';
-      this.publishErpMagazineEvents(updatedContactIds, contactUpdateStateById, lpmByContactId, targetDate, page, failMsgs);
+      erpSkippedWithdrawn = this.publishErpMagazineEvents(
+        updatedContactIds,
+        contactUpdateStateById,
+        lpmByContactId,
+        contactById,
+        targetDate,
+        page,
+        failMsgs
+      );
 
       // Contact 업데이트가 "성공"한 경우에만,
       // 해당 Contact에 매칭되어 생성된 TJ들의 Magazine_IsUpdated__c = true로 업데이트
@@ -422,7 +433,9 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
           ', insertedOk=' +
           insOk +
           ', insertedNg=' +
-          insNg
+          insNg +
+          ', erpSkippedWithdrawn=' +
+          erpSkippedWithdrawn
       );
 
       // 7) chain next page (enqueue는 여기서 1번만!)
@@ -474,16 +487,19 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
   // =========================================================
   // Platform Event publish (ERP)
   // =========================================================
-  private void publishErpMagazineEvents(
+  private Integer publishErpMagazineEvents(
     Set<Id> updatedContactIds,
     Map<Id, ContactUpdateState> contactUpdateStateById,
     Map<Id, LoyaltyProgramMember> lpmByContactId,
+    Map<Id, Contact> contactById,
     Date targetDate,
     Integer page,
     List<String> failMsgs
   ) {
+    Integer skippedWithdrawn = 0;
+
     if (updatedContactIds == null || updatedContactIds.isEmpty()) {
-      return;
+      return skippedWithdrawn;
     }
 
     List<ErpMemberReqDto.UpdateMagazineSubscriptionMemebrModel> models = new List<ErpMemberReqDto.UpdateMagazineSubscriptionMemebrModel>();
@@ -491,6 +507,12 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
     for (Id cId : updatedContactIds) {
       ContactUpdateState st = contactUpdateStateById.get(cId);
       if (st == null || st.subscribed == null) {
+        continue;
+      }
+
+      Contact c = contactById.get(cId);
+      if (isExcludedFromErpMagazineSync(c)) {
+        skippedWithdrawn++;
         continue;
       }
 
@@ -508,7 +530,7 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
     }
 
     if (models.isEmpty()) {
-      return;
+      return skippedWithdrawn;
     }
 
     List<MagazineSubscriptionSync__e> events = new List<MagazineSubscriptionSync__e>();
@@ -534,6 +556,10 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
       events.add(evt);
     }
 
+    if (Test.isRunningTest()) {
+      publishedMagazineEventCountForTest += events.size();
+    }
+
     if (!events.isEmpty()) {
       try {
         // 결과까지 확인하고 싶으면 SaveResult로 받아 로깅 가능
@@ -544,6 +570,8 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
         }
       }
     }
+
+    return skippedWithdrawn;
   }
 
   private static String formatErpDate(Date d) {
@@ -554,7 +582,11 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
     Datetime dtGmt = Datetime.newInstanceGmt(d.year(), d.month(), d.day(), 0, 0, 0);
 
     // ERP가 yyyyMMdd 원하면 'yyyyMMdd'로 변경
-    return dtGmt.formatGmt('yyyy-MM-dd');
+    return dtGmt.formatGmt('yyyyMMdd');
+  }
+
+  private static Boolean isExcludedFromErpMagazineSync(Contact c) {
+    return c != null && c.IsWithdrawn__c == true;
   }
 
   // =========================================================
@@ -753,10 +785,23 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
     if (String.isBlank(cPhone) || String.isBlank(rPhone) || cPhone != rPhone)
       return false;
 
-    if (c.Birthdate == null || respBirth == null)
-      return false;
-    if (c.Birthdate != respBirth)
-      return false;
+    // 기존
+    // if (c.Birthdate == null || respBirth == null)
+    //   return false;
+    // if (c.Birthdate != respBirth)
+    //   return false;
+
+    // 26.05.01 GD - 법정 생년월일 기준으로 변경
+    if (String.isBlank(c.LegalBirthdate__c) || respBirth == null) {
+        return false;
+    }
+
+    Datetime dtRespBirth = Datetime.newInstance(respBirth.year(), respBirth.month(), respBirth.day());
+    String formattedRespBirth = dtRespBirth.format('yyMMdd');
+    
+    if (c.LegalBirthdate__c != formattedRespBirth) {
+        return false;
+    }
 
     return true;
   }

@@ -4,13 +4,8 @@ public with sharing class PointLedgerUIControllerV1 {
   private static final String HQ_EXCHANGE_PAYMENT_METHOD = '93';
   private static final String JOURNAL_SUBTYPE_PURCHASE_ACCRUAL = 'Purchase Accrual';
   private static final String JOURNAL_SUBTYPE_CANCEL_PURCHASE_ACCRUAL = 'Cancel Purchase Accrual';
-  private static final Set<String> EXCLUDED_PAYMENT_JOURNAL_SUBTYPES = new Set<String>{
-    'Coupon Redeem Cancel',
-    'Point Redeem Cancel',
-    'Order Deposit Reversal',
-    'Sale Deposit Reversal',
-    'Cancel Purchase Accrual'
-  };
+  private static final String JOURNAL_SUBTYPE_POINT_REDEEM_CANCEL = 'Point Redeem Cancel';
+  private static Map<String, Id> journalSubTypeIdsByName;
 
   @AuraEnabled(cacheable=true)
   public static Id resolveLoyaltyProgramMemberId(Id recordId) {
@@ -66,6 +61,7 @@ public with sharing class PointLedgerUIControllerV1 {
       return new List<PointLedgerRowDTO>();
     }
 
+    Id pointRedeemCancelSubTypeId = getJournalSubTypeIdByName(JOURNAL_SUBTYPE_POINT_REDEEM_CANCEL);
     List<LoyaltyLedger> creditLedgers;
     if (orderId == null) {
       creditLedgers = [
@@ -82,7 +78,11 @@ public with sharing class PointLedgerUIControllerV1 {
           TransactionJournal.Order.SaleNo__c,
           TransactionJournal.Order.ActualPaymentAmount__c
         FROM LoyaltyLedger
-        WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId AND EventType = 'Credit'
+        WHERE
+          LoyaltyProgramMemberId = :loyaltyProgramMemberId
+          AND EventType = 'Credit'
+          AND (TransactionJournal.JournalSubTypeId = NULL
+          OR TransactionJournal.JournalSubTypeId != :pointRedeemCancelSubTypeId)
         ORDER BY ActivityDate DESC, ExpiryDate ASC
       ];
     } else {
@@ -100,7 +100,12 @@ public with sharing class PointLedgerUIControllerV1 {
           TransactionJournal.Order.SaleNo__c,
           TransactionJournal.Order.ActualPaymentAmount__c
         FROM LoyaltyLedger
-        WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId AND EventType = 'Credit' AND TransactionJournal.OrderId = :orderId
+        WHERE
+          LoyaltyProgramMemberId = :loyaltyProgramMemberId
+          AND EventType = 'Credit'
+          AND TransactionJournal.OrderId = :orderId
+          AND (TransactionJournal.JournalSubTypeId = NULL
+          OR TransactionJournal.JournalSubTypeId != :pointRedeemCancelSubTypeId)
         ORDER BY ActivityDate DESC, ExpiryDate ASC
       ];
     }
@@ -151,6 +156,7 @@ public with sharing class PointLedgerUIControllerV1 {
         ledger.TransactionJournal.Order != null)
         ? ledger.TransactionJournal.Order.SaleNo__c
         : null;
+      row.saleOrderId = ledger.TransactionJournal != null ? ledger.TransactionJournal.OrderId : null;
       row.saleAmount = (ledger.TransactionJournal != null &&
         ledger.TransactionJournal.OrderId != null &&
         ledger.TransactionJournal.Order != null)
@@ -180,8 +186,10 @@ public with sharing class PointLedgerUIControllerV1 {
       return new List<PointRedemptionRowDTO>();
     }
 
+    Id pointRedeemCancelSubTypeId = getJournalSubTypeIdByName(JOURNAL_SUBTYPE_POINT_REDEEM_CANCEL);
     List<LoyaltyLedgerTraceability> traceRows;
     List<LoyaltyLedger> expiryRows;
+    List<LoyaltyLedger> redeemCancelCreditRows;
     if (orderId == null) {
       traceRows = [
         SELECT
@@ -194,9 +202,13 @@ public with sharing class PointLedgerUIControllerV1 {
           CreditLoyaltyLedgerId,
           CreditLoyaltyLedger.LoyaltyPgmCrcySubtype.Name,
           CreditLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
+          CreditLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
+          CreditLoyaltyLedger.TransactionJournal.OrderId,
           DebitLoyaltyLedgerId,
           DebitLoyaltyLedger.LoyaltyPgmCrcySubtype.Name,
           DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
+          DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
+          DebitLoyaltyLedger.TransactionJournal.OrderId,
           DebitLoyaltyLedger.TransactionJournal.Order.ActualPaymentAmount__c
         FROM LoyaltyLedgerTraceability
         WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId AND ActionType IN ('Debit', 'DebitCancellation', 'CreditCancellation')
@@ -211,11 +223,31 @@ public with sharing class PointLedgerUIControllerV1 {
           ExpiryDate,
           LoyaltyPgmCrcySubtypeId,
           LoyaltyPgmCrcySubtype.Name,
+          TransactionJournal.OrderId,
           TransactionJournal.Order.SaleNo__c,
+          TransactionJournal.Order.OrderNo__c,
           TransactionJournal.Order.ActualPaymentAmount__c
         FROM LoyaltyLedger
         WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId AND EventType = 'Expiry'
         ORDER BY ExpiryDate DESC, ActivityDate DESC
+      ];
+      redeemCancelCreditRows = [
+        SELECT
+          Id,
+          Points,
+          ActivityDate,
+          LoyaltyPgmCrcySubtypeId,
+          LoyaltyPgmCrcySubtype.Name,
+          TransactionJournal.OrderId,
+          TransactionJournal.Order.SaleNo__c,
+          TransactionJournal.Order.OrderNo__c,
+          TransactionJournal.Order.ActualPaymentAmount__c
+        FROM LoyaltyLedger
+        WHERE
+          LoyaltyProgramMemberId = :loyaltyProgramMemberId
+          AND EventType = 'Credit'
+          AND TransactionJournal.JournalSubTypeId = :pointRedeemCancelSubTypeId
+        ORDER BY ActivityDate DESC, CreatedDate DESC
       ];
     } else {
       traceRows = [
@@ -229,9 +261,13 @@ public with sharing class PointLedgerUIControllerV1 {
           CreditLoyaltyLedgerId,
           CreditLoyaltyLedger.LoyaltyPgmCrcySubtype.Name,
           CreditLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
+          CreditLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
+          CreditLoyaltyLedger.TransactionJournal.OrderId,
           DebitLoyaltyLedgerId,
           DebitLoyaltyLedger.LoyaltyPgmCrcySubtype.Name,
           DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
+          DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
+          DebitLoyaltyLedger.TransactionJournal.OrderId,
           DebitLoyaltyLedger.TransactionJournal.Order.ActualPaymentAmount__c
         FROM LoyaltyLedgerTraceability
         WHERE
@@ -250,11 +286,32 @@ public with sharing class PointLedgerUIControllerV1 {
           ExpiryDate,
           LoyaltyPgmCrcySubtypeId,
           LoyaltyPgmCrcySubtype.Name,
+          TransactionJournal.OrderId,
           TransactionJournal.Order.SaleNo__c,
+          TransactionJournal.Order.OrderNo__c,
           TransactionJournal.Order.ActualPaymentAmount__c
         FROM LoyaltyLedger
         WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId AND EventType = 'Expiry' AND TransactionJournal.OrderId = :orderId
         ORDER BY ExpiryDate DESC, ActivityDate DESC
+      ];
+      redeemCancelCreditRows = [
+        SELECT
+          Id,
+          Points,
+          ActivityDate,
+          LoyaltyPgmCrcySubtypeId,
+          LoyaltyPgmCrcySubtype.Name,
+          TransactionJournal.OrderId,
+          TransactionJournal.Order.SaleNo__c,
+          TransactionJournal.Order.OrderNo__c,
+          TransactionJournal.Order.ActualPaymentAmount__c
+        FROM LoyaltyLedger
+        WHERE
+          LoyaltyProgramMemberId = :loyaltyProgramMemberId
+          AND EventType = 'Credit'
+          AND TransactionJournal.OrderId = :orderId
+          AND TransactionJournal.JournalSubTypeId = :pointRedeemCancelSubTypeId
+        ORDER BY ActivityDate DESC, CreatedDate DESC
       ];
     }
 
@@ -273,6 +330,15 @@ public with sharing class PointLedgerUIControllerV1 {
         traceRow.DebitLoyaltyLedger.TransactionJournal.Order != null
         ? traceRow.DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c
         : null;
+      row.orderNo = traceRow.DebitLoyaltyLedger != null &&
+        traceRow.DebitLoyaltyLedger.TransactionJournal != null &&
+        traceRow.DebitLoyaltyLedger.TransactionJournal.Order != null
+        ? traceRow.DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c
+        : null;
+      row.recordId = traceRow.DebitLoyaltyLedger != null &&
+        traceRow.DebitLoyaltyLedger.TransactionJournal != null
+        ? traceRow.DebitLoyaltyLedger.TransactionJournal.OrderId
+        : null;
       row.saleAmount = traceRow.DebitLoyaltyLedger != null &&
         traceRow.DebitLoyaltyLedger.TransactionJournal != null &&
         traceRow.DebitLoyaltyLedger.TransactionJournal.Order != null
@@ -282,6 +348,10 @@ public with sharing class PointLedgerUIControllerV1 {
         traceRow.CreditLoyaltyLedger.TransactionJournal != null &&
         traceRow.CreditLoyaltyLedger.TransactionJournal.Order != null
         ? traceRow.CreditLoyaltyLedger.TransactionJournal.Order.SaleNo__c
+        : null;
+      row.accrualRecordId = traceRow.CreditLoyaltyLedger != null &&
+        traceRow.CreditLoyaltyLedger.TransactionJournal != null
+        ? traceRow.CreditLoyaltyLedger.TransactionJournal.OrderId
         : null;
       row.returnSaleNo = traceRow.ActionType == 'DebitCancellation' &&
         traceRow.DebitLoyaltyLedger != null &&
@@ -307,6 +377,11 @@ public with sharing class PointLedgerUIControllerV1 {
         expiryRow.TransactionJournal.Order != null
         ? expiryRow.TransactionJournal.Order.SaleNo__c
         : null;
+      row.orderNo = expiryRow.TransactionJournal != null &&
+        expiryRow.TransactionJournal.Order != null
+        ? expiryRow.TransactionJournal.Order.OrderNo__c
+        : null;
+      row.recordId = expiryRow.TransactionJournal != null ? expiryRow.TransactionJournal.OrderId : null;
       row.saleAmount = expiryRow.TransactionJournal != null &&
         expiryRow.TransactionJournal.Order != null
         ? toInteger(expiryRow.TransactionJournal.Order.ActualPaymentAmount__c)
@@ -314,6 +389,33 @@ public with sharing class PointLedgerUIControllerV1 {
       row.accrualSaleNo = null;
       row.returnSaleNo = null;
       row.isCancel = false;
+
+      results.add(row);
+    }
+
+    for (LoyaltyLedger redeemCancelCreditRow : redeemCancelCreditRows) {
+      PointRedemptionRowDTO row = new PointRedemptionRowDTO();
+      row.ledgerId = redeemCancelCreditRow.Id;
+      row.redemptionDate = redeemCancelCreditRow.ActivityDate != null ? redeemCancelCreditRow.ActivityDate.date() : null;
+      row.pointTypeName = getExpiryPointTypeName(redeemCancelCreditRow, null);
+      row.redemptionType = getTraceabilityActionLabel('DebitCancellation');
+      row.redemptionPoints = redeemCancelCreditRow.Points == null ? 0 : Integer.valueOf(redeemCancelCreditRow.Points.abs());
+      row.saleNo = redeemCancelCreditRow.TransactionJournal != null &&
+        redeemCancelCreditRow.TransactionJournal.Order != null
+        ? redeemCancelCreditRow.TransactionJournal.Order.SaleNo__c
+        : null;
+      row.orderNo = redeemCancelCreditRow.TransactionJournal != null &&
+        redeemCancelCreditRow.TransactionJournal.Order != null
+        ? redeemCancelCreditRow.TransactionJournal.Order.OrderNo__c
+        : null;
+      row.recordId = redeemCancelCreditRow.TransactionJournal != null ? redeemCancelCreditRow.TransactionJournal.OrderId : null;
+      row.saleAmount = redeemCancelCreditRow.TransactionJournal != null &&
+        redeemCancelCreditRow.TransactionJournal.Order != null
+        ? toInteger(redeemCancelCreditRow.TransactionJournal.Order.ActualPaymentAmount__c)
+        : 0;
+      row.accrualSaleNo = null;
+      row.returnSaleNo = row.saleNo;
+      row.isCancel = true;
 
       results.add(row);
     }
@@ -405,6 +507,7 @@ public with sharing class PointLedgerUIControllerV1 {
       return result;
     }
 
+    Id cancelPurchaseAccrualSubTypeId = getJournalSubTypeIdByName(JOURNAL_SUBTYPE_CANCEL_PURCHASE_ACCRUAL);
     for (AggregateResult ar : [
       SELECT TransactionJournal.OrderId orderId, LoyaltyPgmCrcySubtypeId subtypeId, EventType eventType, SUM(Points) totalPoints
       FROM LoyaltyLedger
@@ -413,8 +516,8 @@ public with sharing class PointLedgerUIControllerV1 {
         AND EventType IN ('Debit', 'Expiry')
         AND TransactionJournal.OrderId IN :orderIds
         AND LoyaltyPgmCrcySubtypeId IN :subtypeIds
-        AND (TransactionJournal.JournalSubType.Name = NULL
-        OR TransactionJournal.JournalSubType.Name != :JOURNAL_SUBTYPE_CANCEL_PURCHASE_ACCRUAL)
+        AND (TransactionJournal.JournalSubTypeId = NULL
+        OR TransactionJournal.JournalSubTypeId != :cancelPurchaseAccrualSubTypeId)
       GROUP BY TransactionJournal.OrderId, LoyaltyPgmCrcySubtypeId, EventType
     ]) {
       Id orderId = (Id) ar.get('orderId');
@@ -447,6 +550,9 @@ public with sharing class PointLedgerUIControllerV1 {
       return result;
     }
 
+    Set<Id> excludedPaymentJournalSubTypeIds = getJournalSubTypeIdsByNames(
+      new Set<String>{ 'Coupon Redeem Cancel', 'Point Redeem Cancel', 'Order Deposit Reversal', 'Sale Deposit Reversal', 'Cancel Purchase Accrual' }
+    );
     for (AggregateResult ar : [
       SELECT OrderId orderId, PaymentMethod paymentMethod, SUM(TransactionAmount) totalAmount
       FROM TransactionJournal
@@ -455,8 +561,8 @@ public with sharing class PointLedgerUIControllerV1 {
         AND TransactionAmount != NULL
         AND PaymentMethod != NULL
         AND IsDeleted__c = FALSE
-        AND (JournalSubType.Name = NULL
-        OR JournalSubType.Name NOT IN :EXCLUDED_PAYMENT_JOURNAL_SUBTYPES)
+        AND (JournalSubTypeId = NULL
+        OR JournalSubTypeId NOT IN :excludedPaymentJournalSubTypeIds)
       GROUP BY OrderId, PaymentMethod
     ]) {
       Id orderId = (Id) ar.get('orderId');
@@ -489,12 +595,12 @@ public with sharing class PointLedgerUIControllerV1 {
       return result;
     }
 
+    Id purchaseAccrualSubTypeId = getJournalSubTypeIdByName(JOURNAL_SUBTYPE_PURCHASE_ACCRUAL);
+    Id cancelPurchaseAccrualSubTypeId = getJournalSubTypeIdByName(JOURNAL_SUBTYPE_CANCEL_PURCHASE_ACCRUAL);
     for (TransactionJournal journal : [
-      SELECT OrderId, Order.SaleNo__c, JournalSubType.Name
+      SELECT OrderId, Order.SaleNo__c, JournalSubTypeId
       FROM TransactionJournal
-      WHERE
-        OrderId IN :orderIds
-        AND JournalSubType.Name IN :new Set<String>{ JOURNAL_SUBTYPE_PURCHASE_ACCRUAL, JOURNAL_SUBTYPE_CANCEL_PURCHASE_ACCRUAL }
+      WHERE OrderId IN :orderIds AND JournalSubTypeId IN :new Set<Id>{ purchaseAccrualSubTypeId, cancelPurchaseAccrualSubTypeId }
     ]) {
       if (!result.containsKey(journal.OrderId)) {
         result.put(journal.OrderId, new RelatedOrderInfo());
@@ -502,13 +608,46 @@ public with sharing class PointLedgerUIControllerV1 {
 
       RelatedOrderInfo info = result.get(journal.OrderId);
 
-      if (journal.JournalSubType != null && journal.JournalSubType.Name == JOURNAL_SUBTYPE_PURCHASE_ACCRUAL) {
+      if (journal.JournalSubTypeId == purchaseAccrualSubTypeId) {
         info.accrualSaleNo = journal.Order != null ? journal.Order.SaleNo__c : null;
-      } else if (journal.JournalSubType != null && journal.JournalSubType.Name == JOURNAL_SUBTYPE_CANCEL_PURCHASE_ACCRUAL) {
+      } else if (journal.JournalSubTypeId == cancelPurchaseAccrualSubTypeId) {
         info.returnSaleNo = journal.Order != null ? journal.Order.SaleNo__c : null;
       }
     }
 
+    return result;
+  }
+
+  private static Id getJournalSubTypeIdByName(String name) {
+    if (String.isBlank(name)) {
+      return null;
+    }
+    if (journalSubTypeIdsByName == null) {
+      journalSubTypeIdsByName = new Map<String, Id>();
+    }
+    if (!journalSubTypeIdsByName.containsKey(name)) {
+      List<JournalSubType> rows = [
+        SELECT Id
+        FROM JournalSubType
+        WHERE Name = :name
+        LIMIT 1
+      ];
+      journalSubTypeIdsByName.put(name, rows.isEmpty() ? null : rows[0].Id);
+    }
+    return journalSubTypeIdsByName.get(name);
+  }
+
+  private static Set<Id> getJournalSubTypeIdsByNames(Set<String> names) {
+    Set<Id> result = new Set<Id>();
+    if (names == null || names.isEmpty()) {
+      return result;
+    }
+    for (String name : names) {
+      Id subTypeId = getJournalSubTypeIdByName(name);
+      if (subTypeId != null) {
+        result.add(subTypeId);
+      }
+    }
     return result;
   }
 
@@ -558,6 +697,8 @@ public with sharing class PointLedgerUIControllerV1 {
     @AuraEnabled
     public String saleNo;
     @AuraEnabled
+    public Id saleOrderId;
+    @AuraEnabled
     public Integer saleAmount;
     @AuraEnabled
     public Integer depositCouponAmount;
@@ -579,11 +720,17 @@ public with sharing class PointLedgerUIControllerV1 {
     @AuraEnabled
     public Integer redemptionPoints;
     @AuraEnabled
+    public String orderNo;
+    @AuraEnabled
     public String saleNo;
+    @AuraEnabled
+    public Id recordId;
     @AuraEnabled
     public Integer saleAmount;
     @AuraEnabled
     public String accrualSaleNo;
+    @AuraEnabled
+    public Id accrualRecordId;
     @AuraEnabled
     public String returnSaleNo;
     @AuraEnabled
