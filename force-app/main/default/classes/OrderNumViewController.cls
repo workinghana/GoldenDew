@@ -1728,7 +1728,17 @@ public with sharing class OrderNumViewController {
     }
 
     for (TransactionJournal journal : [
-      SELECT OrderId, SaleId__c, OrderId__c, JournalType.Name, JournalSubType.Name, TransactionAmount, PaymentMethod, Status, AdditionalNotes__c
+      SELECT
+        OrderId,
+        SaleId__c,
+        OrderId__c,
+        JournalType.Name,
+        JournalSubType.Name,
+        TransactionAmount,
+        PaymentMethod,
+        Status,
+        AdditionalNotes__c,
+        DepositType__c
       FROM TransactionJournal
       WHERE (OrderId IN :saleOrderIds OR SaleId__c IN :saleOrderIds) AND TransactionAmount != NULL
     ]) {
@@ -1738,6 +1748,12 @@ public with sharing class OrderNumViewController {
 
       Decimal amount = journal.TransactionAmount == null ? 0 : journal.TransactionAmount.abs();
       if (amount == 0) {
+        continue;
+      }
+
+      // DepositType__c == '03' (환불) → 결제 종류 무관 차감 (PaymentMethod 별 버킷 + totalAmount 동시 차감)
+      if (journal.DepositType__c == '03') {
+        applySignedPaymentAmount(summary, journal.PaymentMethod, -amount);
         continue;
       }
 
@@ -1766,7 +1782,8 @@ public with sharing class OrderNumViewController {
         journal.JournalType.Name == REDEMPTION_JOURNAL_TYPE_NAME &&
         journal.JournalSubType != null &&
         journal.JournalSubType.Name == COUPON_REDEEM_JOURNAL_SUBTYPE_NAME &&
-        isIncludedPaymentStatus(journal.Status)
+        isIncludedPaymentStatus(journal.Status) &&
+        journal.DepositType__c == '02'
       ) {
         summary.totalAmount += amount;
         summary.couponAmount += amount;
@@ -1779,34 +1796,12 @@ public with sharing class OrderNumViewController {
         journal.JournalSubType != null &&
         journal.JournalSubType.Name == POINT_DEBIT_JOURNAL_SUBTYPE_NAME &&
         isIncludedPaymentStatus(journal.Status) &&
-        journal.AdditionalNotes__c != RESTORE_POINT_USAGE_ADDITIONAL_NOTES
+        journal.AdditionalNotes__c != RESTORE_POINT_USAGE_ADDITIONAL_NOTES &&
+        journal.DepositType__c == '02'
       ) {
         summary.totalAmount += amount;
         summary.pointAmount += amount;
         continue;
-      }
-
-      if (
-        journal.JournalType != null &&
-        journal.JournalType.Name == REDEMPTION_REVERSAL_JOURNAL_TYPE_NAME &&
-        journal.JournalSubType != null &&
-        journal.JournalSubType.Name == COUPON_REDEEM_CANCEL_JOURNAL_SUBTYPE_NAME &&
-        isIncludedPaymentStatus(journal.Status)
-      ) {
-        summary.totalAmount -= amount;
-        summary.couponAmount -= amount;
-        continue;
-      }
-
-      if (
-        journal.JournalType != null &&
-        journal.JournalType.Name == REDEMPTION_REVERSAL_JOURNAL_TYPE_NAME &&
-        journal.JournalSubType != null &&
-        journal.JournalSubType.Name == POINT_REDEEM_CANCEL_JOURNAL_SUBTYPE_NAME &&
-        isIncludedPaymentStatus(journal.Status)
-      ) {
-        summary.totalAmount -= amount;
-        summary.pointAmount -= amount;
       }
     }
 
@@ -2326,10 +2321,11 @@ public with sharing class OrderNumViewController {
     if (showNegative == true) {
       return normalizeNegativeAmount(amount);
     }
-    if (amount == null || amount == 0) {
+    if (amount == null) {
       return 0;
     }
-    return amount.abs();
+    // 결제수단별 버킷 / 합계의 실제 부호 보존 — 환불이 입금보다 크면 음수 그대로 표시
+    return amount;
   }
 
   private static void applySignedPaymentAmount(PaymentSummary summary, String paymentMethod, Decimal signedAmount) {
@@ -2786,7 +2782,7 @@ public with sharing class OrderNumViewController {
     Id saleDepositSubTypeId = getJournalSubTypeIdByName(SALE_DEPOSIT_JOURNAL_SUBTYPE_NAME);
     Id saleDepositReversalSubTypeId = getJournalSubTypeIdByName(SALE_DEPOSIT_REVERSAL_JOURNAL_SUBTYPE_NAME);
     if (saleDepositSubTypeId == null && saleDepositReversalSubTypeId == null) {
-      applyCouponRedemptionBySaleNumbers(summaryBySaleNo, saleNumbers);
+      applyCouponRedemptionBySaleNumbers(summaryBySaleNo, saleNumbers, saleOrderIds);
       return summaryBySaleNo;
     }
 
@@ -2819,8 +2815,8 @@ public with sharing class OrderNumViewController {
       applySignedPaymentAmount(summaryBySaleNo.get(saleNo), (String) ar.get('paymentMethod'), isReversal ? -amount.abs() : amount.abs());
     }
 
-    applyCouponRedemptionBySaleNumbers(summaryBySaleNo, saleNumbers);
-    applyPointRedemptionBySaleNumbers(summaryBySaleNo, saleNumbers);
+    applyCouponRedemptionBySaleNumbers(summaryBySaleNo, saleNumbers, saleOrderIds);
+    applyPointRedemptionBySaleNumbers(summaryBySaleNo, saleNumbers, saleOrderIds);
     return summaryBySaleNo;
   }
 
@@ -2875,6 +2871,30 @@ public with sharing class OrderNumViewController {
     }
   }
 
+  private static Set<Id> getOrdersWithSaleConnection(Set<Id> orderIds) {
+    Set<Id> result = new Set<Id>();
+    if (orderIds == null || orderIds.isEmpty()) {
+      return result;
+    }
+    for (AggregateResult ar : [
+      SELECT OrderId__c oid
+      FROM TransactionJournal
+      WHERE OrderId__c IN :orderIds AND SaleId__c != NULL
+      GROUP BY OrderId__c
+    ]) {
+      Object oidVal = ar.get('oid');
+      if (oidVal == null) {
+        continue;
+      }
+      String oidStr = String.valueOf(oidVal);
+      if (String.isBlank(oidStr)) {
+        continue;
+      }
+      result.add((Id) oidStr);
+    }
+    return result;
+  }
+
   private static void applyCouponRedemptionByOrderIds(PaymentSummary summary, Set<Id> orderIds, String idField) {
     if (summary == null || orderIds == null || orderIds.isEmpty() || String.isBlank(idField)) {
       return;
@@ -2898,6 +2918,8 @@ public with sharing class OrderNumViewController {
       return;
     }
 
+    Set<Id> ordersWithSaleConnection = idField == 'OrderId__c' ? getOrdersWithSaleConnection(orderIds) : new Set<Id>();
+
     String query =
       'SELECT JournalTypeId journalTypeId, JournalSubTypeId journalSubTypeId, SUM(TransactionAmount) totalAmount ' +
       'FROM TransactionJournal ' +
@@ -2907,15 +2929,24 @@ public with sharing class OrderNumViewController {
       'AND TransactionAmount != NULL ' +
       'AND JournalTypeId IN :couponJournalTypeIds ' +
       'AND JournalSubTypeId IN :couponJournalSubTypeIds ' +
-      'AND (Status = NULL OR Status IN :INCLUDED_PAYMENT_STATUSES) ' +
-      'GROUP BY JournalTypeId, JournalSubTypeId';
+      'AND (Status = NULL OR Status IN :INCLUDED_PAYMENT_STATUSES) ';
+
+    if (idField == 'SaleId__c' && Schema.sObjectType.TransactionJournal.fields.getMap().containsKey('SaleId__c')) {
+      query += 'AND (SaleId__c = NULL OR SaleId__c IN :orderIds) ';
+    }
+
+    if (idField == 'OrderId__c' && !ordersWithSaleConnection.isEmpty()) {
+      query += 'AND (OrderId__c NOT IN :ordersWithSaleConnection OR SaleId__c != NULL) ';
+    }
+
+    query += 'GROUP BY JournalTypeId, JournalSubTypeId';
 
     for (AggregateResult ar : Database.query(query)) {
       applyCouponRedemptionAmount(summary, (Id) ar.get('journalTypeId'), (Id) ar.get('journalSubTypeId'), (Decimal) ar.get('totalAmount'));
     }
   }
 
-  private static void applyCouponRedemptionBySaleNumbers(Map<String, PaymentSummary> summaryBySaleNo, Set<String> saleNumbers) {
+  private static void applyCouponRedemptionBySaleNumbers(Map<String, PaymentSummary> summaryBySaleNo, Set<String> saleNumbers, Set<Id> saleOrderIds) {
     if (summaryBySaleNo == null || summaryBySaleNo.isEmpty() || saleNumbers == null || saleNumbers.isEmpty()) {
       return;
     }
@@ -2938,19 +2969,23 @@ public with sharing class OrderNumViewController {
       return;
     }
 
-    for (AggregateResult ar : [
-      SELECT Order.SaleNo__c saleNo, JournalTypeId journalTypeId, JournalSubTypeId journalSubTypeId, SUM(TransactionAmount) totalAmount
-      FROM TransactionJournal
-      WHERE
-        Order.SaleNo__c IN :saleNumbers
-        AND Order.IsReductionOrder__c = FALSE
-        AND TransactionAmount != NULL
-        AND JournalTypeId IN :couponJournalTypeIds
-        AND JournalSubTypeId IN :couponJournalSubTypeIds
-        AND (Status = NULL
-        OR Status IN :INCLUDED_PAYMENT_STATUSES)
-      GROUP BY Order.SaleNo__c, JournalTypeId, JournalSubTypeId
-    ]) {
+    String query =
+      'SELECT Order.SaleNo__c saleNo, JournalTypeId journalTypeId, JournalSubTypeId journalSubTypeId, SUM(TransactionAmount) totalAmount ' +
+      'FROM TransactionJournal ' +
+      'WHERE Order.SaleNo__c IN :saleNumbers ' +
+      'AND Order.IsReductionOrder__c = FALSE ' +
+      'AND TransactionAmount != NULL ' +
+      'AND JournalTypeId IN :couponJournalTypeIds ' +
+      'AND JournalSubTypeId IN :couponJournalSubTypeIds ' +
+      'AND (Status = NULL OR Status IN :INCLUDED_PAYMENT_STATUSES) ';
+
+    if (saleOrderIds != null && !saleOrderIds.isEmpty() && Schema.sObjectType.TransactionJournal.fields.getMap().containsKey('SaleId__c')) {
+      query += 'AND (SaleId__c = NULL OR SaleId__c IN :saleOrderIds) ';
+    }
+
+    query += 'GROUP BY Order.SaleNo__c, JournalTypeId, JournalSubTypeId';
+
+    for (AggregateResult ar : Database.query(query)) {
       String saleNo = (String) ar.get('saleNo');
       if (!summaryBySaleNo.containsKey(saleNo)) {
         summaryBySaleNo.put(saleNo, new PaymentSummary());
@@ -3047,6 +3082,8 @@ public with sharing class OrderNumViewController {
       return;
     }
 
+    Set<Id> ordersWithSaleConnection = idField == 'OrderId__c' ? getOrdersWithSaleConnection(orderIds) : new Set<Id>();
+
     String restoreNote = RESTORE_POINT_USAGE_ADDITIONAL_NOTES;
     String query =
       'SELECT JournalTypeId journalTypeId, JournalSubTypeId journalSubTypeId, SUM(TransactionAmount) totalAmount ' +
@@ -3058,15 +3095,24 @@ public with sharing class OrderNumViewController {
       'AND JournalTypeId IN :pointJournalTypeIds ' +
       'AND JournalSubTypeId IN :pointJournalSubTypeIds ' +
       'AND (AdditionalNotes__c = NULL OR AdditionalNotes__c != :restoreNote) ' +
-      'AND (Status = NULL OR Status IN :INCLUDED_PAYMENT_STATUSES) ' +
-      'GROUP BY JournalTypeId, JournalSubTypeId';
+      'AND (Status = NULL OR Status IN :INCLUDED_PAYMENT_STATUSES) ';
+
+    if (idField == 'SaleId__c' && Schema.sObjectType.TransactionJournal.fields.getMap().containsKey('SaleId__c')) {
+      query += 'AND (SaleId__c = NULL OR SaleId__c IN :orderIds) ';
+    }
+
+    if (idField == 'OrderId__c' && !ordersWithSaleConnection.isEmpty()) {
+      query += 'AND (OrderId__c NOT IN :ordersWithSaleConnection OR SaleId__c != NULL) ';
+    }
+
+    query += 'GROUP BY JournalTypeId, JournalSubTypeId';
 
     for (AggregateResult ar : Database.query(query)) {
       applyPointRedemptionAmount(summary, (Id) ar.get('journalTypeId'), (Id) ar.get('journalSubTypeId'), (Decimal) ar.get('totalAmount'));
     }
   }
 
-  private static void applyPointRedemptionBySaleNumbers(Map<String, PaymentSummary> summaryBySaleNo, Set<String> saleNumbers) {
+  private static void applyPointRedemptionBySaleNumbers(Map<String, PaymentSummary> summaryBySaleNo, Set<String> saleNumbers, Set<Id> saleOrderIds) {
     if (summaryBySaleNo == null || summaryBySaleNo.isEmpty() || saleNumbers == null || saleNumbers.isEmpty()) {
       return;
     }
@@ -3096,21 +3142,25 @@ public with sharing class OrderNumViewController {
       return;
     }
 
-    for (AggregateResult ar : [
-      SELECT Order.SaleNo__c saleNo, JournalTypeId journalTypeId, JournalSubTypeId journalSubTypeId, SUM(TransactionAmount) totalAmount
-      FROM TransactionJournal
-      WHERE
-        Order.SaleNo__c IN :saleNumbers
-        AND Order.IsReductionOrder__c = FALSE
-        AND TransactionAmount != NULL
-        AND JournalTypeId IN :pointJournalTypeIds
-        AND JournalSubTypeId IN :pointJournalSubTypeIds
-        AND (AdditionalNotes__c = NULL
-        OR AdditionalNotes__c != :RESTORE_POINT_USAGE_ADDITIONAL_NOTES)
-        AND (Status = NULL
-        OR Status IN :INCLUDED_PAYMENT_STATUSES)
-      GROUP BY Order.SaleNo__c, JournalTypeId, JournalSubTypeId
-    ]) {
+    String restoreNote = RESTORE_POINT_USAGE_ADDITIONAL_NOTES;
+    String query =
+      'SELECT Order.SaleNo__c saleNo, JournalTypeId journalTypeId, JournalSubTypeId journalSubTypeId, SUM(TransactionAmount) totalAmount ' +
+      'FROM TransactionJournal ' +
+      'WHERE Order.SaleNo__c IN :saleNumbers ' +
+      'AND Order.IsReductionOrder__c = FALSE ' +
+      'AND TransactionAmount != NULL ' +
+      'AND JournalTypeId IN :pointJournalTypeIds ' +
+      'AND JournalSubTypeId IN :pointJournalSubTypeIds ' +
+      'AND (AdditionalNotes__c = NULL OR AdditionalNotes__c != :restoreNote) ' +
+      'AND (Status = NULL OR Status IN :INCLUDED_PAYMENT_STATUSES) ';
+
+    if (saleOrderIds != null && !saleOrderIds.isEmpty() && Schema.sObjectType.TransactionJournal.fields.getMap().containsKey('SaleId__c')) {
+      query += 'AND (SaleId__c = NULL OR SaleId__c IN :saleOrderIds) ';
+    }
+
+    query += 'GROUP BY Order.SaleNo__c, JournalTypeId, JournalSubTypeId';
+
+    for (AggregateResult ar : Database.query(query)) {
       String saleNo = (String) ar.get('saleNo');
       if (!summaryBySaleNo.containsKey(saleNo)) {
         summaryBySaleNo.put(saleNo, new PaymentSummary());

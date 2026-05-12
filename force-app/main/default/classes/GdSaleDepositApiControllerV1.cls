@@ -144,6 +144,16 @@ global with sharing class GdSaleDepositApiControllerV1 {
 
       depositNo += '-' + deposiSeqNo;
 
+      // 26.05.07 CS - 옵션 C 분기: 표준 service 호출 이전에 판단.
+      //   이유: service 가 TJ.DepositNo 에 'del_' prefix 를 붙이고 IsDeleted=true 처리 → 호출 후엔 원본 키로 매칭 불가.
+      //   따라서 호출 전에 branch 여부 + 원본 TJ snapshot 확보 후, service 호출 후 wrap 진행.
+      Boolean shouldBranchOptC = false;
+      try {
+        shouldBranchOptC = GdMigrationUtil.shouldApplyOptionCBranchByDepositNo(depositNo);
+      } catch (Exception ignoredCheck) {
+        shouldBranchOptC = false;
+      }
+
       ApiResult saleDepositResult = getSaleDepositService().deleteSaleDeposit(depositNo);
       // ApiResult saleDepositResult = getSaleDepositService().deleteSaleDepositV2(depositNo);
 
@@ -152,6 +162,15 @@ global with sharing class GdSaleDepositApiControllerV1 {
       resData.put('CancelCoupon', saleDepositResult.data.get('couponCanceled'));
 
       ApiResult result = ApiResult.ok(200, '판매 입금 삭제 삭제 완료', resData);
+
+      // 옵션 C 분기 wrap (호출 전에 판단한 결과 사용)
+      if (shouldBranchOptC) {
+        try {
+          result = GdSaleDepositDeleteBranchHandler.wrapResponseForOldDeposit(result, depositNo, logger);
+        } catch (Exception ignoredOptC) {
+          System.debug('OptC sale deposit delete branch exception: ' + ignoredOptC.getMessage());
+        }
+      }
 
       RestResponseUtil.handleSuccess(result, logger);
     } catch (ValidationException ve) {

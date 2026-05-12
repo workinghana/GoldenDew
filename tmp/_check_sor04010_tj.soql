@@ -1,0 +1,6 @@
+SELECT Id, DepositNo__c, DeposiSeqNo__c, JournalSubTypeName__c,
+       PaymentMethod, TransactionAmount, DepositType__c,
+       OrderId, OrderId__c, SaleId__c, IsDeleted__c
+FROM TransactionJournal
+WHERE OrderId = '801JO00000IB1GBYA1' OR OrderId__c = '801JO00000IB1GBYA1' OR SaleId__c = '801JO00000IB1GBYA1'
+ORDER BY DepositNo__c, DeposiSeqNo__c

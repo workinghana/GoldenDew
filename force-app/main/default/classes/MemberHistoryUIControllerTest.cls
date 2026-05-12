@@ -1,7 +1,24 @@
 @IsTest
 private class MemberHistoryUIControllerTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"success":true,"message":"ok","data":{}}');
+      return res;
+    }
+  }
+
+  private static void setMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
+
   @TestSetup
   static void setupData() {
+    setMock();
+
     Contact contactRecord = new Contact(LastName = 'HistoryUI', Email = 'old@test.com', Phone = '01012345678');
     insert contactRecord;
 
@@ -26,6 +43,8 @@ private class MemberHistoryUIControllerTest {
 
   @IsTest
   static void test_getMemberHistory() {
+    setMock();
+
     Id lpmId = [SELECT Id FROM LoyaltyProgramMember LIMIT 1].Id;
 
     Test.startTest();

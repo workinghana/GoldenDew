@@ -459,6 +459,7 @@ private class GdPromotionServiceImplTest {
   @IsTest
   static void getPromotionDetail_withStoreAndPoint_success() {
     Promotion p = insertPromotionRecord('DETAIL-EXTRA-PROMO', false);
+    update new Promotion(Id = p.Id, IsStoreSpecific__c = true);
     Account acc = insertStoreAccount('Detail Store', 'STORE-DETAIL-01');
     insert new PromotionAccount__c(PromotionId__c = p.Id, AccountId__c = acc.Id, IsActive__c = true);
     LoyaltyPgmCurrencySubtype subtype = insertCurrencySubtype();

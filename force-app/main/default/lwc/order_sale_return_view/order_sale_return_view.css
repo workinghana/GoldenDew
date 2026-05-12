@@ -1,0 +1,416 @@
+/* ===== 페이지 전체 ===== */
+.page-body {
+  padding: 16px 20px 24px 20px;
+  background: #f7f8fb;
+}
+
+/* 안내 배너 */
+.hint-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #eef4ff;
+  border: 1px solid #c7d8ff;
+  color: #1d4ed8;
+  font-size: 12.5px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+/* ===== 섹션 카드 ===== */
+.section-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+.section-header {
+  border-left: 4px solid #5b8def;
+}
+.section-items {
+  border-left: 4px solid #16a085;
+}
+.section-journals {
+  border-left: 4px solid #f59e0b;
+}
+.section-sale {
+  border-left: 4px solid #a855f7;
+}
+.section-return {
+  border-left: 4px solid #ef4444;
+}
+
+/* 주문 / 판매 큰 영역 구분선 */
+.section-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 14px;
+  font-weight: 800;
+  color: #5b21b6;
+  letter-spacing: 0.4px;
+  margin: 28px 0 16px 0;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #ede9fe, #f5f3ff);
+  border: 1px dashed #c4b5fd;
+  border-radius: 8px;
+}
+.section-divider::before {
+  content: "";
+  flex: 0 0 6px;
+  height: 18px;
+  background: #a855f7;
+  border-radius: 4px;
+}
+
+/* 반품 영역 구분선 — 붉은 톤 */
+.section-divider-return {
+  color: #b91c1c;
+  background: linear-gradient(135deg, #fee2e2, #fef2f2);
+  border-color: #fca5a5;
+}
+.section-divider-return::before {
+  background: #ef4444;
+}
+
+.section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1f2937;
+  margin-bottom: 14px;
+}
+.section-title-row .section-title {
+  margin-bottom: 0;
+}
+
+/* 서브섹션 (입력 vs 자동 적용) */
+.subsection-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  margin: 14px 0 8px 0;
+  padding-left: 4px;
+}
+.subsection-title .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.subsection-title.input {
+  color: #2563eb;
+}
+.subsection-title.input .dot {
+  background: #5b8def;
+}
+.subsection-title.fixed {
+  color: #64748b;
+}
+.subsection-title.fixed .dot {
+  background: #94a3b8;
+}
+
+/* ===== 입력 필드 그리드 ===== */
+.input-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px 16px;
+  align-items: end;
+}
+
+/* clean-input 라벨/박스 톤 정리 */
+.clean-input {
+  --slds-c-input-color-border: #d1d5db;
+  --slds-c-input-color-border-focus: #5b8def;
+  --slds-c-input-radius-border: 6px;
+}
+.clean-input ::part(label) {
+  font-weight: 600;
+  color: #334155;
+  font-size: 12.5px;
+}
+
+/* checkbox cell — 다른 입력 필드와 baseline 맞춤 */
+.checkbox-cell {
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 6px;
+}
+
+/* 입력 + 보조 버튼 (예: 판매 입금 삭제 버튼) */
+.input-with-action {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+.input-with-action lightning-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.input-with-action lightning-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* 버튼이 여러 개 붙는 셀 — 그리드 2칸 차지로 넓게 */
+.input-with-action.wide {
+  grid-column: span 2;
+}
+
+/* ===== 지정(읽기 전용) 정보 카드 ===== */
+.fixed-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px;
+}
+.fixed-info-item {
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 8px 12px;
+  min-height: 50px;
+  justify-content: center;
+}
+.fixed-info-item.highlight {
+  background: linear-gradient(135deg, #fff7ed, #fef3c7);
+  border-color: #fcd34d;
+}
+.fixed-info-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #64748b;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+.fixed-info-value {
+  font-size: 14px;
+  color: #0f172a;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, "Consolas", monospace;
+}
+.fixed-info-value.muted {
+  color: #94a3b8;
+  font-style: italic;
+  font-weight: 500;
+}
+
+/* ===== OrderItem / TransactionJournal 행 카드 ===== */
+.row-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  transition:
+    box-shadow 0.15s,
+    border-color 0.15s;
+}
+.row-card:hover {
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.06);
+  border-color: #cbd5e1;
+}
+.row-card-item {
+  border-left: 3px solid #16a085;
+}
+.row-card-journal {
+  border-left: 3px solid #f59e0b;
+}
+
+.row-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed #e5e7eb;
+}
+.row-card-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #5b21b6;
+  letter-spacing: 0.3px;
+}
+
+/* 지정 칩 (행 하단 정보) */
+.fixed-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e5e7eb;
+}
+.fixed-chip {
+  display: inline-flex;
+  align-items: center;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 3px 4px 3px 10px;
+  font-size: 11.5px;
+  gap: 6px;
+}
+.fixed-chip .chip-key {
+  color: #64748b;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.fixed-chip .chip-val {
+  color: #0f172a;
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, "Consolas", monospace;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+.fixed-chip .chip-val.muted {
+  color: #94a3b8;
+  font-style: italic;
+}
+
+/* ===== 제출 바 ===== */
+.submit-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20px;
+  padding: 14px 16px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+}
+
+/* JSON 프리뷰 */
+.json-preview-box {
+  margin-top: 10px;
+  background: #1e1b4b;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #312e81;
+}
+.json-preview-label {
+  background: #312e81;
+  color: #e0e7ff;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 6px 12px;
+  text-transform: uppercase;
+}
+.json-preview {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Courier New", monospace;
+  font-size: 12px;
+  background: #1e1b4b;
+  color: #f5f3ff;
+  padding: 14px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 420px;
+  overflow: auto;
+}
+
+/* ===== 모달 ===== */
+.modal-clean {
+  border-radius: 12px;
+  overflow: hidden;
+}
+.modal-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  margin-bottom: 14px;
+}
+.modal-grid {
+  grid-template-columns: 1fr 1fr;
+}
+.modal-checkbox {
+  grid-column: 1 / -1;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+/* 판매금액 입력 옆 — 주문 상세 합계 참고 표기 */
+.payment-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  color: #475569;
+  background: #f1f5f9;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+}
+.payment-hint strong {
+  color: #5b21b6;
+  font-family: ui-monospace, SFMono-Regular, "Consolas", monospace;
+}
+
+/* 주문 수정 모달 — 더 넓은 본문 */
+.modal-wide {
+  width: 90%;
+  max-width: 1100px;
+}
+
+/* 주문 수정 모달 내부 섹션 */
+.modify-section {
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  background: #fbfcfe;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+}
+.modify-section-title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.modify-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2937;
+  letter-spacing: 0.2px;
+}
+
+/* 체크박스를 섹션 타이틀에 인라인 배치 */
+.inline-checkbox {
+  margin: 0;
+}

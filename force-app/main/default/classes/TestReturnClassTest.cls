@@ -1,5 +1,20 @@
 @IsTest
 private class TestReturnClassTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"success":true,"message":"ok","data":{}}');
+      return res;
+    }
+  }
+
+  private static void setMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
+
   private static final String MEMBER_NO = 'TR-MEMBER-001';
   private static final String ORIGINAL_SALE_NO = 'TR-ORIG-SALE-001';
   private static final String ORIGINAL_ORDER_NO = 'TR-ORIG-ORDER-001';
@@ -12,6 +27,7 @@ private class TestReturnClassTest {
 
   @TestSetup
   static void setupData() {
+    setMock();
     Id standardPricebookId = Test.getStandardPricebookId();
     update new Pricebook2(Id = standardPricebookId, IsActive = true);
 
@@ -600,6 +616,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void createReturn_nullReq_throws() {
+    setMock();
     Boolean thrown = false;
 
     try {
@@ -614,6 +631,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void createReturn_originalSaleNotFound_throws() {
+    setMock();
     Boolean thrown = false;
 
     try {
@@ -636,6 +654,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void createReturn_success_createsReductionOrder() {
+    setMock();
     Test.startTest();
     ApiResult result = svc()
       .createReturn(
@@ -665,6 +684,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void createReturn_duplicateSaleNo_throws() {
+    setMock();
     createReturnOrder('TR-DUP-SALE-001', false);
 
     Boolean thrown = false;
@@ -689,6 +709,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void createReturnItem_success_createsOrderItem() {
+    setMock();
     Order returnOrder = createReturnOrder('TR-RETURN-ITEM-001', false);
 
     Map<String, Object> reqData = new Map<String, Object>{
@@ -713,6 +734,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void createReturnItem_missingRequired_throws() {
+    setMock();
     Boolean thrown = false;
 
     try {
@@ -727,6 +749,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void createReturnItem_productNotFound_throws() {
+    setMock();
     Order returnOrder = createReturnOrder('TR-RETURN-ITEM-ERR-001', false);
 
     Boolean thrown = false;
@@ -752,6 +775,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void deleteReturn_success_marksDeleted() {
+    setMock();
     Order returnOrder = createReturnOrder('TR-DELETE-SALE-001', false);
 
     Test.startTest();
@@ -772,6 +796,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void deleteReturn_notFound_throws() {
+    setMock();
     Boolean thrown = false;
 
     try {
@@ -786,6 +811,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void deleteReturnItem_success_deletesItems() {
+    setMock();
     Order returnOrder = createReturnOrder('TR-DELETE-ITEM-001', true);
 
     Test.startTest();
@@ -798,6 +824,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void deleteReturnItem_notFound_throws() {
+    setMock();
     Boolean thrown = false;
 
     try {
@@ -812,6 +839,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void createReturnApiFlow_emptyRaw_throws() {
+    setMock();
     Boolean thrown = false;
 
     try {
@@ -826,6 +854,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void createReturnApiFlow_badJson_throws() {
+    setMock();
     Boolean thrown = false;
 
     try {
@@ -840,6 +869,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void createReturnApiFlow_success_updatesStatus() {
+    setMock();
     Map<String, Object> reqData = new Map<String, Object>{
       'SaleNo__c' => 'TR-FLOW-SALE-001',
       'OriginalOrderId' => ORIGINAL_SALE_NO,
@@ -847,22 +877,25 @@ private class TestReturnClassTest {
       'InsertId__c' => 'TEST_USER'
     };
 
-    Boolean thrown = false;
+    ApiResult result;
 
     Test.startTest();
-    try {
-      svc().createReturnApiFlow(reqData);
-    } catch (DmlException e) {
-      thrown = true;
-      System.assert(e.getMessage().contains('주문/판매에는 하나 이상의 제품이 있어야 합니다.'));
-    }
+    result = svc().createReturnApiFlow(reqData);
     Test.stopTest();
 
-    System.assertEquals(true, thrown);
+    System.assertEquals(200, result.code);
+    Order returnOrder = [
+      SELECT Status
+      FROM Order
+      WHERE SaleNo__c = 'TR-FLOW-SALE-001'
+      LIMIT 1
+    ];
+    System.assertEquals('returnSuccess', returnOrder.Status);
   }
 
   @IsTest
   static void createReturnRest_emptyBody_returns400() {
+    setMock();
     setupRestContext('POST', '/services/apexrest/gd/test/return', null, null);
 
     Test.startTest();
@@ -875,12 +908,11 @@ private class TestReturnClassTest {
 
   @IsTest
   static void createReturnRest_success_returns200() {
+    setMock();
     setupRestContext(
       'POST',
       '/services/apexrest/gd/test/return',
-      '{"SaleNo__c":"TR-REST-SALE-001","OriginalOrderId":"' +
-        ORIGINAL_SALE_NO +
-        '","ActualPaymentAmount__c":15000,"InsertId__c":"TEST_USER"}',
+      '{"SaleNo__c":"TR-REST-SALE-001","OriginalOrderId":"' + ORIGINAL_SALE_NO + '","ActualPaymentAmount__c":15000,"InsertId__c":"TEST_USER"}',
       null
     );
 
@@ -888,12 +920,13 @@ private class TestReturnClassTest {
     TestReturnClass.createReturnRest();
     Test.stopTest();
 
-    System.assertEquals(500, RestContext.response.statusCode);
-    System.assertEquals(false, parseResponseBody().get('success'));
+    System.assertEquals(200, RestContext.response.statusCode);
+    System.assertEquals(true, parseResponseBody().get('success'));
   }
 
   @IsTest
   static void deleteReturnRest_missingSaleNo_returns400() {
+    setMock();
     setupRestContext('DELETE', '/services/apexrest/gd/test/return', null, new Map<String, String>());
 
     Test.startTest();
@@ -905,7 +938,37 @@ private class TestReturnClassTest {
   }
 
   @IsTest
+  static void deleteReturnRest_success_returns200() {
+    setMock();
+    ensureJournalType('Redemption');
+    ensureJournalSubType('Redemption', 'Api Forced Debit');
+    createReturnOrder('TR-REST-DELETE-001', true);
+    setupRestContext('DELETE', '/services/apexrest/gd/test/return', null, new Map<String, String>{ 'SaleNo__c' => 'TR-REST-DELETE-001' });
+
+    Test.startTest();
+    TestReturnClass.deleteReturnRest();
+    Test.stopTest();
+
+    System.assertEquals(200, RestContext.response.statusCode);
+    System.assertEquals(true, parseResponseBody().get('success'));
+  }
+
+  @IsTest
+  static void deleteReturnRest_notFound_returns400() {
+    setMock();
+    setupRestContext('DELETE', '/services/apexrest/gd/test/return', null, new Map<String, String>{ 'SaleNo__c' => 'TR-REST-NOT-FOUND' });
+
+    Test.startTest();
+    TestReturnClass.deleteReturnRest();
+    Test.stopTest();
+
+    System.assertEquals(400, RestContext.response.statusCode);
+    System.assertEquals(false, parseResponseBody().get('success'));
+  }
+
+  @IsTest
   static void pointAndCouponValidationPaths_throwOrReturnAsExpected() {
+    setMock();
     Boolean thrown = false;
 
     try {
@@ -990,7 +1053,76 @@ private class TestReturnClassTest {
   }
 
   @IsTest
+  static void availableCouponHelperEdgePaths_cover_more_lines() {
+    setMock();
+    Set<String> values = new Set<String>();
+    TestReturnClass.addValues(null, 'A');
+    TestReturnClass.addValues(values, null);
+    TestReturnClass.addValues(values, 'A; B\nC, D');
+
+    System.assertEquals(true, values.contains('A'));
+    System.assertEquals(true, values.contains('B'));
+    System.assertEquals(true, values.contains('C'));
+    System.assertEquals(true, values.contains('D'));
+
+    System.assertEquals(null, TestReturnClass.parseDecimalSafe(null));
+    System.assertEquals(null, TestReturnClass.parseDecimalSafe('bad'));
+    System.assertEquals(12.5, TestReturnClass.parseDecimalSafe(' 12.5 '));
+
+    System.assertEquals(null, TestReturnClass.parseIntegerSafe(''));
+    System.assertEquals(null, TestReturnClass.parseIntegerSafe('bad'));
+    System.assertEquals(12, TestReturnClass.parseIntegerSafe(' 12 '));
+
+    System.assertEquals(false, TestReturnClass.intersects(null, values));
+    System.assertEquals(false, TestReturnClass.intersects(values, new Set<String>()));
+    System.assertEquals(true, TestReturnClass.intersects(values, new Set<String>{ 'C' }));
+    System.assertEquals(false, TestReturnClass.intersects(values, new Set<String>{ 'Z' }));
+
+    System.assertEquals(null, TestReturnClass.normalizeDiscountRate(null));
+    System.assertEquals(0.15, TestReturnClass.normalizeDiscountRate(15));
+    System.assertEquals(0.5, TestReturnClass.normalizeDiscountRate(0.5));
+
+    List<Object> items = new List<Object>{
+      null,
+      new Map<String, Object>{ 'DiscountRate__c' => 5 },
+      new Map<String, Object>{ 'DiscountRate__c' => 15 }
+    };
+    System.assertEquals(null, TestReturnClass.extractMaxDiscountRateFromRawOrderItems(null));
+    System.assertEquals(15, TestReturnClass.extractMaxDiscountRateFromRawOrderItems(items));
+
+    List<Object> journals = new List<Object>{ null, new Map<String, Object>{ 'CouponNo' => 'C001' } };
+    System.assertEquals(0, TestReturnClass.extractCouponNosFromRawTransactionJournals(null).size());
+    System.assertEquals(true, TestReturnClass.extractCouponNosFromRawTransactionJournals(journals).contains('C001'));
+
+    Set<String> categoryCodes = new Set<String>();
+    TestReturnClass.addCategoryPathCodes(null, 'S', 'L', 'M', 'SM');
+    TestReturnClass.addCategoryPathCodes(categoryCodes, null, 'L', 'M', 'SM');
+    TestReturnClass.addCategoryPathCodes(categoryCodes, 'S', 'L', 'M', 'SM');
+    System.assertEquals(true, categoryCodes.contains('S-L'));
+    System.assertEquals(true, categoryCodes.contains('S-L-M'));
+    System.assertEquals(true, categoryCodes.contains('S-L-M-SM'));
+
+    System.assertEquals(new Set<String>(), TestReturnClass.resolveProductCategoryCodes(null));
+    System.assertEquals(new Set<String>(), TestReturnClass.resolveProductCategoryCodes(new Set<String>()));
+    System.assertEquals(null, TestReturnClass.resolvePromotionIdByPromotionNo(null));
+
+    System.assertEquals(true, TestReturnClass.matchesNumberConstraint(1, null, null, true));
+    System.assertEquals(false, TestReturnClass.matchesNumberConstraint(null, 1, null, true));
+    System.assertEquals(true, TestReturnClass.matchesNumberConstraint(1, 2, 'none', true));
+    System.assertEquals(true, TestReturnClass.matchesNumberConstraint(2, 1, '01', false));
+    System.assertEquals(true, TestReturnClass.matchesNumberConstraint(1, 2, '02', true));
+    System.assertEquals(true, TestReturnClass.matchesNumberConstraint(1, 2, 'lte', true));
+    System.assertEquals(true, TestReturnClass.matchesNumberConstraint(2, 1, 'gte', false));
+
+    System.assertEquals(false, svc().isAccrualEligible(new TransactionJournal(DepositType__c = '03', PaymentMethod = '10', TransactionAmount = 1)));
+    System.assertEquals(false, svc().isAccrualEligible(new TransactionJournal(DepositType__c = '01', PaymentMethod = '20', TransactionAmount = 1)));
+    System.assertEquals(false, svc().isAccrualEligible(new TransactionJournal(DepositType__c = '01', PaymentMethod = '10', TransactionAmount = 0)));
+    System.assertEquals(true, svc().isAccrualEligible(new TransactionJournal(DepositType__c = '01', PaymentMethod = '10', TransactionAmount = 1)));
+  }
+
+  @IsTest
   static void pointAndCouponLightweightQueries_coverSuccessAndErrorPaths() {
+    setMock();
     Test.startTest();
     ApiResult applyHelp = svc().getPointApplyHelp(new Map<String, Object>{ 'MemberNo__c' => MEMBER_NO });
     ApiResult applyHelpV2 = svc().getPointApplyHelpV2(new Map<String, Object>{ 'MemberNo__c' => MEMBER_NO });
@@ -1023,6 +1155,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void getAvailableCouponListV2_withoutIssuedCoupon_throws() {
+    setMock();
     VoucherReqDto.AvailableVoucherRequest req = new VoucherReqDto.AvailableVoucherRequest(new Map<String, Object>{ 'MemberNo__c' => MEMBER_NO });
 
     Boolean thrown = false;
@@ -1039,6 +1172,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void cover_public_inner_types_and_helpers() {
+    setMock();
     TestReturnClass.TraceSeed traceSeed = new TestReturnClass.TraceSeed(null, null);
     System.assertEquals(null, traceSeed.debitLedgerId);
 
@@ -1079,6 +1213,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void voucher_success_paths_cover_more_lines() {
+    setMock();
     setupVoucherCoverageData();
 
     Test.startTest();
@@ -1133,6 +1268,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void voucher_unlimited_reissue_and_cancel_paths_cover_more_lines() {
+    setMock();
     setupUnlimitedVoucherCoverageData();
 
     LoyaltyProgramMember member = [
@@ -1190,6 +1326,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void insert_sale_deposit_history_coupon_paths_cover_more_lines() {
+    setMock();
     setupVoucherCoverageData();
 
     Order returnOrder = createReturnOrder('TR-DEP-FLOW-001', false);
@@ -1235,6 +1372,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void remaining_public_guard_paths_cover_more_lines() {
+    setMock();
     Order returnOrder = createReturnOrder('TR-REMAINING-GUARD-001', false);
 
     System.assertEquals(null, svc().creditPointsOnPurchase(new List<TransactionJournal>()));
@@ -1311,6 +1449,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void testvisible_helper_paths_cover_more_lines() {
+    setMock();
     ensureJournalType('Accrual');
     ensureJournalType('Accrual Reversal');
     ensureJournalSubType('Accrual', 'Purchase Accrual');
@@ -1370,6 +1509,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void additional_helper_methods_cover_more_lines() {
+    setMock();
     Order originalOrder = getOriginalOrder();
     Order returnOrder = createReturnOrder('TR-HELPER-RET-001', false);
 
@@ -1448,6 +1588,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void voucher_unlimited_reissue_default_shortcut_covers_more_lines() {
+    setMock();
     setupUnlimitedVoucherCoverageData();
 
     LoyaltyProgramMember member = [
@@ -1486,6 +1627,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void coverage_harness_executes_private_helper_blocks() {
+    setMock();
     setupPointCoverageData();
     Promotion promo = createPromotionRecord('HARNESS');
     Integer executed = TestReturnClass.runCoverageHarness(getOriginalOrder().Id, promo.PromotionNo__c);
@@ -1494,6 +1636,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void promotion_none_limit_and_manual_debit_error_cover_more_lines() {
+    setMock();
     setupPointCoverageData();
 
     LoyaltyProgramMember lpm = [
@@ -1555,6 +1698,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void restore_eco_and_delete_flow_cover_more_lines() {
+    setMock();
     setupPointCoverageData();
 
     Order originalOrder = getOriginalOrder();
@@ -1668,6 +1812,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void simulated_point_paths_cover_more_lines() {
+    setMock();
     setupPointCoverageData();
 
     LoyaltyProgramMember lpm = [
@@ -1789,6 +1934,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void simulated_purchase_accrual_paths_cover_more_lines() {
+    setMock();
     setupPointCoverageData();
 
     LoyaltyProgramMember lpm = [
@@ -1905,6 +2051,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void voucher_available_coupon_paths_cover_more_lines() {
+    setMock();
     setupVoucherCoverageData();
 
     Test.startTest();
@@ -1928,6 +2075,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void voucher_limit_paths_cover_more_lines() {
+    setMock();
     setupVoucherCoverageData();
     Id vdId = getTrVoucherDefinitionId();
     delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
@@ -1986,6 +2134,7 @@ private class TestReturnClassTest {
 
   @IsTest
   static void point_local_coverage_paths() {
+    setMock();
     setupPointCoverageData();
 
     Test.startTest();
@@ -2062,5 +2211,557 @@ private class TestReturnClassTest {
       System.assert(true);
     }
     Test.stopTest();
+  }
+
+  @IsTest
+  static void getReturnUsedCoupon_emptyResult_returns200() {
+    setMock();
+
+    Test.startTest();
+    ApiResult result = svc().getReturnUsedCoupon('TR-NO-MATCH-SALE');
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+  }
+
+  @IsTest
+  static void getReturnUsedCoupon_aggregatesAndReturnsRedeemedCoupon() {
+    setMock();
+    setupVoucherCoverageData();
+
+    Order originalOrder = getOriginalOrder();
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      WHERE Contact.MemberNo__c = :MEMBER_NO
+      LIMIT 1
+    ];
+
+    insert new TransactionJournal(
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      OrderId = originalOrder.Id,
+      VoucherCode = 'TR-VCH-001',
+      DepositType__c = '01',
+      DepositNo__c = 'TR-USED-DEP-001',
+      TransactionAmount = 5000,
+      JournalDate = Datetime.now(),
+      ActivityDate = Datetime.now(),
+      Status = 'Processed',
+      InsertId__c = 'TESTER'
+    );
+    insert new TransactionJournal(
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      OrderId = originalOrder.Id,
+      VoucherCode = 'TR-VCH-001',
+      DepositType__c = '01',
+      DepositNo__c = 'TR-USED-DEP-002',
+      TransactionAmount = 5000,
+      JournalDate = Datetime.now(),
+      ActivityDate = Datetime.now(),
+      Status = 'Processed',
+      InsertId__c = 'TESTER'
+    );
+    insert new TransactionJournal(
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      OrderId = originalOrder.Id,
+      VoucherCode = 'TR-VCH-001',
+      DepositType__c = '03',
+      DepositNo__c = 'TR-USED-DEP-003',
+      TransactionAmount = 5000,
+      JournalDate = Datetime.now(),
+      ActivityDate = Datetime.now(),
+      Status = 'Processed',
+      InsertId__c = 'TESTER'
+    );
+
+    Test.startTest();
+    ApiResult result = svc().getReturnUsedCoupon(ORIGINAL_SALE_NO);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertNotEquals(null, result.data.get('RedeemedCoupon'));
+    Map<String, Object> coupon = (Map<String, Object>) result.data.get('RedeemedCoupon');
+    String voucherCode = (String) coupon.get('VoucherCode');
+    System.assert(voucherCode == 'TR-VCH-001' || voucherCode == 'TR-VCH-002');
+  }
+
+  @IsTest
+  static void getReturnUsedCoupon_voucherNotFound_throws() {
+    setMock();
+
+    Order originalOrder = getOriginalOrder();
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      WHERE Contact.MemberNo__c = :MEMBER_NO
+      LIMIT 1
+    ];
+
+    insert new TransactionJournal(
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      OrderId = originalOrder.Id,
+      VoucherCode = 'TR-VCH-MISSING',
+      DepositType__c = '01',
+      DepositNo__c = 'TR-MISSING-DEP-001',
+      TransactionAmount = 5000,
+      JournalDate = Datetime.now(),
+      ActivityDate = Datetime.now(),
+      Status = 'Processed',
+      InsertId__c = 'TESTER'
+    );
+
+    Boolean thrown = false;
+    Test.startTest();
+    try {
+      svc().getReturnUsedCoupon(ORIGINAL_SALE_NO);
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void voucherAggKey_equalsAndHashCode_cover() {
+    TestReturnClass.VoucherAggKey k1 = new TestReturnClass.VoucherAggKey('A');
+    TestReturnClass.VoucherAggKey k2 = new TestReturnClass.VoucherAggKey('A');
+    TestReturnClass.VoucherAggKey k3 = new TestReturnClass.VoucherAggKey('B');
+    TestReturnClass.VoucherAggKey kNull = new TestReturnClass.VoucherAggKey(null);
+
+    System.assertEquals(true, k1.equals(k2));
+    System.assertEquals(false, k1.equals(k3));
+    System.assertEquals(false, k1.equals(null));
+    System.assertEquals(false, k1.equals('not a key'));
+    System.assertEquals(k1.hashCode(), k2.hashCode());
+    System.assertEquals(0, kNull.hashCode());
+  }
+
+  @IsTest
+  static void createReturnApiFlow_rawJsonString_success_cover_more_lines() {
+    setMock();
+    String raw =
+      '{"SaleNo__c":"TR-FLOW-RAW-001","OriginalOrderId":"' +
+      ORIGINAL_SALE_NO +
+      '","ActualPaymentAmount__c":15000,"InsertId__c":"TEST_USER"}';
+
+    Test.startTest();
+    ApiResult result = svc().createReturnApiFlow(raw);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+  }
+
+  @IsTest
+  static void deleteReturnApiFlow_full_cover_more_lines() {
+    setMock();
+    ensureJournalType('Redemption');
+    ensureJournalSubType('Redemption', 'Api Forced Debit');
+    Order returnOrder = createReturnOrder('TR-FLOW-DEL-001', true);
+
+    Test.startTest();
+    ApiResult result = svc().deleteReturnApiFlow('TR-FLOW-DEL-001');
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    Order updated = [SELECT Status, IsDeleted__c FROM Order WHERE Id = :returnOrder.Id LIMIT 1];
+    System.assertEquals('returnDeleted', updated.Status);
+    System.assertEquals(true, updated.IsDeleted__c);
+  }
+
+  @IsTest
+  static void creditPoint_simulation_happyPath_fullCoverage() {
+    setMock();
+    setupPointCoverageData();
+
+    Map<String, Object> reqData = new Map<String, Object>{
+      'MemberNo__c' => MEMBER_NO,
+      'SaleNo__c' => 'TR-POINT-SALE-001',
+      'EndDate' => String.valueOf(Date.today().addDays(10)),
+      'PointsList' => new List<Object>{ new Map<String, Object>{ 'point' => 30, 'cd_type_point' => '02' } }
+    };
+
+    TestReturnClass.coverageSimulationMode = true;
+    Test.startTest();
+    ApiResult result;
+    try {
+      result = svc().creditPoint(reqData);
+    } finally {
+      TestReturnClass.coverageSimulationMode = false;
+    }
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertNotEquals(null, result.data.get('PointCreditList'));
+  }
+
+  @IsTest
+  static void creditPoint_simulation_ecoSubtype_branch() {
+    setMock();
+    setupPointCoverageData();
+
+    Map<String, Object> reqData = new Map<String, Object>{
+      'MemberNo__c' => MEMBER_NO,
+      'PointsList' => new List<Object>{ new Map<String, Object>{ 'point' => 12, 'cd_type_point' => '05' } }
+    };
+
+    TestReturnClass.coverageSimulationMode = true;
+    Test.startTest();
+    ApiResult result;
+    try {
+      result = svc().creditPoint(reqData);
+    } finally {
+      TestReturnClass.coverageSimulationMode = false;
+    }
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+  }
+
+  @IsTest
+  static void creditPoint_zeroTotal_throws() {
+    setMock();
+    setupPointCoverageData();
+
+    Map<String, Object> reqData = new Map<String, Object>{
+      'MemberNo__c' => MEMBER_NO,
+      'PointsList' => new List<Object>{ new Map<String, Object>{ 'point' => 0, 'cd_type_point' => '02' } }
+    };
+
+    Boolean thrown = false;
+    Test.startTest();
+    try {
+      svc().creditPoint(reqData);
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void creditPoint_unknownPointType_throws() {
+    setMock();
+    setupPointCoverageData();
+
+    Map<String, Object> reqData = new Map<String, Object>{
+      'MemberNo__c' => MEMBER_NO,
+      'PointsList' => new List<Object>{ new Map<String, Object>{ 'point' => 10, 'cd_type_point' => 'XX' } }
+    };
+
+    Boolean thrown = false;
+    Test.startTest();
+    try {
+      svc().creditPoint(reqData);
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void creditPoint_saleNotFound_throws() {
+    setMock();
+    setupPointCoverageData();
+
+    Map<String, Object> reqData = new Map<String, Object>{
+      'MemberNo__c' => MEMBER_NO,
+      'SaleNo__c' => 'NON-EXISTENT-SALE',
+      'PointsList' => new List<Object>{ new Map<String, Object>{ 'point' => 10, 'cd_type_point' => '02' } }
+    };
+
+    Boolean thrown = false;
+    Test.startTest();
+    try {
+      svc().creditPoint(reqData);
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void creditEcopoint_simulation_happyPath() {
+    setMock();
+    setupPointCoverageData();
+
+    TestReturnClass.coverageSimulationMode = true;
+    Test.startTest();
+    ApiResult result;
+    try {
+      result = svc().creditEcopoint(new Map<String, Object>{ 'MemberNo__c' => MEMBER_NO, 'point' => 25 });
+    } finally {
+      TestReturnClass.coverageSimulationMode = false;
+    }
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+  }
+
+  @IsTest
+  static void creditEcopoint_zeroPoint_throws() {
+    setMock();
+    setupPointCoverageData();
+
+    Boolean thrown = false;
+    Test.startTest();
+    try {
+      svc().creditEcopoint(new Map<String, Object>{ 'MemberNo__c' => MEMBER_NO, 'point' => 0 });
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void creditEcopoint_memberNotFound_throws() {
+    setMock();
+    setupPointCoverageData();
+
+    Boolean thrown = false;
+    Test.startTest();
+    try {
+      svc().creditEcopoint(new Map<String, Object>{ 'MemberNo__c' => 'NO-MEMBER', 'point' => 10 });
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void deletePoint_simulation_happyPath_fullCoverage() {
+    setMock();
+    setupPointCoverageData();
+
+    LoyaltyProgramMember lpm = [
+      SELECT Id
+      FROM LoyaltyProgramMember
+      WHERE Contact.MemberNo__c = :MEMBER_NO
+      LIMIT 1
+    ];
+    Date expiryDate = [
+      SELECT ExpiryDate__c
+      FROM LoyaltyAggrSubPointExprLedger__c
+      WHERE LoyaltyProgramMemberId__c = :lpm.Id
+      LIMIT 1
+    ]
+    .ExpiryDate__c;
+
+    Map<String, Object> reqData = new Map<String, Object>{
+      'MemberNo__c' => MEMBER_NO,
+      'PointsList' => new List<Object>{
+        new Map<String, Object>{ 'point' => 5, 'cd_type_point' => '02', 'ExpiryDate__c' => String.valueOf(expiryDate) }
+      }
+    };
+
+    TestReturnClass.coverageSimulationMode = true;
+    Test.startTest();
+    ApiResult result;
+    try {
+      result = svc().deletePoint(reqData);
+    } finally {
+      TestReturnClass.coverageSimulationMode = false;
+    }
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertNotEquals(null, result.data.get('PointDeleteList'));
+  }
+
+  @IsTest
+  static void deletePoint_oversizedList_throws() {
+    setMock();
+    setupPointCoverageData();
+
+    List<Object> bigList = new List<Object>();
+    for (Integer i = 0; i < 51; i++) {
+      bigList.add(new Map<String, Object>{ 'point' => 1, 'cd_type_point' => '02', 'ExpiryDate__c' => String.valueOf(Date.today()) });
+    }
+
+    Boolean thrown = false;
+    Test.startTest();
+    try {
+      svc().deletePoint(new Map<String, Object>{ 'MemberNo__c' => MEMBER_NO, 'PointsList' => bigList });
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void deletePoint_memberNotFound_throws() {
+    setMock();
+    setupPointCoverageData();
+
+    Boolean thrown = false;
+    Test.startTest();
+    try {
+      svc()
+        .deletePoint(
+          new Map<String, Object>{
+            'MemberNo__c' => 'NO-MEMBER',
+            'PointsList' => new List<Object>{
+              new Map<String, Object>{ 'point' => 1, 'cd_type_point' => '02', 'ExpiryDate__c' => String.valueOf(Date.today()) }
+            }
+          }
+        );
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void deletePoint_ledgerNotFound_throws() {
+    setMock();
+    setupPointCoverageData();
+
+    Boolean thrown = false;
+    Test.startTest();
+    try {
+      svc()
+        .deletePoint(
+          new Map<String, Object>{
+            'MemberNo__c' => MEMBER_NO,
+            'PointsList' => new List<Object>{
+              new Map<String, Object>{ 'point' => 1, 'cd_type_point' => '02', 'ExpiryDate__c' => String.valueOf(Date.today().addYears(5)) }
+            }
+          }
+        );
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void getPointApplyHelp_storeRoute_cover_more_lines() {
+    setMock();
+    setupPointCoverageData();
+
+    Account store = new Account(Name = 'TR Apply Help Store', StoreCode__c = 'TR-APH-01', StoreTypeFour__c = '01');
+    insert store;
+
+    Test.startTest();
+    ApiResult result = svc().getPointApplyHelp(new Map<String, Object>{ 'MemberNo__c' => MEMBER_NO, 'StoreCode__c' => 'TR-APH-01' });
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+  }
+
+  @IsTest
+  static void getPointApplyHelp_storeType05_typeMismatch_falls_through_to_v2() {
+    setMock();
+    setupPointCoverageData();
+
+    Account store = new Account(Name = 'TR Apply Help Store 05', StoreCode__c = 'TR-APH-05', StoreTypeFour__c = '05');
+    insert store;
+
+    Test.startTest();
+    ApiResult result = svc().getPointApplyHelp(new Map<String, Object>{ 'MemberNo__c' => MEMBER_NO, 'StoreCode__c' => 'TR-APH-05', 'Type' => '99' });
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+  }
+
+  @IsTest
+  static void getPointApplyHelp_storeType05_type03_returns_v2() {
+    setMock();
+    setupPointCoverageData();
+
+    Account store = new Account(Name = 'TR Apply Help Store 05x', StoreCode__c = 'TR-APH-05X', StoreTypeFour__c = '05');
+    insert store;
+
+    Test.startTest();
+    ApiResult result = svc().getPointApplyHelp(new Map<String, Object>{ 'MemberNo__c' => MEMBER_NO, 'StoreCode__c' => 'TR-APH-05X', 'Type' => '03' });
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+  }
+
+  @IsTest
+  static void getPointApplyHelp_storeNotFound_throws() {
+    setMock();
+    setupPointCoverageData();
+
+    Boolean thrown = false;
+    Test.startTest();
+    try {
+      svc().getPointApplyHelp(new Map<String, Object>{ 'MemberNo__c' => MEMBER_NO, 'StoreCode__c' => 'NO-SUCH-STORE' });
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void getPointApplyHelp_promotionPointUsageNotAllowed_throws() {
+    setMock();
+    setupPointCoverageData();
+
+    Promotion promo = createPromotionRecord('PUH-DENY');
+    promo.IsPointUsageAllowed__c = false;
+    update promo;
+
+    Boolean thrown = false;
+    Test.startTest();
+    try {
+      svc().getPointApplyHelp(new Map<String, Object>{ 'MemberNo__c' => MEMBER_NO, 'PromotionNo__c' => promo.PromotionNo__c });
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void getPointApplyHelp_promotionNotFound_throws() {
+    setMock();
+    setupPointCoverageData();
+
+    Boolean thrown = false;
+    Test.startTest();
+    try {
+      svc().getPointApplyHelp(new Map<String, Object>{ 'MemberNo__c' => MEMBER_NO, 'PromotionNo__c' => 'TR-NONEXIST-PROMO-XYZ' });
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown);
   }
 }

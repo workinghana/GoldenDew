@@ -1,0 +1,55 @@
+2026-05-08T06:51:07.000+0000  a12JO000000MHgaYAG  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"133005100137","OrderNo__c":"SOR202605080162","ActualPaymentAmount__c":900000.0,"OrderStatus__c":"01","Type":"01","PromotionNo__c":"PRO202605041080","OrderItem":[{"OrderSeqNo__c":"1","Status__c
+
+2026-05-08T07:10:15.000+0000  a12JO000000MFEzYAO  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"133005100137","SaleNo__c":"SAL202605080231","ActualPaymentAmount__c":900000.0,"EndDate":"20260508","SaleStatus__c":"01","PromotionNo__c":"PRO202605041080","OrderItem":[{"SaleSeqNo__c":"1","Ord
+
+2026-05-08T07:10:28.000+0000  a12JO000000MI1VYAW  GdMemberHelpInfoApiControllerV1
+  url={"MemberNo__c":"133005100137"}
+  req=
+
+2026-05-08T07:11:51.000+0000  a12JO000000MI4jYAG  GdMemberHelpInfoApiControllerV1
+  url={"MemberNo__c":"133005100137"}
+  req=
+
+2026-05-08T07:12:00.000+0000  a12JO000000MCqYYAW  GdSaleDepositApiControllerV1
+  url={"DeposiSeqNo__c":"1","DepositNo__c":"DEP202605080246"}
+  req=
+
+2026-05-08T07:12:03.000+0000  a12JO000000MI6LYAW  GdSaleDepositApiControllerV1
+  url={"DeposiSeqNo__c":"2","DepositNo__c":"DEP202605080246"}
+  req=
+
+2026-05-08T07:26:45.000+0000  a12JO000000MHC0YAO  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={"AccountId":"1000","StoreCode__c":"99995","MemberNo__c":"133005100137","SaleNo__c":"SAL202605080250","ActualPaymentAmount__c":900000.0,"EndDate":"20260508","SaleStatus__c":"01","PromotionNo__c":"PRO202605041080","OrderItem":[{"SaleSeqNo__c":"1","Ord
+
+2026-05-08T07:29:45.000+0000  a12JO000000MHdKYAW  GdMemberHelpInfoApiControllerV1
+  url={"MemberNo__c":"133005100137"}
+  req=
+
+2026-05-08T07:30:17.000+0000  a12JO000000MHv4YAG  GdMemberHelpInfoApiControllerV1
+  url={"MemberNo__c":"133005100137"}
+  req=
+
+2026-05-08T07:32:21.000+0000  a12JO000000MIXlYAO  GdVoucherHelpApiControllerV1
+  url=/gd/v1/voucher/help
+  req={"StoreCode__c":"99995","MemberNo__c":"133005100137","ActualPaymentAmount__c":900000.0000,"OrderStatus__c":null,"Type":"01","PromotionNo__c":"PRO202605041080","OrderItem":[{"OrderSeqNo__c":null,"Status__c":null,"ProductCode":"212500047","Quantity":1,
+
+2026-05-08T07:33:10.000+0000  a12JO000000MFDLYA4  GdSaleDepositApiControllerV1
+  url={"DeposiSeqNo__c":"1","DepositNo__c":"DEP202605080246"}
+  req=
+
+2026-05-08T07:33:14.000+0000  a12JO000000MIZNYA4  GdSaleDepositApiControllerV1
+  url={"DeposiSeqNo__c":"2","DepositNo__c":"DEP202605080246"}
+  req=
+
+2026-05-08T07:33:58.000+0000  a12JO000000MH79YAG  GdMemberHelpInfoApiControllerV1
+  url={"MemberNo__c":"133005100137"}
+  req=
+
+2026-05-08T07:34:30.000+0000  a12JO000000MHC2YAO  GdMemberHelpInfoApiControllerV1
+  url={"MemberNo__c":"133005100137"}
+  req=

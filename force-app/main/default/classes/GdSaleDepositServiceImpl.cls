@@ -75,10 +75,36 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
   private static final String LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_DEBIT = 'Debit'; // 포인트 사용
   private static final String LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_DEBIT_CANCELLATION = 'DebitCancellation'; // 포인트 사용 취소
 
+  private static final String LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION = 'CreditCancellation';
+  private static final String POINT_SUB_TYPE_NAME_EVENT = '이벤트포인트';
+
   private static void logTiming(String label, Long startMs, Integer startCpu) {
     Long elapsedMs = Datetime.now().getTime() - startMs;
     Integer elapsedCpu = Limits.getCpuTime() - startCpu;
     System.debug(LoggingLevel.WARN, '[TIMING] ' + label + ' | 누적 ' + elapsedMs + 'ms | CPU ' + elapsedCpu + 'ms');
+  }
+
+  private static Datetime resolveSalePointUsageActivityDate(Id saleOrderId, Date saleDate) {
+    if (saleDate != null) {
+      return TimeUtil.dateToUtcStartOfDay(saleDate);  
+    }
+
+    if (saleOrderId == null) {
+      return Datetime.now();
+    }
+
+    List<Order> saleList = [
+      SELECT EndDate
+      FROM Order
+      WHERE Id = :saleOrderId
+      LIMIT 1
+    ];
+
+    if (saleList.isEmpty() || saleList[0].EndDate == null) {
+      return Datetime.now();
+    }
+
+    return TimeUtil.dateToUtcStartOfDay(saleList[0].EndDate);
   }
 
   /**
@@ -105,6 +131,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
       Decimal actualPaymentAmount = ValidationUtil.decimalValidation(reqData.get('ActualPaymentAmount__c'), 'ActualPaymentAmount__c', false); // 판매 금액
       String storeCode = ValidationUtil.stringValidation(reqData.get('StoreCode__c'), 'StoreCode__c', true); // 매장 코드
       String storeType = ValidationUtil.stringValidation(reqData.get('storeType'), 'storeType', false); // 매장 구분 코드
+      Date requestSaleDate = ValidationUtil.dateValidation(reqData.get('EndDate'), 'EndDate', false);  // 판매 일자
 
       String storeTypeFour = ValidationUtil.stringValidation(reqData.get('storeTypeFour'), 'storeTypeFour', false); // 매장구분4
 
@@ -132,7 +159,10 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
       List<Object> oiList = (List<Object>) reqData.get('oiList');
       for (Object v : oiList) {
         OrderItem oi = (OrderItem) v;
-        Decimal itemAmount = oi.NetSalesUnitPrice__c != null ? oi.NetSalesUnitPrice__c : 0;
+        // 26.05.05 CS - Quantity 반영. 단가만 합산하던 기존 로직은 다개 수량 케이스에서 1개분 금액만 처리되는 버그.
+        Decimal unitPrice = oi.NetSalesUnitPrice__c != null ? oi.NetSalesUnitPrice__c : 0;
+        Decimal qty = oi.Quantity != null ? oi.Quantity : 1;
+        Decimal itemAmount = unitPrice * qty;
 
         if (oi.IsExclude__c == false) {
           isExclude = false; // 하나라도 false면 계속 false 유지
@@ -147,7 +177,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
       }
 
       // 프로모션 체크
-      logTiming('createSaleDepositHistory.oiAggregation', totalStartMs, totalStartCpu);
+      // logTiming('createSaleDepositHistory.oiAggregation', totalStartMs, totalStartCpu);
       Id promotionId;
       // System.debug('promotionNo : ' + promotionNo);
       if (String.isNotBlank(promotionNo)) {
@@ -162,9 +192,9 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         if (promotionList.isEmpty()) {
           throw new CustomException(400, '해당 프로모션이 없습니다. ' + promotionNo);
         }
-        if (promotionList[0].IsActive == false) {
-          throw new CustomException(400, '해당 프로모션은 비활성화 상태입니다. ' + promotionNo);
-        }
+        // if (promotionList[0].IsActive == false) {
+        //   throw new CustomException(400, '해당 프로모션은 비활성화 상태입니다. ' + promotionNo);
+        // }
         // [Promotion Date Validation 2026-04-28] 판매 일자가 프로모션 적용 기간(StartDate ~ EndDate) 내인지 검증
         //   - 판매일자는 Order.EndDate (= 판매 등록 시 받은 EndDate) 사용. orderId 로 별도 조회.
         //   - 범위 외인 경우 시작/종료일자를 함께 알리는 에러 메시지 반환.
@@ -188,21 +218,22 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           List<TransactionJournal> linkedTjList = [
             SELECT Promotion.PromotionNo__c
             FROM TransactionJournal
-            WHERE Order.OrderNo__c = :linkedOrderNo
-              AND PromotionId != NULL
-              AND IsDeleted__c = FALSE
+            WHERE Order.OrderNo__c = :linkedOrderNo AND PromotionId != NULL AND IsDeleted__c = FALSE
             ORDER BY CreatedDate ASC
             LIMIT 1
           ];
-          if (!linkedTjList.isEmpty()
-              && linkedTjList[0].Promotion != null
-              && linkedTjList[0].Promotion.PromotionNo__c == promotionNo) {
+          if (!linkedTjList.isEmpty() && linkedTjList[0].Promotion != null && linkedTjList[0].Promotion.PromotionNo__c == promotionNo) {
             isOrderLinkedSamePromotion = true;
           }
         }
 
         // 주문 연계 동일 프로모션이 아닐 때만 판매 일자 기준 기간 검증
+        // 2026-05-06 수정(하나) : 주문 연계시, 주문 일자 시점 프로모션 활성화 상태 검증 조건 추가
         if (!isOrderLinkedSamePromotion) {
+          if (p.IsActive == false) {
+            throw new CustomException(400, '해당 프로모션은 비활성화 상태입니다. ' + promotionNo);
+          }
+
           Date saleDate;
           List<Order> orderForDateList = [SELECT EndDate FROM Order WHERE Id = :orderId LIMIT 1];
           if (!orderForDateList.isEmpty() && orderForDateList[0].EndDate != null) {
@@ -214,15 +245,25 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           if (p.StartDate != null && saleDate < p.StartDate) {
             throw new CustomException(
               400,
-              '판매 일자가 프로모션 적용 기간 이전입니다. (프로모션: ' + promotionNo +
-              ', 시작일: ' + String.valueOf(p.StartDate) + ', 종료일: ' + String.valueOf(p.EndDate) + ')'
+              '판매 일자가 프로모션 적용 기간 이전입니다. (프로모션: ' +
+                promotionNo +
+                ', 시작일: ' +
+                String.valueOf(p.StartDate) +
+                ', 종료일: ' +
+                String.valueOf(p.EndDate) +
+                ')'
             );
           }
           if (p.EndDate != null && saleDate > p.EndDate) {
             throw new CustomException(
               400,
-              '판매 일자가 프로모션 적용 기간 이후입니다. (프로모션: ' + promotionNo +
-              ', 시작일: ' + String.valueOf(p.StartDate) + ', 종료일: ' + String.valueOf(p.EndDate) + ')'
+              '판매 일자가 프로모션 적용 기간 이후입니다. (프로모션: ' +
+                promotionNo +
+                ', 시작일: ' +
+                String.valueOf(p.StartDate) +
+                ', 종료일: ' +
+                String.valueOf(p.EndDate) +
+                ')'
             );
           }
         }
@@ -240,7 +281,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         throw new CustomException(400, '로열티 멤버가 아닙니다. ' + memberNo);
       }
 
-      logTiming('createSaleDepositHistory.memberSetup', totalStartMs, totalStartCpu);
+      // logTiming('createSaleDepositHistory.memberSetup', totalStartMs, totalStartCpu);
       Set<String> orderDepositNoSet = new Set<String>();
       Map<String, String> orderDepositOrderNoByKey = new Map<String, String>();
 
@@ -310,7 +351,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           Long voucherStartMs = Datetime.now().getTime();
           Integer voucherStartCpu = Limits.getCpuTime();
           voucherSvc.redeemVoucherV2(tj);
-          logTiming('createSaleDepositHistory.redeemVoucherV2', voucherStartMs, voucherStartCpu);
+          // logTiming('createSaleDepositHistory.redeemVoucherV2', voucherStartMs, voucherStartCpu);
           continue;
         }
 
@@ -325,8 +366,9 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           // 포인트 사용
           Long debitPointStartMs = Datetime.now().getTime();
           Integer debitPointStartCpu = Limits.getCpuTime();
+          tj.ActivityDate = resolveSalePointUsageActivityDate((Id) orderId, requestSaleDate);
           List<GdSaleApiController.PointDebitDTO> debitPointList = pointSvc.debitPoint(tj);
-          logTiming('createSaleDepositHistory.debitPoint', debitPointStartMs, debitPointStartCpu);
+          // logTiming('createSaleDepositHistory.debitPoint', debitPointStartMs, debitPointStartCpu);
           if (debitPointList != null && !debitPointList.isEmpty()) {
             for (GdSaleApiController.PointDebitDTO debitPoint : debitPointList) {
               debitPoint.AM_SAL = actualPaymentAmount; // 판매처리된 판매의 금액
@@ -342,7 +384,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         }
       }
 
-      logTiming('createSaleDepositHistory.depositLoop', totalStartMs, totalStartCpu);
+      // logTiming('createSaleDepositHistory.depositLoop', totalStartMs, totalStartCpu);
       if (totalPointsToUse > earnableAmount) {
         // 포인트 사용 금액이 적립 가능 품목 금액보다 많을 경우 => 에러 처리
         throw new CustomException(
@@ -374,7 +416,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         Long insertStartMs = Datetime.now().getTime();
         Integer insertStartCpu = Limits.getCpuTime();
         List<Database.SaveResult> resultList = Database.insert(tjList);
-        logTiming('createSaleDepositHistory.insertTransactionJournals', insertStartMs, insertStartCpu);
+        // logTiming('createSaleDepositHistory.insertTransactionJournals', insertStartMs, insertStartCpu);
 
         for (Database.SaveResult result : resultList) {
           if (!result.isSuccess()) {
@@ -390,7 +432,19 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         Long updateOrderDepositStartMs = Datetime.now().getTime();
         Integer updateOrderDepositStartCpu = Limits.getCpuTime();
         List<TransactionJournal> queriedOrderDepositList = [
-          SELECT Id, DepositNo__c, SaleId__c, PaymentMethod, TransactionAmount, MemberId, OrderId, Order.OrderNo__c, PromotionId, LoyaltyProgramId
+          // 26.05.04 CS - DepositType__c 추가. 이 결과가 tjList 에 합류 후 buildAccrualBasisDeposits 에서 환불 판단에 사용됨.
+          SELECT
+            Id,
+            DepositNo__c,
+            DepositType__c,
+            SaleId__c,
+            PaymentMethod,
+            TransactionAmount,
+            MemberId,
+            OrderId,
+            Order.OrderNo__c,
+            PromotionId,
+            LoyaltyProgramId
           FROM TransactionJournal
           WHERE DepositNo__c IN :orderDepositNoSet
         ];
@@ -412,7 +466,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           tjList.addAll(updateTargetList);
           update updateTargetList;
         }
-        logTiming('createSaleDepositHistory.updateOrderDeposits', updateOrderDepositStartMs, updateOrderDepositStartCpu);
+        // logTiming('createSaleDepositHistory.updateOrderDeposits', updateOrderDepositStartMs, updateOrderDepositStartCpu);
       }
 
       // 구매 시 포인트 적립 로직
@@ -444,8 +498,34 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           // List<PointCreditDTO> creditPointList = getPointService().creditPointsOnPurchase(tjList);
           Long creditPointStartMs = Datetime.now().getTime();
           Integer creditPointStartCpu = Limits.getCpuTime();
-          List<PointCreditDTO> creditPointList = pointSvc.creditPointsOnPurchaseV2(tjList, excludeAmount);
-          logTiming('createSaleDepositHistory.creditPointsOnPurchaseV2', creditPointStartMs, creditPointStartCpu);
+          // 26.05.04 CS - 환불(DepositType '03'/'05')을 음수로 변환한 복사본을 적립 기준으로 사용.
+          //               Why: 기존엔 환불도 양수로 합산되어 적립이 부풀려짐 (회원 269999700006 사례).
+          //               예) 01 +10,000 + 03 -5,000 → net 5,000 기준 적립.
+          //               PATCH 경로(buildAccrualBaseTransactionJournals) 와 동일 방식.
+          //               cancelPointsCreditedOnPurchase(반품 적립 취소) 경로는 손대지 않음 (반품은 전부 '03').
+          List<TransactionJournal> accrualBasisTjList = buildAccrualBasisDeposits(tjList);
+
+          // 26.05.08 CS - 옵션 C 분기: 옛 일자 신규 판매는 표준 등급 적립 대신 기타포인트로 redirect 적립.
+          //   조건: Feature Flag ON + Order.EffectiveDate < OpenDate
+          //   처리:
+          //     - 등급 적립 (creditPointsOnPurchaseV2) → creditEtcPointsOnPurchaseForOldSale 로 redirect
+          //       · PT='01' (구매포인트) 비율만 사용
+          //       · 적립 SubType '기타포인트' 강제
+          //       · 만료일 / TJ / LL/LLT/LASEL 모두 표준과 동일 메커니즘
+          //     - 프로모션 적립 (creditPromotionPointsOnPurchase) → 표준 그대로 진행
+          //   안전성: flag OFF / 신규 거래는 기존 표준 흐름 100% 통과 (동일 응답 키)
+          Boolean optCOldSale = false;
+          Id orderIdAsId = null;
+          try {
+            orderIdAsId = (Id) orderId;
+            optCOldSale = GdMigrationUtil.shouldApplyOptionCBranchByOrderId(orderIdAsId);
+          } catch (Exception ignoredOptC) {
+            optCOldSale = false;
+          }
+          List<PointCreditDTO> creditPointList = optCOldSale
+            ? pointSvc.creditEtcPointsOnPurchaseForOldSale(accrualBasisTjList, excludeAmount)
+            : pointSvc.creditPointsOnPurchaseV2(accrualBasisTjList, excludeAmount);
+          // logTiming('createSaleDepositHistory.creditPointsOnPurchaseV2', creditPointStartMs, creditPointStartCpu);
           List<PointCreditDTO> totalCreditPointList = new List<PointCreditDTO>();
           if (creditPointList != null && creditPointList.size() > 0) {
             for (PointCreditDTO pcDto : creditPointList) {
@@ -458,8 +538,9 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           }
           Long promotionCreditPointStartMs = Datetime.now().getTime();
           Integer promotionCreditPointStartCpu = Limits.getCpuTime();
-          List<PointCreditDTO> promotionCreditPointList = pointSvc.creditPromotionPointsOnPurchase(tjList, excludeAmount);
-          logTiming('createSaleDepositHistory.creditPromotionPointsOnPurchase', promotionCreditPointStartMs, promotionCreditPointStartCpu);
+          // 26.05.04 CS - 동일 사유로 환불 음수 변환된 net 리스트 사용.
+          List<PointCreditDTO> promotionCreditPointList = pointSvc.creditPromotionPointsOnPurchase(accrualBasisTjList, excludeAmount);
+          // logTiming('createSaleDepositHistory.creditPromotionPointsOnPurchase', promotionCreditPointStartMs, promotionCreditPointStartCpu);
           if (promotionCreditPointList != null && promotionCreditPointList.size() > 0) {
             totalCreditPointList.addAll(promotionCreditPointList);
           }
@@ -475,7 +556,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         }
       }
 
-      logTiming('createSaleDepositHistory.total (self)', totalStartMs, totalStartCpu);
+      // logTiming('createSaleDepositHistory.total (self)', totalStartMs, totalStartCpu);
       return ApiResult.ok(200, '판매 입금 이력 생성', data);
     } catch (ValidationException ve) {
       throw new CustomException(ve.code, ve.detail);
@@ -485,11 +566,13 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
   }
 
   /**
+   * ! 사용 x
    * 판매 입금 이력 수정
    *
    * @param reqData 요청 값
    * @return ApiResult 판매 입금 이력 수정 결과
    * @throws CustomException
+   * @version V1
    */
   public ApiResult upsertSaleDeposit(Map<String, Object> reqData) {
     Map<String, Object> data = new Map<String, Object>();
@@ -582,10 +665,10 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
 
         // 쿠폰 사용/사용 취소 일 경우
         if (String.isNotBlank(couponNo)) {
-          if (shouldSkipExistingCouponReplay(existingTj, paymentMethod, depositType, couponNo)) {
+          if (shouldSkipExistingCouponReplay(existingTj, paymentMethod, depositType, transactionAmount, couponNo)) {
             continue;
           }
-          validateUnsupportedCouponChange(existingTj, paymentMethod, depositType, couponNo);
+          validateUnsupportedCouponChange(existingTj, paymentMethod, depositType, transactionAmount, couponNo);
 
           tj.VoucherCode = couponNo;
           tj.Status = 'Processed';
@@ -617,6 +700,8 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
             data.put('CancelPointList', cancelPointResult);
           } else if ('01'.equals(depositType) || '02'.equals(depositType)) {
             // 포인트 사용
+            // tj.ActivityDate = resolveSalePointUsageActivityDate((Id) orderId);
+            tj.ActivityDate = resolveSalePointUsageActivityDate((Id) orderId, null);
             debitPointList = getPointService().debitPoint(tj);
             data.put('DebitPointList', debitPointList);
           } else {
@@ -792,14 +877,30 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
   }
 
   /**
+   * * 사용 중
    * 판매 입금 수정 V2
-   * @version 2.0
+   * @version V2
    *
    * @param reqData 요청 값
    * @return ApiResult 판매 입금 이력 수정 결과
    * @throws CustomException
    */
   public ApiResult upsertSaleDepositV2(Map<String, Object> reqData) {
+    return upsertSaleDepositInternal(reqData, false);
+  }
+
+  /**
+   * 판매 입금 수정 V3
+   * - V2 기존 동작은 유지
+   * - 일반 입금 변경 시 적립 이력 삭제/재생성 대신 차액 보정 처리
+   *
+   * @version V3
+   */
+  public ApiResult upsertSaleDepositV3(Map<String, Object> reqData) {
+    return upsertSaleDepositInternal(reqData, true);
+  }
+
+  private ApiResult upsertSaleDepositInternal(Map<String, Object> reqData, Boolean useAccrualAdjustmentV3) {
     Map<String, Object> data = new Map<String, Object>();
     try {
       List<Object> transactionJournalList = ValidationUtil.listObjValidation(reqData.get('TransactionJournal'), 'TransactionJournal', true);
@@ -820,6 +921,11 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
       String requestedCouponDepositNo; // 요청된 쿠폰 입금 번호
 
       String orderId = ValidationUtil.stringValidation(reqData.get('orderId'), 'orderId', true); // Order Id
+      Id saleOrderId = (Id) orderId;
+      // 판매 수정에서 아직 판매에 연결되지 않은 주문 입금을 새로 연결할지 여부.
+      // false: 이미 해당 판매에 연결된 주문 입금만 유지 가능. 신규 연결 요청은 차단.
+      // true : 주문 원본 TJ 검증 후 SaleId__c 연결 허용.
+      Boolean allowOrderDepositAttachOnSaleUpdate = false;
 
       // 로열티 회원 체크
       List<LoyaltyProgramMember> lpmList = [
@@ -837,6 +943,8 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
 
       // 해당 판매 건에 기존 포인트, 쿠폰 입금 건들 조회
       // [기존 코드 시작] 2026-04-23
+      Map<String, TransactionJournal> existingPointCouponDepositMap = new Map<String, TransactionJournal>();
+
       // for (TransactionJournal existingTj : [
       //   SELECT Id, DepositNo__c, PaymentMethod, VoucherCode
       //   FROM TransactionJournal
@@ -850,12 +958,20 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
       //   "활성 사용중" 이 아닌 "이미 취소된 역입금" 이므로 existingPointDepositNo/existingCouponDepositNo 판별에서 제외되어야 함.
       //   DT=03 을 포함하면 후속 PATCH /sale 시점에 원본 DepositNo 와 불일치 판정되어 "한 판매에서는 포인트 입금 건을 하나만 사용할 수 있습니다." 오차단이 발생.
       for (TransactionJournal existingTj : [
-        SELECT Id, DepositNo__c, PaymentMethod, VoucherCode
+        SELECT Id, DepositNo__c, PaymentMethod, DepositType__c, TransactionAmount, VoucherCode, OrderId, SaleId__c
         FROM TransactionJournal
-        WHERE MemberId = :lpmList[0].Id AND SaleId__c = :orderId AND IsDeleted__c = FALSE AND PaymentMethod != NULL AND PaymentMethod IN ('81', '90') AND DepositType__c IN ('01', '02') // 포인트 또는 쿠폰 (활성 사용만, 취소 역입금 제외)
+        WHERE
+          MemberId = :lpmList[0].Id
+          AND SaleId__c = :orderId
+          AND OrderId = :saleOrderId
+          AND IsDeleted__c = FALSE
+          AND PaymentMethod != NULL
+          AND PaymentMethod IN ('81', '90')
+          AND DepositType__c IN ('01', '02') // 포인트 또는 쿠폰 (활성 사용만, 취소 역입금 제외)
         LIMIT 2000
       ]) {
-      // [수정 코드 끝] 2026-04-23
+        // [수정 코드 끝] 2026-04-23
+        existingPointCouponDepositMap.put(existingTj.DepositNo__c, existingTj);
         if ('81'.equals(existingTj.PaymentMethod)) {
           existingPointDepositNo = existingTj.DepositNo__c;
         } else if ('90'.equals(existingTj.PaymentMethod)) {
@@ -865,17 +981,38 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
 
       List<GdSaleApiController.PointDebitDTO> debitPointList = new List<GdSaleApiController.PointDebitDTO>();
       List<TransactionJournal> requestedGeneralTjList = new List<TransactionJournal>();
+      List<TransactionJournal> requestedAccrualBasisGeneralTjList = new List<TransactionJournal>();
       List<TransactionJournal> existingGeneralDepositList = new List<TransactionJournal>();
+      List<TransactionJournal> existingAccrualBasisGeneralDepositList = new List<TransactionJournal>();
       Map<String, TransactionJournal> existingGeneralDepositMap = new Map<String, TransactionJournal>();
+      // 주문 이관 입금: createSaleDepositHistory(POST /sale)와 동일 패턴으로 SaleId__c 연결만 처리.
+      // 식별 기준: 동일 SaleId__c 로 묶여 있어도 OrderId(원본 주문 Id) != 현재 판매 Id 인 TJ.
+      Set<String> orderDepositNoSet = new Set<String>();
+      Map<String, String> orderDepositOrderNoByKey = new Map<String, String>();
+      Map<String, String> orderDepositPaymentMethodByKey = new Map<String, String>();
+      Map<String, String> orderDepositTypeByKey = new Map<String, String>();
+      Map<String, Decimal> orderDepositAmountByKey = new Map<String, Decimal>();
+      Map<String, String> orderDepositCouponNoByKey = new Map<String, String>();
       Id salePromotionId;
       for (TransactionJournal existingGeneralTj : [
-        SELECT Id, DepositNo__c, JournalDate, TransactionAmount, PaymentMethod, DepositType__c, PromotionId
+        SELECT Id, DepositNo__c, JournalDate, TransactionAmount, PaymentMethod, DepositType__c, PromotionId,
+          MemberId, LoyaltyProgramId, OrderId, OrderId__c, SaleId__c
         FROM TransactionJournal
         WHERE SaleId__c = :orderId AND IsDeleted__c = FALSE AND PaymentMethod != NULL AND PaymentMethod NOT IN ('81', '90')
         LIMIT 2000
       ]) {
-        existingGeneralDepositList.add(existingGeneralTj);
-        existingGeneralDepositMap.put(existingGeneralTj.DepositNo__c, existingGeneralTj);
+        // 주문 이관 TJ 는 일반 diff(delete/insert) 대상에서 제외. 판매 수정으로 변경/삭제하지 않음.
+        // if (existingGeneralTj.OrderId != null && existingGeneralTj.OrderId != (Id) orderId) {
+          // existingOrderLinkedGeneralList.add(existingGeneralTj);
+          // existingOrderLinkedGeneralMap.put(existingGeneralTj.DepositNo__c, existingGeneralTj);
+        // } else {
+        Boolean isOrderLinkedGeneralDeposit = existingGeneralTj.OrderId != null && existingGeneralTj.OrderId != saleOrderId;
+        existingAccrualBasisGeneralDepositList.add(existingGeneralTj);
+        if (!isOrderLinkedGeneralDeposit) {
+          existingGeneralDepositList.add(existingGeneralTj);
+          existingGeneralDepositMap.put(existingGeneralTj.DepositNo__c, existingGeneralTj);
+        }
+        // }
         if (salePromotionId == null && existingGeneralTj.PromotionId != null) {
           salePromotionId = existingGeneralTj.PromotionId;
         }
@@ -908,6 +1045,28 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         String couponNo = ValidationUtil.stringValidationEx(transactionJournal.get('CouponNo'), 'CouponNo', false, true); // 쿠폰 번호
 
         depositNo += '-' + deposiSeqNo;
+
+        // 주문에서 끌고온 입금 처리 (createSaleDepositHistory 와 동일 패턴):
+        //   주문 단계에서 이미 사용/쿠폰 처리가 완료된 입금이므로 판매 수정에서는 재처리하지 않는다.
+        //   1건 제한 검증/멱등 검증/포인트 차감/쿠폰 사용/일반 결제 diff 모두 우회하고
+        //   루프 종료 후 별도 단계에서 SaleId__c 연결만 수행한다.
+        //   단, 합계 검증(totalTransactionAmount)에는 포함시켜 등록 단계와 일관성 유지.
+        String orderNo = ValidationUtil.stringValidationEx(transactionJournal.get('OrderNo__c'), 'OrderNo__c', false, true);
+        if (String.isNotBlank(orderNo)) {
+          if (depositType == '03' || depositType == '05') {
+            totalTransactionAmount -= transactionAmount;
+          } else {
+            totalTransactionAmount += transactionAmount;
+          }
+          orderDepositNoSet.add(depositNo);
+          orderDepositOrderNoByKey.put(depositNo, orderNo);
+          orderDepositPaymentMethodByKey.put(depositNo, paymentMethod);
+          orderDepositTypeByKey.put(depositNo, depositType);
+          orderDepositAmountByKey.put(depositNo, transactionAmount);
+          orderDepositCouponNoByKey.put(depositNo, couponNo);
+          continue;
+        }
+
         TransactionJournal existingTj = existingGeneralDepositMap.get(depositNo);
 
         if (String.isNotBlank(couponNo) && !'90'.equals(paymentMethod)) {
@@ -937,6 +1096,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           //   기존 DepositNo 와 동일한 재요청(멱등) 은 계속 skip 하되, 신규 DepositNo 는 아래 라인 911 포인트 분기로 fall-through 하여
           //   debitPoint(tj) / cancelPointRedemption(tj) 가 정상 호출되도록 함.
           if (String.isNotBlank(existingPointDepositNo) && existingPointDepositNo == depositNo) {
+            validateUnsupportedPointChange(existingPointCouponDepositMap.get(depositNo), depositType, transactionAmount);
             continue;
           }
           // [수정 코드 끝] 2026-04-22
@@ -961,6 +1121,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           // [수정 코드 시작] 2026-04-22 - 포인트 분기와 동일 원칙: 기존 DepositNo 재요청이면 멱등 skip, 신규 DepositNo 는 fall-through
           //   아래 라인 888 쿠폰 분기로 진행하여 redeemVoucherV2(tj) / redeemCancelVoucher(tj) 가 호출되도록 함.
           if (String.isNotBlank(existingCouponDepositNo) && existingCouponDepositNo == depositNo) {
+            validateUnsupportedCouponChange(existingPointCouponDepositMap.get(depositNo), paymentMethod, depositType, transactionAmount, couponNo);
             continue;
           }
           // [수정 코드 끝] 2026-04-22
@@ -990,10 +1151,10 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
 
         // 쿠폰 사용/사용 취소 일 경우
         if (String.isNotBlank(couponNo)) {
-          if (shouldSkipExistingCouponReplay(existingTj, paymentMethod, depositType, couponNo)) {
+          if (shouldSkipExistingCouponReplay(existingTj, paymentMethod, depositType, transactionAmount, couponNo)) {
             continue;
           }
-          validateUnsupportedCouponChange(existingTj, paymentMethod, depositType, couponNo);
+          validateUnsupportedCouponChange(existingTj, paymentMethod, depositType, transactionAmount, couponNo);
 
           tj.VoucherCode = couponNo;
           tj.Status = 'Processed';
@@ -1024,6 +1185,8 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
             data.put('CancelPointList', cancelPointResult);
           } else if ('01'.equals(depositType) || '02'.equals(depositType)) {
             // 포인트 사용 — 판매 수정 전용 커스텀 DML 경로 (same-sale 적립 제외, 2026-04-23 V2-SCN06 fix)
+            // tj.ActivityDate = resolveSalePointUsageActivityDate((Id) orderId);
+            tj.ActivityDate = resolveSalePointUsageActivityDate((Id) orderId, null);
             debitPointList = getPointService().debitPointForSaleUpdate(tj);
             data.put('DebitPointList', debitPointList);
           } else {
@@ -1071,6 +1234,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
 
           tj.Status = 'Processed';
           requestedGeneralTjList.add(tj);
+          requestedAccrualBasisGeneralTjList.add(tj);
         }
       }
 
@@ -1088,21 +1252,73 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         );
       }
 
+      if (!orderDepositNoSet.isEmpty()) {
+          List<TransactionJournal> queriedOrderDepositList = [
+            SELECT Id, DepositNo__c, SaleId__c, PaymentMethod, DepositType__c, TransactionAmount, VoucherCode,
+              MemberId, LoyaltyProgramId, OrderId, OrderId__c, Order.OrderNo__c, PromotionId
+            FROM TransactionJournal
+            WHERE DepositNo__c IN :orderDepositNoSet
+              AND IsDeleted__c = FALSE
+          ];
+          Map<String, TransactionJournal> orderDepositByKey = new Map<String, TransactionJournal>();
+          for (TransactionJournal tj : queriedOrderDepositList) {
+            String expectedOrderNo = orderDepositOrderNoByKey.get(tj.DepositNo__c);
+            String actualOrderNo = tj.Order == null ? null : tj.Order.OrderNo__c;
+            if (String.isBlank(expectedOrderNo) || expectedOrderNo != actualOrderNo) {
+              continue;
+            }
+            orderDepositByKey.put(tj.DepositNo__c, tj);
+          }
+
+          List<TransactionJournal> updateOrderDepositList = new List<TransactionJournal>();
+          for (String depositKey : orderDepositNoSet) {
+            TransactionJournal orderDeposit = orderDepositByKey.get(depositKey);
+            if (orderDeposit == null) {
+              throw new CustomException(400, '주문에서 가져온 입금 정보를 찾을 수 없습니다. DepositNo=' + depositKey);
+            }
+            String existingVoucherCode = String.isBlank(orderDeposit.VoucherCode) ? '' : orderDeposit.VoucherCode;
+            String requestedVoucherCode = String.isBlank(orderDepositCouponNoByKey.get(depositKey)) ? '' : orderDepositCouponNoByKey.get(depositKey);
+            if (
+              orderDeposit.PaymentMethod != orderDepositPaymentMethodByKey.get(depositKey) ||
+              orderDeposit.DepositType__c != orderDepositTypeByKey.get(depositKey) ||
+              orderDeposit.TransactionAmount != orderDepositAmountByKey.get(depositKey) ||
+              existingVoucherCode != requestedVoucherCode
+            ) {
+              throw new CustomException(400, '주문에서 가져온 입금은 판매 수정에서 변경할 수 없습니다. 주문 수정에서 먼저 변경해 주세요. DepositNo=' + depositKey);
+            }
+            requestedAccrualBasisGeneralTjList.add(orderDeposit);
+
+            if (orderDeposit.SaleId__c != orderId) {
+              if (!allowOrderDepositAttachOnSaleUpdate) {
+                throw new CustomException(400, '판매 수정에서는 주문에서 가져온 입금을 새로 추가할 수 없습니다. DepositNo=' + depositKey);
+              }
+              orderDeposit.SaleId__c = orderId;
+              updateOrderDepositList.add(orderDeposit);
+            }
+          }
+
+          if (!updateOrderDepositList.isEmpty()) {
+            update updateOrderDepositList;
+            generalPaymentChanged = true;
+          }
+      }
+
       List<TransactionJournal> deleteGeneralTjList = buildGeneralPaymentDeleteList(existingGeneralDepositList, requestedGeneralTjList);
       List<TransactionJournal> insertGeneralTjList = buildGeneralPaymentInsertList(existingGeneralDepositList, requestedGeneralTjList);
       if (!deleteGeneralTjList.isEmpty() || !insertGeneralTjList.isEmpty()) {
         generalPaymentChanged = true;
-        validateSaleAccrualPointsNotUsedInOtherSaleOrOrder((Id) orderId);
 
-        if (!saleAccrualArtifactsDeleted) {
-          deleteSaleAccrualArtifactsForGeneralPaymentChange((Id) orderId, lpmList[0].Id);
-          saleAccrualArtifactsDeleted = true;
+        if (!useAccrualAdjustmentV3) {
+          validateSaleAccrualPointsNotUsedInOtherSaleOrOrder((Id) orderId);
+
+          if (!saleAccrualArtifactsDeleted) {
+            deleteSaleAccrualArtifactsForGeneralPaymentChange((Id) orderId, lpmList[0].Id);
+            saleAccrualArtifactsDeleted = true;
+          }
         }
 
         if (!deleteGeneralTjList.isEmpty()) {
-          System.debug('진입1');
           delete deleteGeneralTjList;
-          System.debug('진입1-1');
         }
 
         if (!insertGeneralTjList.isEmpty()) {
@@ -1116,8 +1332,18 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         }
       }
 
-      if (generalPaymentChanged && !requestedGeneralTjList.isEmpty()) {
-        recreateSaleAccrualArtifactsForGeneralPaymentChange((Id) orderId, actualPaymentAmount, data);
+      if (generalPaymentChanged) {
+        if (useAccrualAdjustmentV3) {
+          adjustSaleAccrualForGeneralPaymentChangeV2(
+            (Id) orderId,
+            actualPaymentAmount,
+            existingAccrualBasisGeneralDepositList,
+            requestedAccrualBasisGeneralTjList,
+            data
+          );
+        } else if (!requestedGeneralTjList.isEmpty()) {
+          recreateSaleAccrualArtifactsForGeneralPaymentChange((Id) orderId, actualPaymentAmount, data);
+        }
       }
 
       // if (!depositNoSet.isEmpty()) {
@@ -1296,26 +1522,22 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           List<Voucher> vList = new List<Voucher>();
 
           if (String.isNotBlank(searchVoucherCode) && searchVoucherCode.contains(';-;')) {
-              String couponManNo = searchVoucherCode.substringBefore(';-;');
-              String realVoucherCode = searchVoucherCode.substringAfter(';-;'); 
-              
-              vList = [
-                  SELECT Id, VoucherDefinition.Name, VoucherCode, ExpirationDate, DiscountPercent, FaceValue, Reason
-                  FROM Voucher
-                  WHERE VoucherCode = :realVoucherCode
-                    AND VoucherDefinition.CouponManNo__c = :couponManNo
-                    AND LoyaltyProgramMemberId = : tj.MemberId
-                  LIMIT 1
-              ];
-              
+            String couponManNo = searchVoucherCode.substringBefore(';-;');
+            String realVoucherCode = searchVoucherCode.substringAfter(';-;');
+
+            vList = [
+              SELECT Id, VoucherDefinition.Name, VoucherCode, ExpirationDate, DiscountPercent, FaceValue, Reason
+              FROM Voucher
+              WHERE VoucherCode = :realVoucherCode AND VoucherDefinition.CouponManNo__c = :couponManNo AND LoyaltyProgramMemberId = :tj.MemberId
+              LIMIT 1
+            ];
           } else {
-              vList = [
-                  SELECT Id, VoucherDefinition.Name, VoucherCode, ExpirationDate, DiscountPercent, FaceValue, Reason
-                  FROM Voucher
-                  WHERE VoucherCode = :searchVoucherCode
-                    AND LoyaltyProgramMemberId = : tj.MemberId
-                  LIMIT 1
-              ];
+            vList = [
+              SELECT Id, VoucherDefinition.Name, VoucherCode, ExpirationDate, DiscountPercent, FaceValue, Reason
+              FROM Voucher
+              WHERE VoucherCode = :searchVoucherCode AND LoyaltyProgramMemberId = :tj.MemberId
+              LIMIT 1
+            ];
           }
           //
 
@@ -1410,6 +1632,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
       // 신규 로직 (하나 26-04-09) start.
       List<GdSaleApiController.PointDebitDTO> promotionPointAccrualCanceled = cancelPromotionPointsCreditedOnSaleDelete(tjList);
       data.put('promotionPointAccrualCanceled', promotionPointAccrualCanceled);
+      rebuildPointAggregationForSaleDepositMembers(tjList);
       // 신규 로직 (하나 26-04-09) end.
 
       return ApiResult.ok(200, '판매 입금 전체 삭제 완료', data);
@@ -1422,6 +1645,23 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
 
   // 신규 로직 (하나 26-04-09) start.
   //프로모션 포인트 적립 취소 로직 (판매 입금 전체 삭제 시)
+  private static void rebuildPointAggregationForSaleDepositMembers(List<TransactionJournal> transactionJournals) {
+    Set<Id> memberIds = new Set<Id>();
+    if (transactionJournals != null) {
+      for (TransactionJournal tj : transactionJournals) {
+        if (tj != null && tj.MemberId != null) {
+          memberIds.add(tj.MemberId);
+        }
+      }
+    }
+    if (memberIds.isEmpty()) {
+      return;
+    }
+    for (Id memberId : memberIds) {
+      GdPointAggregationUtil.rebuildLoyaltyAggrSubPointExprLedger(memberId);
+    }
+  }
+
   private List<GdSaleApiController.PointDebitDTO> cancelPromotionPointsCreditedOnSaleDelete(List<TransactionJournal> tjList) {
     if (tjList == null || tjList.isEmpty()) {
       return null;
@@ -1443,6 +1683,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
   // 신규 로직 (하나 26-04-09) end.
 
   /**
+   * * 사용 중
    * 판매 입금 삭제
    */
   public ApiResult deleteSaleDeposit(String depositNo) {
@@ -1471,13 +1712,19 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
       if (tjList.isEmpty()) {
         throw new CustomException(400, '해당 판매 입금 이력이 존재하지 않습니다. ' + depositNo);
       }
+      Boolean isOptionCOldSale = false;
+      try {
+        isOptionCOldSale = GdMigrationUtil.shouldApplyOptionCBranchByOrderId(tjList[0].OrderId);
+      } catch (Exception ignoredOptC) {
+        isOptionCOldSale = false;
+      }
 
       Id pointDebitJstId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_POINT_DEBIT, true);
       Id couponRedeemJstId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_COUPON_REDEEM, true);
 
       // 포인트 사용 취소
       if (tjList[0].JournalSubTypeId == pointDebitJstId || tjList[0].JournalSubTypeId == couponRedeemJstId) {
-        if (tjList[0].OrderId__c == null) {
+        if (!isOptionCOldSale && tjList[0].OrderId__c == null) {
           TransactionJournal newTj = tjList[0].clone(false, true, false, false); // (ID 복사 여부 | 관계 필드 복사 여부 | 생성 일시, 수정 일시 유지 여부 | 자동 등가 번호 유지 여부)
           newTj.JournalDate = Datetime.now();
           newTj.ActivityDate = Datetime.now();
@@ -1499,49 +1746,22 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           }
         }
       } else {
-        if (tjList[0].OrderId__c == null) {
-          // 다른 주문/판매 건에서 포인트 사용했는지 확인
-          List<LoyaltyLedgerTraceability> lltList = [
-            SELECT
-              Id,
-              DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
-              DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
-              DebitLoyaltyLedger.TransactionJournal.DepositNo__c,
-              DebitLoyaltyLedger.TransactionJournal.IsDeleted__c,
-              DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c
-            FROM LoyaltyLedgerTraceability
-            WHERE
-              CreditLoyaltyLedger.TransactionJournal.OrderId = :tjList[0].OrderId
-              AND ActionType = 'Debit'
-              AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
-              AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
-              OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
-            LIMIT 1
-          ];
-          if (!lltList.isEmpty()) {
-            if (lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c != null) {
-              throw new CustomException(
-                400,
-                '해당 입금 건은 삭제할 수 없습니다. 이미 사용한 판매 건이 존재합니다. 판매번호: ' +
-                  lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c +
-                  '/ 입금번호: ' +
-                  lltList[0].DebitLoyaltyLedger.TransactionJournal.DepositNo__c
-              );
-            } else if (lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c != null) {
-              throw new CustomException(
-                400,
-                '해당 입금 건은 삭제할 수 없습니다. 이미 사용한 주문 건이 존재합니다. 주문번호: ' +
-                  lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c +
-                  '/ 입금번호: ' +
-                  lltList[0].DebitLoyaltyLedger.TransactionJournal.DepositNo__c
-              );
-            }
+        if (!isOptionCOldSale && tjList[0].OrderId__c == null) {
+          // [Refunded Usage Exclusion 2026-05-08] deleteSale 과 동일 패턴 — Cancel Credit 환불/재사용 차감 식.
+          //   GdSaleServiceImpl.calculateUnrefundedUsage 사용 (단일 출처).
+          GdSaleServiceImpl.UnrefundedUsageResult validationResult =
+            GdSaleServiceImpl.calculateUnrefundedUsage(tjList[0].OrderId);
+          if (validationResult.shouldBlock()) {
+            throw new CustomException(400,
+              validationResult.buildBlockMessage('해당 입금 건은 삭제할 수 없습니다. 적립된 포인트가 다른 주문/판매에서 사용되었습니다.'));
           }
         }
 
         // 구매 시 지급된 포인트 적립 취소
-        List<GdSaleApiController.PointDebitDTO> purchasePointAccrualCanceled = getPointService().cancelPointsCreditedOnPurchase(tjList);
-        data.put('purchasePointAccrualCanceled', purchasePointAccrualCanceled);
+        if (!isOptionCOldSale) {
+          List<GdSaleApiController.PointDebitDTO> purchasePointAccrualCanceled = getPointService().cancelPointsCreditedOnPurchase(tjList);
+          data.put('purchasePointAccrualCanceled', purchasePointAccrualCanceled);
+        }
       }
 
       // 주문에서 넘어온 입금 건일 경우
@@ -1554,6 +1774,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
       }
 
       update tjList[0];
+      rebuildPointAggregationForSaleDepositMembers(tjList);
 
       return ApiResult.ok(200, '판매 입금 삭제 완료', data);
     } catch (ValidationException ve) {
@@ -1624,42 +1845,12 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         }
       } else {
         if (tjList[0].OrderId__c == null) {
-          // 다른 주문/판매 건에서 포인트 사용했는지 확인
-          List<LoyaltyLedgerTraceability> lltList = [
-            SELECT
-              Id,
-              DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
-              DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
-              DebitLoyaltyLedger.TransactionJournal.DepositNo__c,
-              DebitLoyaltyLedger.TransactionJournal.IsDeleted__c,
-              DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c
-            FROM LoyaltyLedgerTraceability
-            WHERE
-              CreditLoyaltyLedger.TransactionJournal.OrderId = :tjList[0].OrderId
-              AND ActionType = 'Debit'
-              AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
-              AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
-              OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
-            LIMIT 1
-          ];
-          if (!lltList.isEmpty()) {
-            if (lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c != null) {
-              throw new CustomException(
-                400,
-                '해당 입금 건은 삭제할 수 없습니다. 이미 사용한 판매 건이 존재합니다. 판매번호: ' +
-                  lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c +
-                  '/ 입금번호: ' +
-                  lltList[0].DebitLoyaltyLedger.TransactionJournal.DepositNo__c
-              );
-            } else if (lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c != null) {
-              throw new CustomException(
-                400,
-                '해당 입금 건은 삭제할 수 없습니다. 이미 사용한 주문 건이 존재합니다. 주문번호: ' +
-                  lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c +
-                  '/ 입금번호: ' +
-                  lltList[0].DebitLoyaltyLedger.TransactionJournal.DepositNo__c
-              );
-            }
+          // [Refunded Usage Exclusion 2026-05-08] V1 과 동일 — calculateUnrefundedUsage 사용.
+          GdSaleServiceImpl.UnrefundedUsageResult validationResult =
+            GdSaleServiceImpl.calculateUnrefundedUsage(tjList[0].OrderId);
+          if (validationResult.shouldBlock()) {
+            throw new CustomException(400,
+              validationResult.buildBlockMessage('해당 입금 건은 삭제할 수 없습니다. 적립된 포인트가 다른 주문/판매에서 사용되었습니다.'));
           }
         }
 
@@ -1677,6 +1868,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
       }
 
       update tjList[0];
+      rebuildPointAggregationForSaleDepositMembers(tjList);
 
       return ApiResult.ok(200, '판매 입금 삭제 완료', data);
     } catch (ValidationException ve) {
@@ -1853,14 +2045,10 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
     }
 
     if (!allLedgerList.isEmpty()) {
-      System.debug('진입2');
       delete allLedgerList;
-      System.debug('진입2-1');
     }
 
-    System.debug('진입3');
     delete targetTjList;
-    System.debug('진입3-1');
   }
 
   // 해당 판매 건에 적립된 포인트가 다른 판매/주문에서 사용된 건이 있는지 체크 (판매 수정 시)
@@ -1924,9 +2112,1043 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
   }
 
   // 판매 수정 시 포인트 재 계산해서 재 지급 처리
+  private void adjustSaleAccrualForGeneralPaymentChangeV2(
+    Id orderId,
+    Decimal actualPaymentAmount,
+    List<TransactionJournal> existingGeneralDepositList,
+    List<TransactionJournal> requestedGeneralTjList,
+    Map<String, Object> data
+  ) {
+    if (orderId == null) {
+      return;
+    }
+
+    try {
+      if (GdMigrationUtil.shouldApplyOptionCBranchByOrderId(orderId)) {
+        System.debug('adjustSaleAccrualForGeneralPaymentChangeV2 skipped: option C branch');
+        return;
+      }
+    } catch (Exception ignoredOptC) {
+      // Keep the standard sale-update path if option-C detection fails.
+    }
+
+    List<Order> orderList = [
+      SELECT Id, MemberNo__r.Grade__c, StoreCode__r.StoreType__c
+      FROM Order
+      WHERE Id = :orderId
+      LIMIT 1
+    ];
+    if (orderList.isEmpty()) {
+      return;
+    }
+    if (
+      orderList[0].StoreCode__r == null ||
+      orderList[0].StoreCode__r.StoreType__c == '20' ||
+      orderList[0].StoreCode__r.StoreType__c == '25' ||
+      orderList[0].StoreCode__r.StoreType__c == '33'
+    ) {
+      return;
+    }
+
+    Decimal excludeAmount = calculateSaleAccrualExcludeAmount(orderId);
+    Map<String, SaleAccrualPointBucket> targetByKey = calculateExpectedSaleAccrualBucketsV3(orderId, requestedGeneralTjList, excludeAmount);
+    Map<String, SaleAccrualPointBucket> currentByKey = calculateCurrentSaleAccrualBucketsV3(orderId);
+    Set<String> allKeys = new Set<String>();
+    allKeys.addAll(targetByKey.keySet());
+    allKeys.addAll(currentByKey.keySet());
+    if (allKeys.isEmpty()) {
+      return;
+    }
+
+    Map<String, SaleAccrualPointBucket> increaseByKey = new Map<String, SaleAccrualPointBucket>();
+    Map<String, SaleAccrualPointBucket> decreaseByKey = new Map<String, SaleAccrualPointBucket>();
+    for (String key : allKeys) {
+      SaleAccrualPointBucket target = targetByKey.get(key);
+      SaleAccrualPointBucket current = currentByKey.get(key);
+      Decimal targetPoints = target == null || target.points == null ? 0 : target.points;
+      Decimal currentPoints = current == null || current.points == null ? 0 : current.points;
+      Decimal deltaPoints = targetPoints - currentPoints;
+      if (deltaPoints == 0) {
+        continue;
+      }
+
+      SaleAccrualPointBucket basis = target != null ? target : current;
+      SaleAccrualPointBucket delta = new SaleAccrualPointBucket(
+        basis.subtypeId,
+        basis.subtypeName,
+        basis.accrualSubTypeName,
+        basis.reversalSubTypeName,
+        deltaPoints.abs(),
+        basis.additionalNotes
+      );
+      if (deltaPoints > 0) {
+        increaseByKey.put(key, delta);
+      } else {
+        decreaseByKey.put(key, delta);
+      }
+    }
+
+    if (increaseByKey.isEmpty() && decreaseByKey.isEmpty()) {
+      return;
+    }
+
+    TransactionJournal sourceTj = buildSaleAccrualAdjustmentSourceTj(orderId, requestedGeneralTjList, existingGeneralDepositList, 0);
+    if (sourceTj == null) {
+      return;
+    }
+
+    if (!decreaseByKey.isEmpty()) {
+      List<GdSaleApiController.PointDebitDTO> cancelPointList =
+        cancelSaleAccrualByExplicitPointsV3(orderId, sourceTj, decreaseByKey);
+      if (cancelPointList != null && !cancelPointList.isEmpty()) {
+        data.put('SaleAccrualAdjustmentCancelPointList', cancelPointList);
+      }
+    }
+
+    if (!increaseByKey.isEmpty()) {
+      applySaleAccrualIncreaseByExplicitPointsV3(sourceTj, actualPaymentAmount, orderList[0], increaseByKey, data);
+    }
+
+    if (sourceTj.MemberId != null) {
+      GdPointAggregationUtil.rebuildLoyaltyAggrSubPointExprLedger(sourceTj.MemberId);
+    }
+  }
+
+  private static Decimal calculateGeneralPaymentAccrualBaseAmount(List<TransactionJournal> tjList) {
+    if (tjList == null || tjList.isEmpty()) {
+      return 0;
+    }
+
+    Decimal totalAmount = 0;
+    for (TransactionJournal tj : tjList) {
+      if (tj == null) {
+        continue;
+      }
+      if (tj.PaymentMethod == '20' || tj.PaymentMethod == '81' || tj.PaymentMethod == '90' || tj.PaymentMethod == '93') {
+        continue;
+      }
+      if (tj.TransactionAmount == null || tj.TransactionAmount == 0) {
+        continue;
+      }
+      Decimal amount = tj.TransactionAmount;
+      if ('03'.equals(tj.DepositType__c) || '05'.equals(tj.DepositType__c)) {
+        amount *= -1;
+      }
+      totalAmount += amount;
+    }
+    return totalAmount;
+  }
+
+  private static TransactionJournal buildSaleAccrualAdjustmentSourceTj(
+    Id orderId,
+    List<TransactionJournal> requestedGeneralTjList,
+    List<TransactionJournal> existingGeneralDepositList,
+    Decimal adjustmentAmount
+  ) {
+    TransactionJournal source = findFirstAccrualEligibleGeneralPayment(requestedGeneralTjList);
+    if (source == null) {
+      source = findFirstAccrualEligibleGeneralPayment(existingGeneralDepositList);
+    }
+    if (source == null) {
+      return null;
+    }
+
+    TransactionJournal adjustmentTj = new TransactionJournal();
+    adjustmentTj.MemberId = source.MemberId;
+    adjustmentTj.LoyaltyProgramId = source.LoyaltyProgramId;
+    adjustmentTj.OrderId = orderId;
+    adjustmentTj.SaleId__c = String.isNotBlank(source.SaleId__c) ? source.SaleId__c : String.valueOf(orderId);
+    adjustmentTj.OrderId__c = source.OrderId__c;
+    adjustmentTj.PromotionId = resolveSaleAccrualAdjustmentPromotionId(requestedGeneralTjList, existingGeneralDepositList);
+    adjustmentTj.PaymentMethod = source.PaymentMethod;
+    adjustmentTj.DepositType__c = '01';
+    adjustmentTj.TransactionAmount = adjustmentAmount;
+    adjustmentTj.JournalDate = Datetime.now();
+    adjustmentTj.ActivityDate = Datetime.now();
+    return adjustmentTj;
+  }
+
+  private static TransactionJournal findFirstAccrualEligibleGeneralPayment(List<TransactionJournal> tjList) {
+    if (tjList == null || tjList.isEmpty()) {
+      return null;
+    }
+    for (TransactionJournal tj : tjList) {
+      if (tj == null || tj.TransactionAmount == null || tj.TransactionAmount == 0) {
+        continue;
+      }
+      if (tj.PaymentMethod == null || tj.PaymentMethod == '20' || tj.PaymentMethod == '81' || tj.PaymentMethod == '90' || tj.PaymentMethod == '93') {
+        continue;
+      }
+      return tj;
+    }
+    return null;
+  }
+
+  private static Id resolveSaleAccrualAdjustmentPromotionId(
+    List<TransactionJournal> requestedGeneralTjList,
+    List<TransactionJournal> existingGeneralDepositList
+  ) {
+    Id promotionId = findFirstPromotionId(requestedGeneralTjList);
+    if (promotionId != null) {
+      return promotionId;
+    }
+    return findFirstPromotionId(existingGeneralDepositList);
+  }
+
+  private static Id findFirstPromotionId(List<TransactionJournal> tjList) {
+    if (tjList == null || tjList.isEmpty()) {
+      return null;
+    }
+    for (TransactionJournal tj : tjList) {
+      if (tj != null && tj.PromotionId != null) {
+        return tj.PromotionId;
+      }
+    }
+    return null;
+  }
+
+  private class SaleAccrualPointBucket {
+    public Id subtypeId;
+    public String subtypeName;
+    public String accrualSubTypeName;
+    public String reversalSubTypeName;
+    public Decimal points;
+    public String additionalNotes;
+
+    public SaleAccrualPointBucket(
+      Id subtypeId,
+      String subtypeName,
+      String accrualSubTypeName,
+      String reversalSubTypeName,
+      Decimal points
+    ) {
+      this(subtypeId, subtypeName, accrualSubTypeName, reversalSubTypeName, points, null);
+    }
+
+    public SaleAccrualPointBucket(
+      Id subtypeId,
+      String subtypeName,
+      String accrualSubTypeName,
+      String reversalSubTypeName,
+      Decimal points,
+      String additionalNotes
+    ) {
+      this.subtypeId = subtypeId;
+      this.subtypeName = subtypeName;
+      this.accrualSubTypeName = accrualSubTypeName;
+      this.reversalSubTypeName = reversalSubTypeName;
+      this.points = points == null ? 0 : points;
+      this.additionalNotes = additionalNotes;
+    }
+  }
+
+  private static String buildSaleAccrualBucketKey(String accrualSubTypeName, Id subtypeId) {
+    return accrualSubTypeName + '|' + String.valueOf(subtypeId);
+  }
+
+  private static void addSaleAccrualBucket(Map<String, SaleAccrualPointBucket> bucketByKey, SaleAccrualPointBucket bucket) {
+    if (bucket == null || bucket.subtypeId == null || bucket.points == null || bucket.points <= 0) {
+      return;
+    }
+
+    String key = buildSaleAccrualBucketKey(bucket.accrualSubTypeName, bucket.subtypeId);
+    if (!bucketByKey.containsKey(key)) {
+      bucketByKey.put(key, bucket);
+      return;
+    }
+
+    SaleAccrualPointBucket existing = bucketByKey.get(key);
+    existing.points = (existing.points == null ? 0 : existing.points) + bucket.points;
+  }
+
+  private static Decimal calculateSaleAccrualExcludeAmount(Id orderId) {
+    Decimal excludeAmount = 0;
+    if (orderId == null) {
+      return excludeAmount;
+    }
+
+    for (OrderItem oi : [
+      SELECT NetSalesUnitPrice__c, Quantity, IsExclude__c
+      FROM OrderItem
+      WHERE OrderId = :orderId
+    ]) {
+      if (oi.IsExclude__c == true) {
+        Decimal unitPrice = oi.NetSalesUnitPrice__c == null ? 0 : oi.NetSalesUnitPrice__c;
+        Decimal qty = oi.Quantity == null ? 1 : oi.Quantity;
+        excludeAmount += unitPrice * qty;
+      }
+    }
+    return excludeAmount;
+  }
+
+  private static Map<String, SaleAccrualPointBucket> calculateExpectedSaleAccrualBucketsV3(
+    Id orderId,
+    List<TransactionJournal> requestedGeneralTjList,
+    Decimal excludeAmount
+  ) {
+    Map<String, SaleAccrualPointBucket> result = new Map<String, SaleAccrualPointBucket>();
+    TransactionJournal sourceTj = findFirstAccrualEligibleGeneralPayment(requestedGeneralTjList);
+    if (sourceTj == null || sourceTj.MemberId == null) {
+      return result;
+    }
+
+    Decimal totalAmount = calculateGeneralPaymentAccrualBaseAmount(requestedGeneralTjList) - (excludeAmount == null ? 0 : excludeAmount);
+    if (totalAmount <= 0) {
+      return result;
+    }
+
+    Set<String> excludedPointTypeCodeSet = new Set<String>();
+    if (sourceTj.PromotionId != null) {
+      for (Promotion promotion : [
+        SELECT PointTypeCode__c
+        FROM Promotion
+        WHERE Id = :sourceTj.PromotionId
+        LIMIT 1
+      ]) {
+        if (String.isNotBlank(promotion.PointTypeCode__c)) {
+          for (String code : promotion.PointTypeCode__c.split(';')) {
+            if (String.isNotBlank(code)) {
+              excludedPointTypeCodeSet.add(code.trim());
+            }
+          }
+        }
+      }
+    }
+
+    for (LoyaltyTierBenefit ltb : [
+      SELECT
+        Benefit.PurchasePointRate__c,
+        Benefit.LoyaltyPgmCurrencySubtypeId__c,
+        Benefit.LoyaltyPgmCurrencySubtypeId__r.Name,
+        Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c
+      FROM LoyaltyTierBenefit
+      WHERE LoyaltyTierId IN (SELECT LoyaltyTierId FROM LoyaltyMemberTier WHERE LoyaltyMemberId = :sourceTj.MemberId)
+    ]) {
+      if (ltb.Benefit == null || ltb.Benefit.LoyaltyPgmCurrencySubtypeId__c == null) {
+        continue;
+      }
+      Decimal rate = ltb.Benefit.PurchasePointRate__c;
+      if (rate == null || rate <= 0) {
+        continue;
+      }
+
+      String pointTypeCode = ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r == null
+        ? null
+        : ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c;
+      if (String.isNotBlank(pointTypeCode) && excludedPointTypeCodeSet.contains(pointTypeCode.trim())) {
+        continue;
+      }
+
+      Id subtypeId = ltb.Benefit.LoyaltyPgmCurrencySubtypeId__c;
+      String subtypeName = ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r.Name;
+      Decimal points = (totalAmount * (rate / 100)).setScale(0, RoundingMode.HALF_UP);
+      String notes = subtypeName + '|' + String.valueOf(subtypeId) + '|' + String.valueOf(rate);
+      addSaleAccrualBucket(
+        result,
+        new SaleAccrualPointBucket(
+          subtypeId,
+          subtypeName,
+          JOURNAL_SUB_TYPE_NAME_PURCHASE_ACCRUAL,
+          JOURNAL_SUB_TYPE_NAME_CANCEL_PURCHASE_ACCRUAL,
+          points,
+          notes
+        )
+      );
+    }
+
+    addExpectedPromotionSaleAccrualBucketsV3(sourceTj, totalAmount, result);
+    return result;
+  }
+
+  private static void addExpectedPromotionSaleAccrualBucketsV3(
+    TransactionJournal sourceTj,
+    Decimal totalAmount,
+    Map<String, SaleAccrualPointBucket> result
+  ) {
+    if (sourceTj == null || sourceTj.PromotionId == null || sourceTj.MemberId == null || totalAmount == null || totalAmount <= 0) {
+      return;
+    }
+
+    List<PromotionPointLimit__c> pointLimitList = [
+      SELECT Type__c, Value__c, LoyaltyPgmCurrencySubtypeId__c, LoyaltyPgmCurrencySubtypeId__r.Name
+      FROM PromotionPointLimit__c
+      WHERE PromotionId__c = :sourceTj.PromotionId AND Type__c IN ('none', 'rate')
+    ];
+    if (pointLimitList.isEmpty()) {
+      return;
+    }
+
+    Map<Id, Integer> targetSubtypeCountMap = new Map<Id, Integer>();
+    Boolean hasNoneTypeLimit = false;
+    for (PromotionPointLimit__c pointLimit : pointLimitList) {
+      if ('none'.equals(pointLimit.Type__c) && pointLimit.LoyaltyPgmCurrencySubtypeId__c != null) {
+        hasNoneTypeLimit = true;
+        Id subtypeId = pointLimit.LoyaltyPgmCurrencySubtypeId__c;
+        targetSubtypeCountMap.put(subtypeId, (targetSubtypeCountMap.containsKey(subtypeId) ? targetSubtypeCountMap.get(subtypeId) : 0) + 1);
+      }
+    }
+
+    if (hasNoneTypeLimit) {
+      List<LoyaltyPgmCurrencySubtype> eventPointSubtypeList = [
+        SELECT Id, Name
+        FROM LoyaltyPgmCurrencySubtype
+        WHERE Name = :POINT_SUB_TYPE_NAME_EVENT
+        LIMIT 1
+      ];
+      if (!eventPointSubtypeList.isEmpty()) {
+        LoyaltyPgmCurrencySubtype eventPointSubtype = eventPointSubtypeList[0];
+        for (LoyaltyTierBenefit ltb : [
+          SELECT Benefit.PurchasePointRate__c, Benefit.LoyaltyPgmCurrencySubtypeId__c
+          FROM LoyaltyTierBenefit
+          WHERE LoyaltyTierId IN (SELECT LoyaltyTierId FROM LoyaltyMemberTier WHERE LoyaltyMemberId = :sourceTj.MemberId)
+        ]) {
+          if (ltb.Benefit == null) {
+            continue;
+          }
+          Id benefitSubtypeId = ltb.Benefit.LoyaltyPgmCurrencySubtypeId__c;
+          Decimal rate = ltb.Benefit.PurchasePointRate__c;
+          Integer subtypeCount = (benefitSubtypeId == null || !targetSubtypeCountMap.containsKey(benefitSubtypeId))
+            ? 0
+            : targetSubtypeCountMap.get(benefitSubtypeId);
+          if (benefitSubtypeId == null || rate == null || rate <= 0 || subtypeCount <= 0) {
+            continue;
+          }
+
+          Decimal points = (totalAmount * (rate / 100)).setScale(0, RoundingMode.HALF_UP);
+          String notes = eventPointSubtype.Name + '|' + String.valueOf(eventPointSubtype.Id) + '|' + String.valueOf(rate);
+          for (Integer i = 0; i < subtypeCount; i++) {
+            addSaleAccrualBucket(
+              result,
+              new SaleAccrualPointBucket(
+                eventPointSubtype.Id,
+                eventPointSubtype.Name,
+                JOURNAL_SUB_TYPE_NAME_PROMOTION_POINT_ACCRUAL,
+                JOURNAL_SUB_TYPE_NAME_PROMOTION_POINT_ACCRUAL_REVERSAL,
+                points,
+                notes
+              )
+            );
+          }
+        }
+      }
+    }
+
+    for (PromotionPointLimit__c pointLimit : pointLimitList) {
+      if (!'rate'.equals(pointLimit.Type__c) || pointLimit.LoyaltyPgmCurrencySubtypeId__c == null) {
+        continue;
+      }
+      Decimal rate = pointLimit.Value__c;
+      if (rate == null || rate <= 0) {
+        continue;
+      }
+
+      Decimal points = (totalAmount * (rate / 100)).setScale(0, RoundingMode.HALF_UP);
+      String subtypeName = pointLimit.LoyaltyPgmCurrencySubtypeId__r.Name;
+      String notes = subtypeName + '|' + String.valueOf(pointLimit.LoyaltyPgmCurrencySubtypeId__c) + '|' + String.valueOf(rate);
+      addSaleAccrualBucket(
+        result,
+        new SaleAccrualPointBucket(
+          pointLimit.LoyaltyPgmCurrencySubtypeId__c,
+          subtypeName,
+          JOURNAL_SUB_TYPE_NAME_PROMOTION_POINT_ACCRUAL,
+          JOURNAL_SUB_TYPE_NAME_PROMOTION_POINT_ACCRUAL_REVERSAL,
+          points,
+          notes
+        )
+      );
+    }
+  }
+
+  private static Map<String, SaleAccrualPointBucket> calculateCurrentSaleAccrualBucketsV3(Id orderId) {
+    Map<String, SaleAccrualPointBucket> result = new Map<String, SaleAccrualPointBucket>();
+    if (orderId == null) {
+      return result;
+    }
+
+    String saleIdValue = String.valueOf(orderId);
+    Id accrualJtId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_ACCRUAL, true);
+    Set<String> accrualSubTypeNames = new Set<String>{
+      JOURNAL_SUB_TYPE_NAME_PURCHASE_ACCRUAL,
+      JOURNAL_SUB_TYPE_NAME_PROMOTION_POINT_ACCRUAL
+    };
+
+    // Sale update compares the effective current accrual amount.
+    // Return-delete restored accruals must be included here, even though
+    // member-help display hides them as separate accrual rows.
+    List<LoyaltyLedger> creditLedgerList = [
+      SELECT
+        Id,
+        Points,
+        LoyaltyPgmCrcySubtypeId,
+        LoyaltyPgmCrcySubtype.Name,
+        TransactionJournal.JournalSubType.Name,
+        TransactionJournal.AdditionalNotes__c
+      FROM LoyaltyLedger
+      WHERE
+        TransactionJournal.JournalTypeId = :accrualJtId
+        AND TransactionJournal.JournalSubType.Name IN :accrualSubTypeNames
+        AND (TransactionJournal.OrderId = :orderId OR TransactionJournal.SaleId__c = :saleIdValue)
+        AND TransactionJournal.IsDeleted__c = FALSE
+        AND EventType = 'Credit'
+      LIMIT 2000
+    ];
+    if (creditLedgerList.isEmpty()) {
+      return result;
+    }
+
+    Map<Id, LoyaltyLedger> creditById = new Map<Id, LoyaltyLedger>(creditLedgerList);
+    Map<Id, Decimal> canceledByCreditId = new Map<Id, Decimal>();
+    for (AggregateResult ar : [
+      SELECT CreditLoyaltyLedgerId creditId, SUM(Points) totalPoints
+      FROM LoyaltyLedgerTraceability
+      WHERE
+        CreditLoyaltyLedgerId IN :creditById.keySet()
+        AND ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION
+        AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+      GROUP BY CreditLoyaltyLedgerId
+    ]) {
+      canceledByCreditId.put((Id) ar.get('creditId'), ar.get('totalPoints') == null ? 0 : ((Decimal) ar.get('totalPoints')).abs());
+    }
+
+    for (LoyaltyLedger creditLedger : creditLedgerList) {
+      Decimal effectivePoints = (creditLedger.Points == null ? 0 : creditLedger.Points) -
+        (canceledByCreditId.containsKey(creditLedger.Id) ? canceledByCreditId.get(creditLedger.Id) : 0);
+      if (effectivePoints <= 0 || creditLedger.LoyaltyPgmCrcySubtypeId == null) {
+        continue;
+      }
+
+      String accrualSubTypeName = creditLedger.TransactionJournal.JournalSubType.Name;
+      String reversalSubTypeName = JOURNAL_SUB_TYPE_NAME_PURCHASE_ACCRUAL.equals(accrualSubTypeName)
+        ? JOURNAL_SUB_TYPE_NAME_CANCEL_PURCHASE_ACCRUAL
+        : JOURNAL_SUB_TYPE_NAME_PROMOTION_POINT_ACCRUAL_REVERSAL;
+
+      addSaleAccrualBucket(
+        result,
+        new SaleAccrualPointBucket(
+          creditLedger.LoyaltyPgmCrcySubtypeId,
+          creditLedger.LoyaltyPgmCrcySubtype.Name,
+          accrualSubTypeName,
+          reversalSubTypeName,
+          effectivePoints
+        )
+      );
+    }
+    return result;
+  }
+
+  private static Date resolveSaleAccrualExpirationDateV3(Id orderId) {
+    Datetime accrualDatetime = resolveSaleAccrualDatetimeV3(orderId);
+    return accrualDatetime == null ? null : accrualDatetime.date().addYears(2);
+  }
+
+  private static Datetime resolveSaleAccrualDatetimeV3(Id orderId) {
+    if (orderId == null) {
+      return Datetime.now();
+    }
+    List<Order> orderList = [
+      SELECT EndDate
+      FROM Order
+      WHERE Id = :orderId
+      LIMIT 1
+    ];
+    if (orderList.isEmpty() || orderList[0].EndDate == null) {
+      return Datetime.now();
+    }
+    return TimeUtil.dateToUtcStartOfDay(orderList[0].EndDate);
+  }
+
+  private void applySaleAccrualIncreaseByExplicitPointsV3(
+    TransactionJournal sourceTj,
+    Decimal actualPaymentAmount,
+    Order orderInfo,
+    Map<String, SaleAccrualPointBucket> increaseByKey,
+    Map<String, Object> data
+  ) {
+    if (sourceTj == null || sourceTj.MemberId == null || increaseByKey == null || increaseByKey.isEmpty()) {
+      return;
+    }
+
+    Id accrualJtId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_ACCRUAL, true);
+    Map<String, List<SaleAccrualPointBucket>> bucketListByAccrualSubTypeName = new Map<String, List<SaleAccrualPointBucket>>();
+    for (SaleAccrualPointBucket bucket : increaseByKey.values()) {
+      if (bucket == null || bucket.points == null || bucket.points <= 0 || String.isBlank(bucket.accrualSubTypeName)) {
+        continue;
+      }
+      if (!bucketListByAccrualSubTypeName.containsKey(bucket.accrualSubTypeName)) {
+        bucketListByAccrualSubTypeName.put(bucket.accrualSubTypeName, new List<SaleAccrualPointBucket>());
+      }
+      bucketListByAccrualSubTypeName.get(bucket.accrualSubTypeName).add(bucket);
+    }
+    if (bucketListByAccrualSubTypeName.isEmpty()) {
+      return;
+    }
+
+    Datetime accrualDatetime = resolveSaleAccrualDatetimeV3(sourceTj.OrderId);
+    Date expirationDate = resolveSaleAccrualExpirationDateV3(sourceTj.OrderId);
+    List<PointCreditDTO> totalCreditPointList = new List<PointCreditDTO>();
+
+    for (String accrualSubTypeName : bucketListByAccrualSubTypeName.keySet()) {
+      Map<String, Object> jstCond = new Map<String, Object>{ 'Name' => accrualSubTypeName, 'JournalTypeId' => accrualJtId };
+      Id accrualJstId = SObjectUtil.findIdByConditions(JournalSubType.SObjectType, jstCond, true);
+
+      TransactionJournal tj = new TransactionJournal();
+      tj.ActivityDate = accrualDatetime;
+      tj.JournalDate = accrualDatetime;
+      tj.LoyaltyProgramId = sourceTj.LoyaltyProgramId;
+      tj.MemberId = sourceTj.MemberId;
+      tj.OrderId = sourceTj.OrderId;
+      tj.SaleId__c = sourceTj.SaleId__c;
+      tj.OrderId__c = sourceTj.OrderId__c;
+      tj.PromotionId = JOURNAL_SUB_TYPE_NAME_PROMOTION_POINT_ACCRUAL.equals(accrualSubTypeName) ? sourceTj.PromotionId : sourceTj.PromotionId;
+      tj.JournalTypeId = accrualJtId;
+      tj.JournalSubTypeId = accrualJstId;
+      insert tj;
+
+      List<Map<String, Object>> reqList = new List<Map<String, Object>>();
+      for (SaleAccrualPointBucket bucket : bucketListByAccrualSubTypeName.get(accrualSubTypeName)) {
+        Map<String, Object> req = new Map<String, Object>();
+        req.put('loyaltyProgramMemberId', sourceTj.MemberId);
+        req.put('journalId', tj.Id);
+        req.put('loyaltyProgramCurrencySubtypeName', bucket.subtypeName);
+        req.put('points', bucket.points);
+        req.put('additionalNotes', bucket.additionalNotes);
+        if (expirationDate != null) {
+          req.put('pointsExpirationDate', String.valueOf(expirationDate));
+        }
+        reqList.add(req);
+      }
+
+      if (reqList.isEmpty()) {
+        continue;
+      }
+
+      LoyaltyPointService.creditPoints(reqList);
+
+      List<LoyaltyLedger> llList = [
+        SELECT
+          Id,
+          LoyaltyPgmCrcySubtype.Name,
+          LoyaltyPgmCrcySubtype.PointTypeCode__c,
+          Points,
+          ExpiryDate,
+          EscrowPointsCreditDate,
+          ActivityDate,
+          CreatedDate,
+          EventType,
+          AdditionalNotes
+        FROM LoyaltyLedger
+        WHERE TransactionJournalId = :tj.Id
+        LIMIT 100
+      ];
+
+      Decimal totalPoints = 0;
+      String memberNo = resolveMemberNoV3(sourceTj.MemberId);
+      for (LoyaltyLedger ll : llList) {
+        PointCreditDTO pcDto = new PointCreditDTO();
+        pcDto.CD_JOURNAL = ll.Id;
+        pcDto.CD_TYPE_POINT = JOURNAL_SUB_TYPE_NAME_PROMOTION_POINT_ACCRUAL.equals(accrualSubTypeName)
+          ? ll.LoyaltyPgmCrcySubtype.PointTypeCode__c
+          : '01';
+        pcDto.NO_MBR = memberNo;
+        pcDto.PT_TARGET = ll.Points;
+        pcDto.DT_SAVE_PLAN = String.valueOf(ll.EscrowPointsCreditDate);
+        pcDto.DT_LIMIT_START = String.valueOf(ll.ActivityDate);
+        pcDto.DT_LIMIT_END = String.valueOf(ll.ExpiryDate);
+        pcDto.DT_DESTROY_PLAN = ll.ExpiryDate == null ? null : String.valueOf(ll.ExpiryDate.addDays(1));
+        pcDto.DTS_INSERT = String.valueOf(ll.CreatedDate);
+        pcDto.CD_TYPE_SAVE = ll.EventType;
+        pcDto.TX_REMARK = ll.AdditionalNotes;
+        pcDto.AM_SAL = actualPaymentAmount;
+        pcDto.NO_GRADE_ADVAN = orderInfo != null && orderInfo.MemberNo__r != null ? orderInfo.MemberNo__r.Grade__c : null;
+        totalCreditPointList.add(pcDto);
+
+        if (ll.Points != null && ll.Points > 0) {
+          totalPoints += ll.Points;
+        }
+      }
+
+      tj.TransactionAmount = totalPoints;
+      List<LoyaltyMemberCurrency> lmcList = [
+        SELECT PointsBalance
+        FROM LoyaltyMemberCurrency
+        WHERE LoyaltyMemberId = :tj.MemberId AND LoyaltyProgramCurrency.Name = :LOYALTY_PROGRAM_CURRENCY_NAME
+        LIMIT 1
+      ];
+      if (!lmcList.isEmpty()) {
+        tj.PostPointBalance__c = lmcList[0].PointsBalance;
+      }
+      update tj;
+    }
+
+    if (!totalCreditPointList.isEmpty()) {
+      data.put('CreditPointList', totalCreditPointList);
+      data.put('SaleAccrualAdjustmentCreditPointList', totalCreditPointList);
+    }
+  }
+
+  private List<GdSaleApiController.PointDebitDTO> cancelSaleAccrualByExplicitPointsV3(
+    Id orderId,
+    TransactionJournal sourceTj,
+    Map<String, SaleAccrualPointBucket> decreaseByKey
+  ) {
+    if (orderId == null || sourceTj == null || sourceTj.MemberId == null || decreaseByKey == null || decreaseByKey.isEmpty()) {
+      return new List<GdSaleApiController.PointDebitDTO>();
+    }
+
+    String saleIdValue = String.valueOf(orderId);
+    Id accrualJtId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_ACCRUAL, true);
+    Id accrualReversalJtId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_ACCRUAL_REVERSAL, true);
+    Id loyaltyProgramCurrencyId = SObjectUtil.findIdByName(LoyaltyProgramCurrency.SObjectType, LOYALTY_PROGRAM_CURRENCY_NAME, true);
+
+    Set<Id> subtypeIdSet = new Set<Id>();
+    Set<String> accrualSubTypeNameSet = new Set<String>();
+    for (SaleAccrualPointBucket bucket : decreaseByKey.values()) {
+      if (bucket == null || bucket.points == null || bucket.points <= 0 || bucket.subtypeId == null) {
+        continue;
+      }
+      subtypeIdSet.add(bucket.subtypeId);
+      accrualSubTypeNameSet.add(bucket.accrualSubTypeName);
+    }
+    if (subtypeIdSet.isEmpty() || accrualSubTypeNameSet.isEmpty()) {
+      return new List<GdSaleApiController.PointDebitDTO>();
+    }
+
+    List<LoyaltyLedger> originalCreditList = [
+      SELECT
+        Id,
+        Points,
+        ExpiryDate,
+        ActivityDate,
+        CreatedDate,
+        LoyaltyPgmCrcySubtypeId,
+        LoyaltyPgmCrcySubtype.Name,
+        LoyaltyPgmCrcySubtype.PointTypeCode__c,
+        TransactionJournal.JournalSubType.Name
+      FROM LoyaltyLedger
+      WHERE
+        LoyaltyProgramMemberId = :sourceTj.MemberId
+        AND TransactionJournal.JournalTypeId = :accrualJtId
+        AND TransactionJournal.JournalSubType.Name IN :accrualSubTypeNameSet
+        AND (TransactionJournal.OrderId = :orderId OR TransactionJournal.SaleId__c = :saleIdValue)
+        AND TransactionJournal.IsDeleted__c = FALSE
+        AND LoyaltyPgmCrcySubtypeId IN :subtypeIdSet
+        AND EventType = 'Credit'
+      ORDER BY CreatedDate ASC, Id ASC
+      LIMIT 2000
+    ];
+    if (originalCreditList.isEmpty()) {
+      throw new CustomException(400, '차감 대상 적립 포인트가 존재하지 않습니다.');
+    }
+
+    Map<Id, SaleAccrualOriginalCreditBucket> creditBucketById = new Map<Id, SaleAccrualOriginalCreditBucket>();
+    Map<String, List<SaleAccrualOriginalCreditBucket>> originalBucketsByKey = new Map<String, List<SaleAccrualOriginalCreditBucket>>();
+    for (LoyaltyLedger creditLedger : originalCreditList) {
+      String key = buildSaleAccrualBucketKey(
+        creditLedger.TransactionJournal.JournalSubType.Name,
+        creditLedger.LoyaltyPgmCrcySubtypeId
+      );
+      SaleAccrualOriginalCreditBucket bucket = new SaleAccrualOriginalCreditBucket(creditLedger, key);
+      creditBucketById.put(creditLedger.Id, bucket);
+      if (!originalBucketsByKey.containsKey(key)) {
+        originalBucketsByKey.put(key, new List<SaleAccrualOriginalCreditBucket>());
+      }
+      originalBucketsByKey.get(key).add(bucket);
+    }
+
+    for (AggregateResult ar : [
+      SELECT CreditLoyaltyLedgerId creditId, ActionType actionType, SUM(Points) totalPoints
+      FROM LoyaltyLedgerTraceability
+      WHERE
+        LoyaltyProgramMemberId = :sourceTj.MemberId
+        AND CreditLoyaltyLedgerId IN :creditBucketById.keySet()
+        AND ActionType IN ('Debit', 'DebitCancellation', 'CreditCancellation')
+        AND (DebitLoyaltyLedgerId = NULL OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
+      GROUP BY CreditLoyaltyLedgerId, ActionType
+    ]) {
+      Id creditId = (Id) ar.get('creditId');
+      if (!creditBucketById.containsKey(creditId)) {
+        continue;
+      }
+      String actionType = (String) ar.get('actionType');
+      Decimal points = ar.get('totalPoints') == null ? 0 : ((Decimal) ar.get('totalPoints')).abs();
+      SaleAccrualOriginalCreditBucket bucket = creditBucketById.get(creditId);
+      if (LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_DEBIT_CANCELLATION.equals(actionType)) {
+        bucket.availablePoints = Math.min(bucket.originalPoints, bucket.availablePoints + points);
+      } else {
+        bucket.availablePoints = Math.max(0, bucket.availablePoints - points);
+      }
+    }
+
+    Map<String, List<SaleAccrualDebitAllocation>> allocationListByReversalSubTypeName = new Map<String, List<SaleAccrualDebitAllocation>>();
+    for (String key : decreaseByKey.keySet()) {
+      SaleAccrualPointBucket decrease = decreaseByKey.get(key);
+      if (decrease == null || decrease.points == null || decrease.points <= 0) {
+        continue;
+      }
+
+      Decimal remainingPoints = decrease.points;
+      List<SaleAccrualOriginalCreditBucket> originalBucketList = originalBucketsByKey.get(key);
+      if (originalBucketList == null || originalBucketList.isEmpty()) {
+        throw new CustomException(400, '차감 대상 적립 포인트가 존재하지 않습니다. ' + decrease.subtypeName);
+      }
+
+      for (SaleAccrualOriginalCreditBucket originalBucket : originalBucketList) {
+        if (remainingPoints <= 0) {
+          break;
+        }
+        if (originalBucket.availablePoints == null || originalBucket.availablePoints <= 0) {
+          continue;
+        }
+
+        Decimal allocated = remainingPoints > originalBucket.availablePoints ? originalBucket.availablePoints : remainingPoints;
+        if (allocated <= 0) {
+          continue;
+        }
+
+        if (!allocationListByReversalSubTypeName.containsKey(decrease.reversalSubTypeName)) {
+          allocationListByReversalSubTypeName.put(decrease.reversalSubTypeName, new List<SaleAccrualDebitAllocation>());
+        }
+        allocationListByReversalSubTypeName.get(decrease.reversalSubTypeName).add(
+          new SaleAccrualDebitAllocation(originalBucket.creditLedger, allocated)
+        );
+        originalBucket.availablePoints -= allocated;
+        remainingPoints -= allocated;
+      }
+
+      if (remainingPoints > 0) {
+        throw new CustomException(
+          400,
+          '해당 판매에서 적립된 포인트가 이미 다른 주문/판매에서 사용되어 판매 수정으로 차감할 수 없습니다. 먼저 사용 건을 취소한 뒤 다시 수정해 주세요.'
+        );
+      }
+    }
+
+    List<GdSaleApiController.PointDebitDTO> result = new List<GdSaleApiController.PointDebitDTO>();
+    String memberNo = resolveMemberNoV3(sourceTj.MemberId);
+    Order orderInfo = null;
+    List<Order> orderList = [SELECT OrderNo__c, SaleNo__c FROM Order WHERE Id = :orderId LIMIT 1];
+    if (!orderList.isEmpty()) {
+      orderInfo = orderList[0];
+    }
+
+    for (String reversalSubTypeName : allocationListByReversalSubTypeName.keySet()) {
+      List<SaleAccrualDebitAllocation> allocationList = allocationListByReversalSubTypeName.get(reversalSubTypeName);
+      if (allocationList == null || allocationList.isEmpty()) {
+        continue;
+      }
+
+      Map<String, Object> jstCond = new Map<String, Object>{ 'Name' => reversalSubTypeName, 'JournalTypeId' => accrualReversalJtId };
+      Id reversalJstId = SObjectUtil.findIdByConditions(JournalSubType.SObjectType, jstCond, true);
+
+      TransactionJournal tj = new TransactionJournal();
+      tj.JournalDate = Datetime.now();
+      tj.ActivityDate = Datetime.now();
+      tj.LoyaltyProgramId = sourceTj.LoyaltyProgramId;
+      tj.MemberId = sourceTj.MemberId;
+      tj.OrderId = sourceTj.OrderId;
+      tj.SaleId__c = sourceTj.SaleId__c;
+      tj.OrderId__c = sourceTj.OrderId__c;
+      tj.PromotionId = JOURNAL_SUB_TYPE_NAME_PROMOTION_POINT_ACCRUAL_REVERSAL.equals(reversalSubTypeName) ? sourceTj.PromotionId : null;
+      tj.JournalTypeId = accrualReversalJtId;
+      tj.JournalSubTypeId = reversalJstId;
+      tj.Status = 'Pending';
+      insert tj;
+
+      List<LoyaltyLedger> debitLedgerList = new List<LoyaltyLedger>();
+      for (SaleAccrualDebitAllocation allocation : allocationList) {
+        LoyaltyLedger debitLedger = new LoyaltyLedger();
+        debitLedger.LoyaltyProgramMemberId = sourceTj.MemberId;
+        debitLedger.LoyaltyProgramCurrencyId = loyaltyProgramCurrencyId;
+        debitLedger.TransactionJournalId = tj.Id;
+        debitLedger.LoyaltyPgmCrcySubtypeId = allocation.creditLedger.LoyaltyPgmCrcySubtypeId;
+        debitLedger.Points = allocation.points;
+        debitLedger.EventType = 'Debit';
+        debitLedger.ActivityDate = tj.ActivityDate;
+        debitLedgerList.add(debitLedger);
+      }
+      insert debitLedgerList;
+
+      List<LoyaltyLedgerTraceability> traceList = new List<LoyaltyLedgerTraceability>();
+      Decimal totalCancelPoints = 0;
+      for (Integer i = 0; i < allocationList.size(); i++) {
+        SaleAccrualDebitAllocation allocation = allocationList[i];
+        LoyaltyLedgerTraceability trace = new LoyaltyLedgerTraceability();
+        trace.LoyaltyProgramMemberId = sourceTj.MemberId;
+        trace.LoyaltyProgramCurrencyId = loyaltyProgramCurrencyId;
+        trace.LoyaltyPgmCurrencySubtypeId = allocation.creditLedger.LoyaltyPgmCrcySubtypeId;
+        trace.CreditLoyaltyLedgerId = allocation.creditLedger.Id;
+        trace.DebitLoyaltyLedgerId = debitLedgerList[i].Id;
+        trace.Points = allocation.points;
+        trace.ActionType = LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_DEBIT;
+        traceList.add(trace);
+        totalCancelPoints += allocation.points;
+      }
+      insert traceList;
+
+      List<LoyaltyMemberCurrency> lmcList = [
+        SELECT Id, TotalPointsRedeemed
+        FROM LoyaltyMemberCurrency
+        WHERE LoyaltyMemberId = :sourceTj.MemberId AND LoyaltyProgramCurrency.Name = :LOYALTY_PROGRAM_CURRENCY_NAME
+        LIMIT 1
+      ];
+      if (!lmcList.isEmpty()) {
+        LoyaltyMemberCurrency lmc = lmcList[0];
+        lmc.TotalPointsRedeemed = (lmc.TotalPointsRedeemed == null ? 0 : lmc.TotalPointsRedeemed) + totalCancelPoints;
+        update lmc;
+      }
+
+      tj.TransactionAmount = totalCancelPoints;
+      tj.Status = 'Processed';
+      update tj;
+
+      List<LoyaltyLedgerTraceability> tracesToReplace = [
+        SELECT
+          Id,
+          LoyaltyProgramMemberId,
+          LoyaltyProgramCurrencyId,
+          LoyaltyPgmCurrencySubtypeId,
+          CreditLoyaltyLedgerId,
+          DebitLoyaltyLedgerId,
+          Points
+        FROM LoyaltyLedgerTraceability
+        WHERE Id IN :traceList
+      ];
+
+      List<LoyaltyLedgerTraceability> replacementTraceList = new List<LoyaltyLedgerTraceability>();
+      for (LoyaltyLedgerTraceability traceToReplace : tracesToReplace) {
+        LoyaltyLedgerTraceability replacementTrace = new LoyaltyLedgerTraceability();
+        replacementTrace.LoyaltyProgramMemberId = traceToReplace.LoyaltyProgramMemberId;
+        replacementTrace.LoyaltyProgramCurrencyId = traceToReplace.LoyaltyProgramCurrencyId;
+        replacementTrace.LoyaltyPgmCurrencySubtypeId = traceToReplace.LoyaltyPgmCurrencySubtypeId;
+        replacementTrace.CreditLoyaltyLedgerId = traceToReplace.CreditLoyaltyLedgerId;
+        replacementTrace.DebitLoyaltyLedgerId = traceToReplace.DebitLoyaltyLedgerId;
+        replacementTrace.Points = traceToReplace.Points;
+        replacementTrace.ActionType = LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION;
+        replacementTraceList.add(replacementTrace);
+      }
+
+      if (!tracesToReplace.isEmpty()) {
+        delete tracesToReplace;
+      }
+      if (!replacementTraceList.isEmpty()) {
+        insert replacementTraceList;
+      }
+
+      for (Integer i = 0; i < allocationList.size(); i++) {
+        SaleAccrualDebitAllocation allocation = allocationList[i];
+        GdSaleApiController.PointDebitDTO dto = new GdSaleApiController.PointDebitDTO();
+        dto.CD_LEDGER = debitLedgerList[i].Id;
+        dto.CD_JOURNAL = allocation.creditLedger.Id;
+        dto.CD_TYPE_POINT = allocation.creditLedger.LoyaltyPgmCrcySubtype.PointTypeCode__c;
+        dto.CD_RESON = tj.JournalReason__c;
+        dto.NO_MBR = memberNo;
+        if (orderInfo != null) {
+          dto.NO_SAL = String.isNotBlank(orderInfo.OrderNo__c) ? orderInfo.OrderNo__c : orderInfo.SaleNo__c;
+        }
+        dto.PT_USE = allocation.points;
+        dto.DTS_INSERT = String.valueOf(Datetime.now());
+        result.add(dto);
+      }
+    }
+
+    return result;
+  }
+
+  private class SaleAccrualOriginalCreditBucket {
+    public LoyaltyLedger creditLedger;
+    public String key;
+    public Decimal originalPoints;
+    public Decimal availablePoints;
+
+    public SaleAccrualOriginalCreditBucket(LoyaltyLedger creditLedger, String key) {
+      this.creditLedger = creditLedger;
+      this.key = key;
+      this.originalPoints = creditLedger.Points == null ? 0 : creditLedger.Points;
+      this.availablePoints = this.originalPoints;
+    }
+  }
+
+  private class SaleAccrualDebitAllocation {
+    public LoyaltyLedger creditLedger;
+    public Decimal points;
+
+    public SaleAccrualDebitAllocation(LoyaltyLedger creditLedger, Decimal points) {
+      this.creditLedger = creditLedger;
+      this.points = points == null ? 0 : points;
+    }
+  }
+
+  private static String resolveMemberNoV3(Id loyaltyProgramMemberId) {
+    if (loyaltyProgramMemberId == null) {
+      return null;
+    }
+    List<LoyaltyProgramMember> lpmList = [
+      SELECT Contact.MemberNo__c
+      FROM LoyaltyProgramMember
+      WHERE Id = :loyaltyProgramMemberId
+      LIMIT 1
+    ];
+    return !lpmList.isEmpty() && lpmList[0].Contact != null ? lpmList[0].Contact.MemberNo__c : null;
+  }
+
+  private void applySaleAccrualIncreaseForGeneralPaymentChangeV2(
+    TransactionJournal sourceTj,
+    Decimal actualPaymentAmount,
+    Order orderInfo,
+    Map<String, Object> data
+  ) {
+    List<TransactionJournal> deltaBasisTjList = new List<TransactionJournal>{ sourceTj };
+    List<PointCreditDTO> totalCreditPointList = new List<PointCreditDTO>();
+
+    List<PointCreditDTO> creditPointList = getPointService().creditPointsOnPurchaseV2(deltaBasisTjList, 0);
+    if (creditPointList != null && !creditPointList.isEmpty()) {
+      for (PointCreditDTO pcDto : creditPointList) {
+        pcDto.AM_SAL = actualPaymentAmount;
+        pcDto.NO_GRADE_ADVAN = orderInfo.MemberNo__r == null ? null : orderInfo.MemberNo__r.Grade__c;
+      }
+      totalCreditPointList.addAll(creditPointList);
+    }
+
+    List<PointCreditDTO> promotionCreditPointList = getPointService().creditPromotionPointsOnPurchase(deltaBasisTjList, 0);
+    if (promotionCreditPointList != null && !promotionCreditPointList.isEmpty()) {
+      for (PointCreditDTO pcDto : promotionCreditPointList) {
+        pcDto.AM_SAL = actualPaymentAmount;
+        pcDto.NO_GRADE_ADVAN = orderInfo.MemberNo__r == null ? null : orderInfo.MemberNo__r.Grade__c;
+      }
+      totalCreditPointList.addAll(promotionCreditPointList);
+    }
+
+    if (!totalCreditPointList.isEmpty()) {
+      data.put('CreditPointList', totalCreditPointList);
+      data.put('SaleAccrualAdjustmentCreditPointList', totalCreditPointList);
+    }
+  }
+
+  private void applySaleAccrualDecreaseForGeneralPaymentChangeV2(TransactionJournal sourceTj, Map<String, Object> data) {
+    List<GdSaleApiController.PointDebitDTO> cancelPointList =
+      getPointService().cancelPointsCreditedOnPurchase(new List<TransactionJournal>{ sourceTj });
+    if (cancelPointList != null && !cancelPointList.isEmpty()) {
+      data.put('SaleAccrualAdjustmentCancelPointList', cancelPointList);
+    }
+  }
+
   private void recreateSaleAccrualArtifactsForGeneralPaymentChange(Id orderId, Decimal actualPaymentAmount, Map<String, Object> data) {
     if (orderId == null) {
       return;
+    }
+
+    // 26.05.07 CS - 옵션 C 분기 가드: 옛 일자 판매는 표준 재적립 차단.
+    //   이유: GdSalePatchBranchHandler.wrapResponseForOldSale 가 별도로 delta 기반 force-credit/debit 수행.
+    //         여기서 표준 creditPointsOnPurchaseV2 가 다시 호출되면 PT='01'/'05'/'07' 적립이 추가되어
+    //         옛 거래 적립 정책(PT='04' only) 위반 + 이중 적립 발생.
+    //   안전성: flag OFF / 신규 거래는 기존 흐름 100% 통과.
+    try {
+      if (GdMigrationUtil.shouldApplyOptionCBranchByOrderId(orderId)) {
+        System.debug('recreateSaleAccrualArtifactsForGeneralPaymentChange skipped: option C branch');
+        return;
+      }
+    } catch (Exception ignoredOptC) {
+      // 분기 판정 실패 시 표준 흐름 유지
     }
 
     List<Order> orderList = [
@@ -1941,12 +3163,15 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
 
     Decimal excludeAmount = 0;
     for (OrderItem oi : [
-      SELECT NetSalesUnitPrice__c, IsExclude__c
+      // 26.05.05 CS - Quantity 추가. 단가 × 수량 으로 적립 제외 금액 계산.
+      SELECT NetSalesUnitPrice__c, Quantity, IsExclude__c
       FROM OrderItem
       WHERE OrderId = :orderId
     ]) {
       if (oi.IsExclude__c == true) {
-        excludeAmount += (oi.NetSalesUnitPrice__c == null ? 0 : oi.NetSalesUnitPrice__c);
+        Decimal unitPrice = oi.NetSalesUnitPrice__c == null ? 0 : oi.NetSalesUnitPrice__c;
+        Decimal qty = oi.Quantity == null ? 1 : oi.Quantity;
+        excludeAmount += unitPrice * qty;
       }
     }
 
@@ -2131,7 +3356,6 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
     Map<String, String> existingSignatureByKey = new Map<String, String>();
     for (TransactionJournal tj : existingList) {
       existingSignatureByKey.put(tj.DepositNo__c, buildGeneralPaymentSignature(tj));
-      System.debug('buildGeneralPaymentSignature(tj) : ' + buildGeneralPaymentSignature(tj));
     }
 
     // 기존 입금과 요청 입금 검증
@@ -2141,7 +3365,6 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         return false;
       }
       if (existingSignatureByKey.get(depositKey) != buildGeneralPaymentSignature(tj)) {
-        System.debug('buildGeneralPaymentSignature(tj) : ' + buildGeneralPaymentSignature(tj));
         return false;
       }
     }
@@ -2186,19 +3409,32 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
    * 적립 멱등키(효과 해시) 생성
    * - 적립에 영향을 주는 값만 포함
    */
-  private static Boolean shouldSkipExistingCouponReplay(TransactionJournal existingTj, String paymentMethod, String depositType, String couponNo) {
+  private static Boolean shouldSkipExistingCouponReplay(
+    TransactionJournal existingTj,
+    String paymentMethod,
+    String depositType,
+    Decimal transactionAmount,
+    String couponNo
+  ) {
     return existingTj != null &&
       String.isNotBlank(couponNo) &&
       existingTj.PaymentMethod == paymentMethod &&
       existingTj.DepositType__c == depositType &&
+      existingTj.TransactionAmount == transactionAmount &&
       existingTj.VoucherCode == couponNo;
   }
 
-  private static void validateUnsupportedCouponChange(TransactionJournal existingTj, String paymentMethod, String depositType, String couponNo) {
+  private static void validateUnsupportedCouponChange(
+    TransactionJournal existingTj,
+    String paymentMethod,
+    String depositType,
+    Decimal transactionAmount,
+    String couponNo
+  ) {
     if (existingTj == null || String.isBlank(existingTj.VoucherCode)) {
       return;
     }
-    if (shouldSkipExistingCouponReplay(existingTj, paymentMethod, depositType, couponNo)) {
+    if (shouldSkipExistingCouponReplay(existingTj, paymentMethod, depositType, transactionAmount, couponNo)) {
       return;
     }
     throw new CustomException(400, '판매 수정에서는 기존 쿠폰 입금 건 변경을 지원하지 않습니다. DepositNo=' + existingTj.DepositNo__c);
@@ -2251,5 +3487,33 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
       return lpm.Contact.PreviousGrade__c;
     }
     return lpm.Contact.Grade__c;
+  }
+
+  // 26.05.04 CS - 적립 기준 TJ 빌더 (POST /sale/deposit 전용).
+  //               Why: 환불(DepositType '03'/'05')도 양수로 합산되어 적립이 부풀려지는 버그 (회원 269999700006).
+  //               How: 환불을 음수로 변환한 복사본 리스트를 반환 → calculateEligibleAccrualAmount 의
+  //                    단순 합산이 정확한 net 을 산출. 적립 비대상 PaymentMethod(20/81/90/93) 는 같은 함수
+  //                    내부에서 이미 제외됨.
+  //               원본 tjList 는 DB insert 후 다른 처리에 재사용되므로 clone 으로 격리.
+  //               PATCH 경로(buildAccrualBaseTransactionJournals) 와 동일 패턴.
+  //               cancelPointsCreditedOnPurchase(반품 적립 취소) 경로는 호출하지 않음.
+  private static List<TransactionJournal> buildAccrualBasisDeposits(List<TransactionJournal> source) {
+    List<TransactionJournal> result = new List<TransactionJournal>();
+    if (source == null) {
+      return result;
+    }
+    for (TransactionJournal tj : source) {
+      if (tj == null) {
+        continue;
+      }
+      TransactionJournal copy = tj.clone(false, true, false, false);
+      Decimal amount = tj.TransactionAmount == null ? 0 : tj.TransactionAmount;
+      if ('03'.equals(tj.DepositType__c) || '05'.equals(tj.DepositType__c)) {
+        amount *= -1;
+      }
+      copy.TransactionAmount = amount;
+      result.add(copy);
+    }
+    return result;
   }
 }

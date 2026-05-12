@@ -1,5 +1,16 @@
 @IsTest
 private class GdOrderServiceImplTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
+
   private static Id ensureStdPricebookActive() {
     Id pricebookId = Test.getStandardPricebookId();
     update new Pricebook2(Id = pricebookId, IsActive = true);
@@ -8,6 +19,8 @@ private class GdOrderServiceImplTest {
 
   @testSetup
   static void setupData() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+
     Id pbId = ensureStdPricebookActive();
 
     Account company = new Account(Name = 'GoldenDew-Company', CompanyCode__c = 'COMP-001');
@@ -133,6 +146,26 @@ private class GdOrderServiceImplTest {
   }
 
   @IsTest
+  static void test_createOrder_validationExceptionPath() {
+    Test.startTest();
+    try {
+      svc()
+        .createOrder(
+          new Map<String, Object>{
+            'AccountId' => 'COMP-001',
+            'StoreCode__c' => 'STORE-001',
+            'MemberNo__c' => 'MEM-001',
+            'ActualPaymentAmount__c' => 1000
+          }
+        );
+      System.assert(false);
+    } catch (Exception e) {
+      System.assert(true);
+    }
+    Test.stopTest();
+  }
+
+  @IsTest
   static void test_updateOrder_success() {
     Map<String, Object> req = new Map<String, Object>{ 'OrderNo__c' => 'ORD-EXIST', 'ActualPaymentAmount__c' => 500000, 'OrderStatus__c' => '011' };
 
@@ -157,6 +190,18 @@ private class GdOrderServiceImplTest {
 
     try {
       svc().updateOrder(new Map<String, Object>{ 'OrderNo__c' => 'ORD-NOT-FOUND', 'ActualPaymentAmount__c' => 100 });
+      System.assert(false);
+    } catch (Exception e) {
+      System.assert(true);
+    }
+    Test.stopTest();
+  }
+
+  @IsTest
+  static void test_updateOrder_validationExceptionPath() {
+    Test.startTest();
+    try {
+      svc().updateOrder(new Map<String, Object>{ 'ActualPaymentAmount__c' => 100 });
       System.assert(false);
     } catch (Exception e) {
       System.assert(true);
@@ -251,6 +296,26 @@ private class GdOrderServiceImplTest {
   }
 
   @IsTest
+  static void test_createSale_validationExceptionPath() {
+    Test.startTest();
+    try {
+      svc()
+        .createSale(
+          new Map<String, Object>{
+            'AccountId' => 'COMP-001',
+            'StoreCode__c' => 'STORE-001',
+            'MemberNo__c' => 'MEM-001',
+            'ActualPaymentAmount__c' => 2000
+          }
+        );
+      System.assert(false);
+    } catch (Exception e) {
+      System.assert(true);
+    }
+    Test.stopTest();
+  }
+
+  @IsTest
   static void test_updateSale_success() {
     Map<String, Object> req = new Map<String, Object>{ 'SaleNo__c' => 'SALE-EXIST', 'ActualPaymentAmount__c' => 300000, 'SaleStatus__c' => '01' };
 
@@ -275,6 +340,41 @@ private class GdOrderServiceImplTest {
 
     try {
       svc().updateSale(new Map<String, Object>{ 'SaleNo__c' => 'SALE-NOT-FOUND', 'ActualPaymentAmount__c' => 100 });
+      System.assert(false);
+    } catch (Exception e) {
+      System.assert(true);
+    }
+    Test.stopTest();
+  }
+
+  @IsTest
+  static void test_updateSale_validationExceptionPath() {
+    Test.startTest();
+    try {
+      svc().updateSale(new Map<String, Object>{ 'ActualPaymentAmount__c' => 100 });
+      System.assert(false);
+    } catch (Exception e) {
+      System.assert(true);
+    }
+    Test.stopTest();
+  }
+
+  @IsTest
+  static void test_updateSale_returnOrderBlocksUpdate() {
+    Order original = [SELECT Id, AccountId, Pricebook2Id FROM Order WHERE SaleNo__c = 'SALE-EXIST' LIMIT 1];
+
+    insert new Order(
+      AccountId = original.AccountId,
+      EffectiveDate = Date.today(),
+      Status = 'Draft',
+      Pricebook2Id = original.Pricebook2Id,
+      OriginalOrderId__c = original.Id,
+      IsDeleted__c = false
+    );
+
+    Test.startTest();
+    try {
+      svc().updateSale(new Map<String, Object>{ 'SaleNo__c' => 'SALE-EXIST', 'ActualPaymentAmount__c' => 100 });
       System.assert(false);
     } catch (Exception e) {
       System.assert(true);

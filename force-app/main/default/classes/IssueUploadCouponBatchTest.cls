@@ -1,5 +1,20 @@
 @IsTest
 private class IssueUploadCouponBatchTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"success":true,"message":"ok","data":{"erpId":"OK"}}');
+      return res;
+    }
+  }
+
+  private static void setMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
+
   private static String pickVoucherType() {
     for (Schema.PicklistEntry entry : VoucherDefinition.Type.getDescribe().getPicklistValues()) {
       if (entry.getValue() == 'FixedValue') {
@@ -30,6 +45,8 @@ private class IssueUploadCouponBatchTest {
 
   @TestSetup
   static void setupData() {
+    setMock();
+
     String voucherType = pickVoucherType();
 
     LoyaltyProgram program = new LoyaltyProgram(Name = 'IssueUpload Test Program', IsPrimary = true);
@@ -127,12 +144,15 @@ private class IssueUploadCouponBatchTest {
   }
 
   private static void resetIssueVoucherHooks() {
+    setMock();
     IssueUploadCouponBatch.forceIssueVoucherException = false;
     IssueUploadCouponBatch.forceIssueVoucherNullResult = false;
   }
 
   @IsTest
   static void start_returnsProvidedMemberIds() {
+    setMock();
+
     Set<Id> memberIds = new Set<Id>{ getMemberId() };
     IssueUploadCouponBatch batch = new IssueUploadCouponBatch(memberIds, getVoucherDefinitionId(), Date.today());
 
@@ -147,6 +167,8 @@ private class IssueUploadCouponBatchTest {
 
   @IsTest
   static void start_withMultipleMembers_returnsAllIds() {
+    setMock();
+
     Set<Id> memberIds = getMemberIds();
     IssueUploadCouponBatch batch = new IssueUploadCouponBatch(memberIds, getVoucherDefinitionId(), Date.today());
 
@@ -160,6 +182,8 @@ private class IssueUploadCouponBatchTest {
 
   @IsTest
   static void execute_withEmptyScope_runsWithoutError() {
+    setMock();
+
     IssueUploadCouponBatch batch = new IssueUploadCouponBatch(new Set<Id>{ getMemberId() }, getVoucherDefinitionId(), Date.today());
 
     Test.startTest();
@@ -171,6 +195,8 @@ private class IssueUploadCouponBatchTest {
 
   @IsTest
   static void execute_dateOutOfRange_branch_runsWithoutError() {
+    setMock();
+
     Id memberId = getMemberId();
     VoucherDefinition definition = [
       SELECT ExpirationDate
@@ -270,6 +296,8 @@ private class IssueUploadCouponBatchTest {
 
   @IsTest
   static void finish_runsWithoutError() {
+    setMock();
+
     IssueUploadCouponBatch batch = new IssueUploadCouponBatch(new Set<Id>{ getMemberId() }, getVoucherDefinitionId(), Date.today());
 
     Test.startTest();
@@ -350,6 +378,8 @@ private class IssueUploadCouponBatchTest {
 
   @IsTest
   static void executeBatch_withMember_runsBatchLifecycle() {
+    setMock();
+
     Test.startTest();
     Database.executeBatch(new IssueUploadCouponBatch(new Set<Id>{ getMemberId() }, getVoucherDefinitionId(), Date.today()), 50);
     Test.stopTest();
@@ -359,6 +389,8 @@ private class IssueUploadCouponBatchTest {
 
   @IsTest
   static void executeBatch_withEmptyMembers_runsBatchLifecycle() {
+    setMock();
+
     Test.startTest();
     Database.executeBatch(new IssueUploadCouponBatch(new Set<Id>(), getVoucherDefinitionId(), Date.today()), 50);
     Test.stopTest();

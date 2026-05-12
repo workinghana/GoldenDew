@@ -1,5 +1,20 @@
 @IsTest
 private class MemberShipUIControllerV1Test {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"success":true,"message":"ok","data":{}}');
+      return res;
+    }
+  }
+
+  private static void setMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
+
   private static String pickFirst(Schema.SObjectField fieldRef, String fallback) {
     List<Schema.PicklistEntry> entries = fieldRef.getDescribe().getPicklistValues();
     return entries.isEmpty() ? fallback : entries[0].getValue();
@@ -7,6 +22,8 @@ private class MemberShipUIControllerV1Test {
 
   @TestSetup
   static void setup() {
+    setMock();
+
     LoyaltyProgram lp = new LoyaltyProgram(Name = 'LP', IsPrimary = true);
     insert lp;
 
@@ -52,7 +69,8 @@ private class MemberShipUIControllerV1Test {
       VoucherCategoryId__c = cat.Id,
       AccountId__c = acc.Id,
       IsActive = true,
-      Type = 'ProductOrService',
+      Type = 'FixedValue',
+      FaceValue = 1000,
       ExpirationType = pickFirst(VoucherDefinition.ExpirationType, 'FixedDate'),
       EffectiveDate = Date.today(),
       ExpirationDate = Date.today().addDays(10),
@@ -66,6 +84,8 @@ private class MemberShipUIControllerV1Test {
 
   @IsTest
   static void test_all_flow() {
+    setMock();
+
     Id tierId = [SELECT Id FROM LoyaltyTier LIMIT 1].Id;
     Id vdId = [SELECT Id FROM VoucherDefinition LIMIT 1].Id;
 
@@ -93,6 +113,8 @@ private class MemberShipUIControllerV1Test {
 
   @IsTest
   static void test_isVoucherAllowedForTier_cases() {
+    setMock();
+
     Id vdId = [SELECT Id FROM VoucherDefinition LIMIT 1].Id;
 
     MemberShipUIControllerV1.isVoucherAllowedForTier(vdId, '01');

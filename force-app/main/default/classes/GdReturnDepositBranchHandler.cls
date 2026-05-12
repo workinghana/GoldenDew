@@ -52,7 +52,7 @@ public with sharing class GdReturnDepositBranchHandler {
     List<TransactionJournal> tjList = [
       SELECT Id, IsDeleted__c, MemberId, OrderId, InsertId__c,
              AdditionalNotes__c, JournalSubTypeId, TransactionAmount,
-             JournalSubType.Name, PaymentMethod, LoyaltyProgramId
+             JournalSubType.Name, PaymentMethod, LoyaltyProgramId, SaleId__c
       FROM TransactionJournal
       WHERE DepositNo__c = :depositNo AND IsDeleted__c = FALSE
       LIMIT 1
@@ -112,7 +112,8 @@ public with sharing class GdReturnDepositBranchHandler {
       ', paymentMethod=' + (tj.PaymentMethod == null ? 'null' : tj.PaymentMethod) +
       ', forceCreditSuccess=' + outcome.success +
       ', usageRestoreRequired=' + outcome.usageRestoreRequired +
-      (String.isBlank(outcome.error) ? '' : ', forceCreditError=' + outcome.error)
+      (String.isBlank(outcome.error) ? '' : ', forceCreditError=' + outcome.error),
+      tj.SaleId__c
     );
 
     // 6. 응답 — Phase 6.7 결과 포함

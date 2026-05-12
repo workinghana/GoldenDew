@@ -37,6 +37,10 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
   private static final String JOURNAL_TYPE_NAME_ACCRUAL_REVERSAL = 'Accrual Reversal';
   private static final String RESTORE_PURCHASE_ACCRUAL_NOTE = 'Restore purchase accrual due to return deletion';
   private static final String RESTORE_PROMOTION_ACCRUAL_NOTE = 'Restore promotion point accrual due to return deletion';
+  private static final String OPTION_C_FORCE_CREDIT_NOTE_PREFIX = 'OPTC_FORCE_CREDIT:';
+  private static final String OPTION_C_RETURN_DELETE_RESTORE_MARKER = 'OPTC_RETURN_DELETE_RESTORE:';
+  private static final String OPTION_C_RETURN_DEPOSIT_DELETE_RESTORE_MARKER = 'OPTC_RETURN_DEPOSIT_DELETE_FORCE_CREDIT:';
+  private static final String OPTION_C_SALE_PATCH_FORCE_CREDIT_MARKER = 'OPTC_SALE_PATCH_FORCE_CREDIT:';
   // [Eco Restore Fix 2026-05-03] 통반품 취소 시 재적립된 에코포인트 마커
   //   배경: restoreEcoPointsFromReturn 가 만든 재적립 LL 이 AccrualHistoryList 에 추가 행으로 노출됨.
   //         GdPointServiceImpl 의 같은 마커 처리 (라인 346, 350, 1193, 1197) 와 일관성 회복.
@@ -78,6 +82,33 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     return String.valueOf(memberId) + '::' + String.valueOf(subtypeId) + '::' + String.valueOf(expiryDate);
   }
 
+  private static String buildRestoreOriginKey(Id orderId, Id subtypeId, Date expiryDate) {
+    return String.valueOf(orderId) + '::' + String.valueOf(subtypeId) + '::' + String.valueOf(expiryDate);
+  }
+
+  private static Boolean isRestoreOriginCandidate(LoyaltyLedger ledger) {
+    if (ledger == null || ledger.EventType != 'Credit' || ledger.TransactionJournal == null) {
+      return false;
+    }
+    String journalSubTypeName = ledger.TransactionJournal.JournalSubType == null ? null : ledger.TransactionJournal.JournalSubType.Name;
+    String additionalNotes = ledger.TransactionJournal.AdditionalNotes__c;
+    if (journalSubTypeName == JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL) {
+      return false;
+    }
+    if (additionalNotes == RESTORE_PURCHASE_ACCRUAL_NOTE ||
+        additionalNotes == RESTORE_PROMOTION_ACCRUAL_NOTE ||
+        additionalNotes == ECO_POINT_RESTORE_NOTE ||
+        isOptionCReturnRestoreCreditNote(additionalNotes)) {
+      return false;
+    }
+    return true;
+  }
+
+  private class PaymentSummaryResult {
+    Map<Id, Integer> pointByOrderId = new Map<Id, Integer>();
+    Map<Id, Integer> couponByOrderId = new Map<Id, Integer>();
+  }
+
   private static Boolean shouldExcludeFromAccrualHistory(LoyaltyLedger ledger) {
     if (ledger == null || ledger.EventType != 'Credit' || ledger.TransactionJournal == null) {
       return false;
@@ -88,12 +119,19 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     //   - Accrual Reversal Debit 이 별도 생성되어 PT_SAVE==PT_DESTROY 로 "소멸" 표시되지만
     //     MD 기대는 판매 B 관련 로우의 완전 제거이므로 여기서 원천 필터링.
     //   - S1/S2/S3 의 Order 는 IsDeleted=FALSE 유지이므로 영향 없음.
+    if (ledger.TransactionJournal.SaleId__r != null
+        && ledger.TransactionJournal.SaleId__r.IsDeleted__c == true) {
+      return true;
+    }
+
     if (ledger.TransactionJournal.Order != null
-        && ledger.TransactionJournal.Order.IsDeleted__c == true) {
+        && ledger.TransactionJournal.Order.IsDeleted__c == true
+        && ledger.TransactionJournal.SaleId__r == null) {
       return true;
     }
 
     String journalTypeName = ledger.TransactionJournal.JournalType != null ? ledger.TransactionJournal.JournalType.Name : null;
+    String journalSubTypeName = ledger.TransactionJournal.JournalSubType != null ? ledger.TransactionJournal.JournalSubType.Name : null;
     String journalAdditionalNotes = ledger.TransactionJournal.AdditionalNotes__c;
     String relatedJournalTypeName = ledger.TransactionJournal.RelatedJournal != null &&
       ledger.TransactionJournal.RelatedJournal.JournalType != null
@@ -107,13 +145,396 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     //   해결: ECO_POINT_RESTORE_NOTE 마커도 제외 대상에 추가 (다른 메서드 4곳과 일관).
     if (journalAdditionalNotes == RESTORE_PURCHASE_ACCRUAL_NOTE
         || journalAdditionalNotes == RESTORE_PROMOTION_ACCRUAL_NOTE
-        || journalAdditionalNotes == ECO_POINT_RESTORE_NOTE) {
+        || journalAdditionalNotes == ECO_POINT_RESTORE_NOTE
+        || isOptionCReturnRestoreCreditNote(journalAdditionalNotes)) {
+      return true;
+    }
+
+    if (journalTypeName == JOURNAL_TYPE_NAME_ACCRUAL
+        && journalSubTypeName == 'Purchase Accrual'
+        && ledger.TransactionJournal.SaleId__r != null
+        && ledger.TransactionJournal.SaleId__r.IsReductionOrder__c == true) {
       return true;
     }
 
     return journalTypeName == JOURNAL_TYPE_NAME_ACCRUAL &&
       ledger.TransactionJournal.RelatedJournalId != null &&
       relatedJournalTypeName == JOURNAL_TYPE_NAME_ACCRUAL_REVERSAL;
+  }
+
+  private static Boolean isOptionCReturnRestoreCreditNote(String additionalNotes) {
+    if (String.isBlank(additionalNotes) || !additionalNotes.startsWith(OPTION_C_FORCE_CREDIT_NOTE_PREFIX)) {
+      return false;
+    }
+    return additionalNotes.contains(OPTION_C_RETURN_DELETE_RESTORE_MARKER)
+      || additionalNotes.contains(OPTION_C_RETURN_DEPOSIT_DELETE_RESTORE_MARKER);
+  }
+
+  private static String extractOptionCNoteValue(String additionalNotes, String key) {
+    if (String.isBlank(additionalNotes) || String.isBlank(key)) {
+      return null;
+    }
+
+    Integer startIdx = additionalNotes.indexOf(key);
+    if (startIdx < 0) {
+      return null;
+    }
+    startIdx += key.length();
+    Integer endIdx = additionalNotes.indexOf(',', startIdx);
+    String value = endIdx < 0
+      ? additionalNotes.substring(startIdx)
+      : additionalNotes.substring(startIdx, endIdx);
+    value = value == null ? null : value.trim();
+    return String.isBlank(value) ? null : value;
+  }
+
+  private static Set<Id> buildOptionCRestoreCreditLLIdsLinkedToDeletedReturn(List<LoyaltyLedger> ledgers) {
+    Set<Id> result = new Set<Id>();
+    if (ledgers == null || ledgers.isEmpty()) {
+      return result;
+    }
+
+    Set<Id> sourceTjIds = new Set<Id>();
+    Set<String> returnSaleNos = new Set<String>();
+    Map<Id, Id> ledgerIdBySourceTjId = new Map<Id, Id>();
+    Map<String, Id> ledgerIdByReturnSaleNo = new Map<String, Id>();
+
+    for (LoyaltyLedger ll : ledgers) {
+      if (ll == null || ll.Id == null || ll.EventType != 'Credit'
+          || ll.TransactionJournal == null
+          || !isOptionCReturnRestoreCreditNote(ll.TransactionJournal.AdditionalNotes__c)) {
+        continue;
+      }
+
+      String note = ll.TransactionJournal.AdditionalNotes__c;
+      String sourceTjIdText = extractOptionCNoteValue(note, 'tjId=');
+      if (String.isNotBlank(sourceTjIdText)) {
+        try {
+          Id sourceTjId = (Id) sourceTjIdText;
+          sourceTjIds.add(sourceTjId);
+          ledgerIdBySourceTjId.put(sourceTjId, ll.Id);
+        } catch (Exception e) {
+          // ignore malformed legacy marker
+        }
+      }
+
+      String returnSaleNo = extractOptionCNoteValue(note, 'returnSaleNo=');
+      if (String.isNotBlank(returnSaleNo)) {
+        returnSaleNos.add(returnSaleNo);
+        ledgerIdByReturnSaleNo.put(returnSaleNo, ll.Id);
+      }
+    }
+
+    if (!sourceTjIds.isEmpty()) {
+      for (TransactionJournal sourceTj : [
+        SELECT Id, SaleId__r.IsDeleted__c
+        FROM TransactionJournal
+        WHERE Id IN :sourceTjIds
+      ]) {
+        if (sourceTj.SaleId__r != null && sourceTj.SaleId__r.IsDeleted__c == true) {
+          Id restoreLLId = ledgerIdBySourceTjId.get(sourceTj.Id);
+          if (restoreLLId != null) {
+            result.add(restoreLLId);
+          }
+        }
+      }
+    }
+
+    if (!returnSaleNos.isEmpty()) {
+      for (Order returnOrder : [
+        SELECT SaleNo__c, IsDeleted__c
+        FROM Order
+        WHERE SaleNo__c IN :returnSaleNos
+      ]) {
+        if (returnOrder.IsDeleted__c == true) {
+          Id restoreLLId = ledgerIdByReturnSaleNo.get(returnOrder.SaleNo__c);
+          if (restoreLLId != null) {
+            result.add(restoreLLId);
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  private static Map<Id, List<OriginPortion>> buildOptionCRestoreOriginPortionsBySourceTj(
+      Id memberId,
+      List<LoyaltyLedger> ledgers,
+      Boolean expandToFinalOrigin
+  ) {
+    Map<Id, List<OriginPortion>> result = new Map<Id, List<OriginPortion>>();
+    if (memberId == null || ledgers == null || ledgers.isEmpty()) {
+      return result;
+    }
+
+    Set<Id> sourceTjIds = new Set<Id>();
+    Map<Id, Id> restoreLLIdBySourceTjId = new Map<Id, Id>();
+    Map<Id, Integer> restorePointsByLLId = new Map<Id, Integer>();
+    for (LoyaltyLedger ll : ledgers) {
+      if (ll == null || ll.Id == null || ll.EventType != 'Credit'
+          || ll.TransactionJournal == null
+          || !isOptionCReturnRestoreCreditNote(ll.TransactionJournal.AdditionalNotes__c)
+          || ll.Points == null) {
+        continue;
+      }
+
+      String sourceTjIdText = extractOptionCNoteValue(ll.TransactionJournal.AdditionalNotes__c, 'tjId=');
+      if (String.isBlank(sourceTjIdText)) {
+        continue;
+      }
+      try {
+        Id sourceTjId = (Id) sourceTjIdText;
+        sourceTjIds.add(sourceTjId);
+        restoreLLIdBySourceTjId.put(sourceTjId, ll.Id);
+        restorePointsByLLId.put(ll.Id, ll.Points.abs().intValue());
+      } catch (Exception e) {
+        // ignore malformed legacy marker
+      }
+    }
+
+    if (sourceTjIds.isEmpty()) {
+      return result;
+    }
+
+    Map<Id, Id> restoreLLIdByReturnOrderId = new Map<Id, Id>();
+    for (TransactionJournal sourceTj : [
+      SELECT Id, SaleId__c
+      FROM TransactionJournal
+      WHERE Id IN :sourceTjIds
+    ]) {
+      Id restoreLLId = restoreLLIdBySourceTjId.get(sourceTj.Id);
+      if (restoreLLId != null && sourceTj.SaleId__c != null) {
+        restoreLLIdByReturnOrderId.put(sourceTj.SaleId__c, restoreLLId);
+      }
+    }
+
+    if (restoreLLIdByReturnOrderId.isEmpty()) {
+      return result;
+    }
+
+    Map<Id, List<OriginPortion>> rawPortionsByRestoreLLId = new Map<Id, List<OriginPortion>>();
+    for (LoyaltyLedgerTraceability llt : [
+      SELECT CreditLoyaltyLedgerId, Points, DebitLoyaltyLedger.TransactionJournal.SaleId__c
+      FROM LoyaltyLedgerTraceability
+      WHERE LoyaltyProgramMemberId = :memberId
+        AND ActionType = 'CreditCancellation'
+        AND DebitLoyaltyLedger.TransactionJournal.SaleId__c IN :restoreLLIdByReturnOrderId.keySet()
+        AND DebitLoyaltyLedger.TransactionJournal.JournalType.Name = :JOURNAL_TYPE_NAME_ACCRUAL_REVERSAL
+        AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+      LIMIT 50000
+    ]) {
+      if (llt.CreditLoyaltyLedgerId == null || llt.Points == null
+          || llt.DebitLoyaltyLedger == null
+          || llt.DebitLoyaltyLedger.TransactionJournal == null
+          || llt.DebitLoyaltyLedger.TransactionJournal.SaleId__c == null) {
+        continue;
+      }
+      Id restoreLLId = restoreLLIdByReturnOrderId.get(llt.DebitLoyaltyLedger.TransactionJournal.SaleId__c);
+      if (restoreLLId == null) {
+        continue;
+      }
+      if (!rawPortionsByRestoreLLId.containsKey(restoreLLId)) {
+        rawPortionsByRestoreLLId.put(restoreLLId, new List<OriginPortion>());
+      }
+      rawPortionsByRestoreLLId.get(restoreLLId).add(
+        new OriginPortion(llt.CreditLoyaltyLedgerId, llt.Points.abs().intValue())
+      );
+    }
+
+    for (Id restoreLLId : rawPortionsByRestoreLLId.keySet()) {
+      Integer restorePoints = restorePointsByLLId.containsKey(restoreLLId)
+        ? restorePointsByLLId.get(restoreLLId)
+        : 0;
+      result.put(restoreLLId, capOriginPortions(rawPortionsByRestoreLLId.get(restoreLLId), restorePoints));
+    }
+
+    if (expandToFinalOrigin != true) {
+      return result;
+    }
+
+    for (Integer i = 0; i < result.size(); i++) {
+      Boolean changed = false;
+      Map<Id, List<OriginPortion>> nextResult = new Map<Id, List<OriginPortion>>();
+      for (Id restoreLLId : result.keySet()) {
+        List<OriginPortion> expanded = new List<OriginPortion>();
+        List<OriginPortion> portions = result.get(restoreLLId);
+        if (portions == null) {
+          nextResult.put(restoreLLId, portions);
+          continue;
+        }
+        for (OriginPortion p : portions) {
+          if (p == null || p.originCreditLLId == null || p.points == null || p.points <= 0) {
+            continue;
+          }
+          if (result.containsKey(p.originCreditLLId)) {
+            expanded.addAll(capOriginPortions(result.get(p.originCreditLLId), p.points));
+            changed = true;
+          } else {
+            expanded.add(p);
+          }
+        }
+        Integer restorePoints = restorePointsByLLId.containsKey(restoreLLId)
+          ? restorePointsByLLId.get(restoreLLId)
+          : 0;
+        nextResult.put(restoreLLId, capOriginPortions(expanded, restorePoints));
+      }
+      result = nextResult;
+      if (!changed) {
+        break;
+      }
+    }
+
+    return result;
+  }
+
+  private static List<OriginPortion> capOriginPortions(List<OriginPortion> rawPortions, Integer maxPoints) {
+    List<OriginPortion> result = new List<OriginPortion>();
+    if (rawPortions == null || rawPortions.isEmpty() || maxPoints == null || maxPoints <= 0) {
+      return result;
+    }
+
+    Integer remaining = maxPoints;
+    for (OriginPortion p : rawPortions) {
+      if (p == null || p.originCreditLLId == null || p.points == null || p.points <= 0 || remaining <= 0) {
+        continue;
+      }
+      Integer portionPoints = Math.min(p.points, remaining);
+      result.add(new OriginPortion(p.originCreditLLId, portionPoints));
+      remaining -= portionPoints;
+    }
+    return result;
+  }
+
+  private static List<OriginPortion> scaleOriginPortions(List<OriginPortion> rawPortions, Integer targetPoints) {
+    List<OriginPortion> result = new List<OriginPortion>();
+    if (rawPortions == null || rawPortions.isEmpty() || targetPoints == null || targetPoints <= 0) {
+      return result;
+    }
+
+    Integer total = 0;
+    for (OriginPortion p : rawPortions) {
+      if (p != null && p.originCreditLLId != null && p.points != null && p.points > 0) {
+        total += p.points;
+      }
+    }
+    if (total <= 0) {
+      return result;
+    }
+
+    if (targetPoints >= total) {
+      return coalesceOriginPortions(capOriginPortions(rawPortions, targetPoints));
+    }
+
+    Integer allocated = 0;
+    Integer lastIdx = rawPortions.size() - 1;
+    for (Integer i = 0; i < rawPortions.size(); i++) {
+      OriginPortion p = rawPortions[i];
+      if (p == null || p.originCreditLLId == null || p.points == null || p.points <= 0) {
+        continue;
+      }
+      Integer share;
+      if (i == lastIdx) {
+        share = targetPoints - allocated;
+        if (share < 0) share = 0;
+      } else {
+        Long numerator = (Long) targetPoints * (Long) p.points;
+        share = (Integer) (numerator / (Long) total);
+      }
+      allocated += share;
+      if (share > 0) {
+        result.add(new OriginPortion(p.originCreditLLId, share));
+      }
+    }
+    return coalesceOriginPortions(result);
+  }
+
+  private static List<OriginPortion> coalesceOriginPortions(List<OriginPortion> rawPortions) {
+    List<OriginPortion> result = new List<OriginPortion>();
+    if (rawPortions == null || rawPortions.isEmpty()) {
+      return result;
+    }
+
+    Map<Id, Integer> pointsByOrigin = new Map<Id, Integer>();
+    List<Id> originOrder = new List<Id>();
+    for (OriginPortion p : rawPortions) {
+      if (p == null || p.originCreditLLId == null || p.points == null || p.points <= 0) {
+        continue;
+      }
+      if (!pointsByOrigin.containsKey(p.originCreditLLId)) {
+        originOrder.add(p.originCreditLLId);
+        pointsByOrigin.put(p.originCreditLLId, 0);
+      }
+      pointsByOrigin.put(p.originCreditLLId, pointsByOrigin.get(p.originCreditLLId) + p.points);
+    }
+    for (Id originCreditLLId : originOrder) {
+      Integer points = pointsByOrigin.get(originCreditLLId);
+      if (points != null && points > 0) {
+        result.add(new OriginPortion(originCreditLLId, points));
+      }
+    }
+    return result;
+  }
+
+  private static Map<Id, List<OriginPortion>> expandOriginPortionsToFinalOrigin(
+      Map<Id, List<OriginPortion>> basePortions,
+      Map<Id, List<OriginPortion>> restoreOriginPortions
+  ) {
+    Map<Id, List<OriginPortion>> result = new Map<Id, List<OriginPortion>>();
+    if (basePortions == null || basePortions.isEmpty()) {
+      return result;
+    }
+
+    for (Id sourceLLId : basePortions.keySet()) {
+      result.put(sourceLLId, coalesceOriginPortions(basePortions.get(sourceLLId)));
+    }
+
+    Integer maxIterations = result.size() + (restoreOriginPortions == null ? 0 : restoreOriginPortions.size()) + 1;
+    for (Integer i = 0; i < maxIterations; i++) {
+      Boolean changed = false;
+      Map<Id, List<OriginPortion>> nextResult = new Map<Id, List<OriginPortion>>();
+      for (Id sourceLLId : result.keySet()) {
+        List<OriginPortion> expanded = new List<OriginPortion>();
+        List<OriginPortion> portions = result.get(sourceLLId);
+        if (portions == null || portions.isEmpty()) {
+          nextResult.put(sourceLLId, portions);
+          continue;
+        }
+
+        for (OriginPortion p : portions) {
+          if (p == null || p.originCreditLLId == null || p.points == null || p.points <= 0) {
+            continue;
+          }
+
+          List<OriginPortion> childPortions = null;
+          if (restoreOriginPortions != null && restoreOriginPortions.containsKey(p.originCreditLLId)) {
+            childPortions = restoreOriginPortions.get(p.originCreditLLId);
+          } else if (p.originCreditLLId != sourceLLId && result.containsKey(p.originCreditLLId)) {
+            childPortions = result.get(p.originCreditLLId);
+          }
+
+          if (childPortions != null && !childPortions.isEmpty()) {
+            expanded.addAll(scaleOriginPortions(childPortions, p.points));
+            changed = true;
+          } else {
+            expanded.add(p);
+          }
+        }
+        nextResult.put(sourceLLId, coalesceOriginPortions(expanded));
+      }
+      result = nextResult;
+      if (!changed) {
+        break;
+      }
+    }
+
+    return result;
+  }
+
+  private static Boolean isOptionCSalePatchForceCreditNote(String additionalNotes) {
+    return String.isNotBlank(additionalNotes)
+      && additionalNotes.startsWith(OPTION_C_FORCE_CREDIT_NOTE_PREFIX)
+      && additionalNotes.contains(OPTION_C_SALE_PATCH_FORCE_CREDIT_MARKER);
   }
 
   private static Map<Id, Integer> buildPointPaymentSummaryMap(Set<Id> orderIds) {
@@ -161,6 +582,65 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       if (tj.SaleId__c != null && tj.SaleId__c != tj.OrderId && orderIds.contains(tj.SaleId__c)) {
         result.put(tj.SaleId__c, (result.containsKey(tj.SaleId__c) ? result.get(tj.SaleId__c) : 0) + amt);
       }
+    }
+
+    return result;
+  }
+
+  private static PaymentSummaryResult buildPaymentSummaryMaps(Set<Id> orderIds) {
+    PaymentSummaryResult result = new PaymentSummaryResult();
+
+    if (orderIds == null || orderIds.isEmpty()) {
+      return result;
+    }
+
+    Set<String> paymentMethods = new Set<String>();
+    paymentMethods.addAll(POINT_PAYMENT_METHODS);
+    paymentMethods.addAll(COUPON_PAYMENT_METHODS);
+
+    for (TransactionJournal tj : [
+      SELECT OrderId, SaleId__c, TransactionAmount, PaymentMethod, JournalSubType.Name, AdditionalNotes__c
+      FROM TransactionJournal
+      WHERE
+        (OrderId IN :orderIds OR SaleId__c IN :orderIds)
+        AND TransactionAmount != NULL
+        AND PaymentMethod IN :paymentMethods
+        AND IsDeleted__c = FALSE
+    ]) {
+      Integer amount = tj.TransactionAmount == null ? 0 : tj.TransactionAmount.abs().intValue();
+      String journalSubTypeName = tj.JournalSubType != null ? tj.JournalSubType.Name : null;
+      Boolean isExcludedSubType = journalSubTypeName != null && EXCLUDED_PAYMENT_JOURNAL_SUBTYPES.contains(journalSubTypeName);
+      Boolean isPointRestoreHelper = tj.AdditionalNotes__c == RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE
+          || tj.AdditionalNotes__c == ADDITIONAL_NOTE_FULL_RETURN_ECO_POINT_CANCEL;
+
+      Map<Id, Integer> targetMap;
+      Integer signedAmount = 0;
+      if (POINT_PAYMENT_METHODS.contains(tj.PaymentMethod)) {
+        if (isExcludedSubType || isPointRestoreHelper) {
+          continue;
+        }
+        targetMap = result.pointByOrderId;
+        signedAmount = amount;
+      } else if (COUPON_PAYMENT_METHODS.contains(tj.PaymentMethod)) {
+        targetMap = result.couponByOrderId;
+        signedAmount = isExcludedSubType ? 0 : amount;
+      } else {
+        continue;
+      }
+
+      if (tj.OrderId != null && orderIds.contains(tj.OrderId)) {
+        Integer prev = targetMap.containsKey(tj.OrderId) ? targetMap.get(tj.OrderId) : 0;
+        targetMap.put(tj.OrderId, prev + signedAmount);
+      }
+
+      if (tj.SaleId__c != null && tj.SaleId__c != tj.OrderId && orderIds.contains(tj.SaleId__c)) {
+        Integer prev = targetMap.containsKey(tj.SaleId__c) ? targetMap.get(tj.SaleId__c) : 0;
+        targetMap.put(tj.SaleId__c, prev + signedAmount);
+      }
+    }
+
+    for (Id orderId : new List<Id>(result.couponByOrderId.keySet())) {
+      result.couponByOrderId.put(orderId, Math.max(0, result.couponByOrderId.get(orderId)));
     }
 
     return result;
@@ -267,6 +747,65 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       Decimal total = (Decimal) ar.get('totalAmount');
       result.put(orderId, total == null ? 0 : total.abs().intValue());
     }
+
+    // [Pull-In Order Alias Fix 2026-05-08] 주문→판매 끌어오기 케이스 OrderId 비대칭 보정.
+    //   배경: 반품으로 포인트 사용 취소 시 Point Redeem Cancel TJ.OrderId 는 originalOrderId
+    //         (= 판매 Id) 로 박힌다 (GdReturnDepositServiceImpl:200). 그러나 주문에서 사용 후
+    //         판매로 끌어온 사용 Debit TJ 의 OrderId 는 주문 Id 그대로 유지되어 (TJ.SaleId__c
+    //         에만 판매 Id 가 추가) 차감 로직 (debitOrderId = Debit LL.TJ.OrderId = 주문 Id) 이
+    //         orderRedeemCancelMap[주문 Id] 를 조회하면 0 → effectiveCancel = 0 → PT_USE 차감
+    //         미발생.
+    //   해결: Cancel TJ 가 박힌 OrderId (= 판매 Id) 를 SaleId__c 로 가지고 있는 사용 Debit TJ 의
+    //         OrderId (= 주문 Id) 를 별칭 키로 동일 취소액 등록. 차감 로직이 어느 키로 조회해도
+    //         매칭됨. 4개 소비 지점 (L820 / L1098 / L2587 / L2701) 모두 자동 적용.
+    //   안전성:
+    //     - Flag OFF 시 기존 동작 그대로 (회귀 안전).
+    //     - OrderId != SaleId__c 가드 → 판매 직접 사용 케이스 (OrderId=SaleId__c=판매 Id) 영향 0.
+    //     - SaleId__c IN cancelOrderIds 가드 → Cancel TJ 가 실제로 가리키는 판매 만 대상.
+    //     - JournalSubType.Name = Point Debit 가드 → 사용 TJ 만 매칭 (적립/취소/쿠폰 영향 0).
+    //     - IsDeleted__c = FALSE → 삭제된 사용 TJ 제외.
+    //     - 별칭 키 등록 시 기존 값보다 클 때만 덮어씀 → 다중 시나리오 보수적 안전.
+    //     - result 가 비었으면 추가 SOQL 실행 안 함 (Cancel TJ 없는 회원 영향 0).
+    if (!result.isEmpty() && GdFeatureFlag.isEnabled('OrderRedeemCancelMap_PullInAlias')) {
+      Set<Id> cancelOrderIds = new Set<Id>(result.keySet());
+      Map<Id, Set<Id>> aliasOrderIdsBySaleId = new Map<Id, Set<Id>>();
+      for (TransactionJournal tj : [
+        SELECT OrderId, SaleId__c
+        FROM TransactionJournal
+        WHERE MemberId = :memberId
+          AND SaleId__c IN :cancelOrderIds
+          AND OrderId != NULL
+          AND JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_POINT_DEBIT
+          AND IsDeleted__c = FALSE
+        LIMIT 50000
+      ]) {
+        if (tj.SaleId__c == null || tj.OrderId == null) {
+          continue;
+        }
+        // SOQL 은 두 필드 간 비교 (OrderId != SaleId__c) 미지원 → Apex 에서 필터.
+        // 판매 직접 사용 케이스 (OrderId = SaleId__c = 판매 Id) 는 별칭 등록 불필요.
+        if (tj.OrderId == tj.SaleId__c) {
+          continue;
+        }
+        if (!aliasOrderIdsBySaleId.containsKey(tj.SaleId__c)) {
+          aliasOrderIdsBySaleId.put(tj.SaleId__c, new Set<Id>());
+        }
+        aliasOrderIdsBySaleId.get(tj.SaleId__c).add(tj.OrderId);
+      }
+      for (Id saleId : aliasOrderIdsBySaleId.keySet()) {
+        Integer cancelAmount = result.get(saleId);
+        if (cancelAmount == null) {
+          continue;
+        }
+        for (Id aliasOrderId : aliasOrderIdsBySaleId.get(saleId)) {
+          Integer prev = result.containsKey(aliasOrderId) ? result.get(aliasOrderId) : 0;
+          if (cancelAmount > prev) {
+            result.put(aliasOrderId, cancelAmount);
+          }
+        }
+      }
+    }
+
     return result;
   }
 
@@ -303,8 +842,15 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     Map<Id, Id> cancelLLToSubtype = new Map<Id, Id>();    // Cancel Credit LL Id → SubType (null 가능)
     Set<Id> targetOrderIds = new Set<Id>();
     for (LoyaltyLedger ll : ledgers) {
+      // [Active Only Fix 2026-05-07] 삭제된 Cancel Credit (TJ.IsDeleted=true) 은 매핑 대상 제외.
+      //   배경: 반품 입금 삭제 등으로 비활성화된 Cancel Credit 은 회원 잔액에 영향 없는 과거 흔적.
+      //         포함 시 portions 환불 합이 effectiveCancel 과 불일치하여 정합 검증 실패 → fallback 비례 분배
+      //         → LL 별 PT_USE 부정확 (회원 193001000334 케이스).
+      //   안전성: TJ.IsDeleted=true 케이스가 없는 회원은 영향 0 (S1/S2/S4/S5 회귀 안전).
       if (ll.EventType == 'Credit'
+          && ll.IsDeleted == false
           && ll.TransactionJournal != null
+          && ll.TransactionJournal.IsDeleted__c == false
           && ll.TransactionJournal.OrderId != null
           && ll.TransactionJournal.JournalSubType != null
           && ll.TransactionJournal.JournalSubType.Name == JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL) {
@@ -329,24 +875,59 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     //     해결: OR 조건으로 마커 매칭 추가 — 두 paradigm 모두 처리.
     //     안전성: 매핑된 원 Credit 이 응답 표시 대상 (creditLedgerIds) 일 때만 PT_USE 이전됨 (라인 552 가드).
     //           Cancel Credit 에서 추가 사용 없는 일반 케이스 (시나리오 1/5/6/7 R1-2 등) 는 이전분 0 으로 영향 없음.
+    //
+    //   [v3 paradigm 일반 사용 취소 Fix 2026-05-05]
+    //     추가 배경: 위의 2026-05-03 fix 는 반품 입금 삭제 케이스 (RESTORE_NOTE 마커 부착) 만 커버함.
+    //               일반 입금 삭제 → 사용 취소 흐름에서는 원 Debit TJ 가 IsDeleted=FALSE 이고 마커도 없음.
+    //               → 매칭 실패 → NO_SAL_SAVE 보정 미진입 → Cancel Credit LL 의 TJ.Order.SaleNo (= 사용 취소된 판매번호) 그대로 노출.
+    //     증상: 마이그레이션 적립 (TJ.OrderId=null) 회원이 사용 → 취소 → 재사용 시 재사용 행의
+    //           "적립 판매번호" 칸에 "사용 취소된 판매번호" 가 잘못 노출 (회원 212501600243 케이스).
+    //     해결: Feature Flag 'RedeemCancelOriginMap_IncludeV3Active' ON 시 IsDeleted/RESTORE_NOTE 조건 제거.
+    //           → v3 일반 사용 취소 케이스도 매칭 → NO_SAL_SAVE 보정 진입 가능.
+    //     안전성: 매핑 알고리즘 (가장 큰 점유 단일 선택) 은 동일. 매핑 후보가 늘어나도 결과는 단일.
+    //           PT_USE 이월 (line 569-570) 은 [creditLedgerIds 가드] 로 표시 대상에만 작동 → 회원 도움창 표시 정확도만 향상.
+    //           Flag OFF 시 기존 SOQL 그대로 작동 (회귀 영향 없음).
     Map<Id, Map<Id, Map<Id, Integer>>> ptsByOrderBySubtypeByCredit = new Map<Id, Map<Id, Map<Id, Integer>>>();
-    for (AggregateResult ar : [
-      SELECT DebitLoyaltyLedger.TransactionJournal.OrderId orderId,
-             CreditLoyaltyLedgerId creditId,
-             CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId subtypeId,
-             SUM(Points) totalPts
-      FROM LoyaltyLedgerTraceability
-      WHERE LoyaltyProgramMemberId = :memberId
-        AND ActionType = 'Debit'
-        AND (DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = TRUE
-             OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
-        AND DebitLoyaltyLedger.TransactionJournal.OrderId IN :targetOrderIds
-        AND DebitLoyaltyLedger.TransactionJournal.JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_POINT_DEBIT
-      GROUP BY DebitLoyaltyLedger.TransactionJournal.OrderId,
-               CreditLoyaltyLedgerId,
-               CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId
-      LIMIT 50000
-    ]) {
+    Boolean includeV3Active = GdFeatureFlag.isEnabled('RedeemCancelOriginMap_IncludeV3Active');
+    List<AggregateResult> aggList;
+    if (includeV3Active) {
+      // Flag ON: IsDeleted/RESTORE_NOTE 조건 제거 — v3 일반 사용 취소 케이스 포함
+      aggList = [
+        SELECT DebitLoyaltyLedger.TransactionJournal.OrderId orderId,
+               CreditLoyaltyLedgerId creditId,
+               CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId subtypeId,
+               SUM(Points) totalPts
+        FROM LoyaltyLedgerTraceability
+        WHERE LoyaltyProgramMemberId = :memberId
+          AND ActionType = 'Debit'
+          AND DebitLoyaltyLedger.TransactionJournal.OrderId IN :targetOrderIds
+          AND DebitLoyaltyLedger.TransactionJournal.JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_POINT_DEBIT
+        GROUP BY DebitLoyaltyLedger.TransactionJournal.OrderId,
+                 CreditLoyaltyLedgerId,
+                 CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId
+        LIMIT 50000
+      ];
+    } else {
+      // Flag OFF: 기존 SOQL 그대로 (회귀 영향 없음)
+      aggList = [
+        SELECT DebitLoyaltyLedger.TransactionJournal.OrderId orderId,
+               CreditLoyaltyLedgerId creditId,
+               CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId subtypeId,
+               SUM(Points) totalPts
+        FROM LoyaltyLedgerTraceability
+        WHERE LoyaltyProgramMemberId = :memberId
+          AND ActionType = 'Debit'
+          AND (DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = TRUE
+               OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
+          AND DebitLoyaltyLedger.TransactionJournal.OrderId IN :targetOrderIds
+          AND DebitLoyaltyLedger.TransactionJournal.JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_POINT_DEBIT
+        GROUP BY DebitLoyaltyLedger.TransactionJournal.OrderId,
+                 CreditLoyaltyLedgerId,
+                 CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId
+        LIMIT 50000
+      ];
+    }
+    for (AggregateResult ar : aggList) {
       Id oid = (Id) ar.get('orderId');
       Id cid = (Id) ar.get('creditId');
       Id sid = (Id) ar.get('subtypeId');   // null 가능 (옛 데이터 등)
@@ -416,6 +997,202 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
   }
 
   /**
+   * [Precise Origin Mapping 2026-05-06] Cancel Credit (Point Redeem Cancel) → 다중 origin 분배 매핑.
+   *
+   * 배경:
+   *   기존 buildRedeemCancelCreditOriginMap 은 Cancel Credit 별로 "최다 점유 단일 Credit" 만 origin 으로 매핑.
+   *   다중 적립 (예: LL_A 60K + LL_B 40K) 사용 후 환불 시 한쪽만 origin 으로 잡혀 다른 origin 누락.
+   *   회원도움창 PT_USE / DT_SAVE / NO_SAL_SAVE 표시가 일부 부정확 (특히 다중 ExpiryDate 적립).
+   *
+   * 알고리즘:
+   *   1. Cancel Credit LL 들 (Point Redeem Cancel) 수집 — (Id, OrderId, SubType, ExpiryDate, Points) 보존
+   *   2. 각 Cancel Credit 의 OrderId 의 사용 LLT 들 (CreditId, SubType, ExpiryDate, Points) 집계
+   *      Cancel Credit 의 SubType 와 동일한 사용 LLT 만 후보로 사용
+   *   3. 각 Cancel Credit 별로 ExpiryDate 매칭 우선 → 매칭된 후보가 1개면 100% 분배
+   *      매칭된 후보가 여러 개면 사용 Points 비례 분배
+   *      매칭 실패 시 fallback (기존 buildRedeemCancelCreditOriginMap 의 단일 최다 점유 결과 사용)
+   *
+   * 반환: Map<Cancel Credit LL Id, List<OriginPortion>>
+   *       각 OriginPortion 은 (origin Credit LL Id, 분배 Points)
+   *
+   * 호출 위치: Flag 'RedeemCancelOriginMap_Precise' ON 시 회원도움창 빌드 흐름에서 활용 (Phase 2~4)
+   *
+   * 안전성:
+   *   - LMS 데이터 안 건드림 (조회만)
+   *   - 매핑 결과 데이터 구조만 다름 (Map<Id, List<OriginPortion>>)
+   *   - 호출처가 활용 안 하면 영향 없음 (Phase 1 단계)
+   *   - Fallback 으로 기존 단일 매핑 결과 사용 → 정확히 매칭 안 되는 케이스도 기존 동작 보장
+   */
+  private static Map<Id, List<OriginPortion>> buildRedeemCancelCreditOriginPortions(
+    Id memberId,
+    List<LoyaltyLedger> ledgers,
+    Map<Id, Id> fallbackSingleMap
+  ) {
+    Map<Id, List<OriginPortion>> result = new Map<Id, List<OriginPortion>>();
+    if (memberId == null || ledgers == null || ledgers.isEmpty()) {
+      return result;
+    }
+
+    // [1] Cancel Credit LL 수집 (Id, OrderId, SubType, ExpiryDate, Points)
+    // [Active Only Fix 2026-05-07] 삭제된 Cancel Credit (TJ.IsDeleted=true 또는 LL.IsDeleted=true) 제외.
+    //   배경: 반품 입금 삭제로 비활성화된 Cancel Credit 도 매핑에 들어가면 portions 환불 합이 부풀려져
+    //         effectiveCancel 과 불일치 → 정합 검증 실패 → fallback 비례 분배 → PT_USE 부정확.
+    //   회원 193001000334 / SAL202605070214: 삭제된 Cancel Credit 50,410(47cP+47cQ)+30,000(46TU)
+    //         이 portions 환불 합 100K 으로 잡혀 effectiveCancel 40K 와 불일치 → 정합 깨짐.
+    //   수정: Cancel Credit 수집 시 활성 (LL.IsDeleted=false AND TJ.IsDeleted=false) 만 포함.
+    Map<Id, Id> cancelLLToOrder = new Map<Id, Id>();
+    Map<Id, Id> cancelLLToSubtype = new Map<Id, Id>();
+    Map<Id, Date> cancelLLToExpiry = new Map<Id, Date>();
+    Map<Id, Integer> cancelLLToPoints = new Map<Id, Integer>();
+    Set<Id> targetOrderIds = new Set<Id>();
+    for (LoyaltyLedger ll : ledgers) {
+      if (ll.EventType == 'Credit'
+          && ll.IsDeleted == false
+          && ll.TransactionJournal != null
+          && ll.TransactionJournal.IsDeleted__c == false
+          && ll.TransactionJournal.OrderId != null
+          && ll.TransactionJournal.JournalSubType != null
+          && ll.TransactionJournal.JournalSubType.Name == JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL) {
+        cancelLLToOrder.put(ll.Id, ll.TransactionJournal.OrderId);
+        cancelLLToSubtype.put(ll.Id, ll.LoyaltyPgmCrcySubtypeId);
+        cancelLLToExpiry.put(ll.Id, ll.ExpiryDate);
+        cancelLLToPoints.put(ll.Id, ll.Points == null ? 0 : ll.Points.abs().intValue());
+        targetOrderIds.add(ll.TransactionJournal.OrderId);
+      }
+    }
+    if (targetOrderIds.isEmpty()) {
+      return result;
+    }
+
+    // [2] 사용 LLT 집계 — (OrderId, CreditId, SubType, ExpiryDate) → Points 합
+    //   Flag 'RedeemCancelOriginMap_IncludeV3Active' 와 동일한 SOQL 정책 사용 (v3 paradigm 호환)
+    Boolean includeV3Active = GdFeatureFlag.isEnabled('RedeemCancelOriginMap_IncludeV3Active');
+    List<AggregateResult> aggList;
+    if (includeV3Active) {
+      aggList = [
+        SELECT DebitLoyaltyLedger.TransactionJournal.OrderId orderId,
+               CreditLoyaltyLedgerId creditId,
+               CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId subtypeId,
+               CreditLoyaltyLedger.ExpiryDate expiryDate,
+               SUM(Points) totalPts
+        FROM LoyaltyLedgerTraceability
+        WHERE LoyaltyProgramMemberId = :memberId
+          AND ActionType = 'Debit'
+          AND DebitLoyaltyLedger.TransactionJournal.OrderId IN :targetOrderIds
+          AND DebitLoyaltyLedger.TransactionJournal.JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_POINT_DEBIT
+        GROUP BY DebitLoyaltyLedger.TransactionJournal.OrderId,
+                 CreditLoyaltyLedgerId,
+                 CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId,
+                 CreditLoyaltyLedger.ExpiryDate
+        LIMIT 50000
+      ];
+    } else {
+      aggList = [
+        SELECT DebitLoyaltyLedger.TransactionJournal.OrderId orderId,
+               CreditLoyaltyLedgerId creditId,
+               CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId subtypeId,
+               CreditLoyaltyLedger.ExpiryDate expiryDate,
+               SUM(Points) totalPts
+        FROM LoyaltyLedgerTraceability
+        WHERE LoyaltyProgramMemberId = :memberId
+          AND ActionType = 'Debit'
+          AND (DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = TRUE
+               OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
+          AND DebitLoyaltyLedger.TransactionJournal.OrderId IN :targetOrderIds
+          AND DebitLoyaltyLedger.TransactionJournal.JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_POINT_DEBIT
+        GROUP BY DebitLoyaltyLedger.TransactionJournal.OrderId,
+                 CreditLoyaltyLedgerId,
+                 CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId,
+                 CreditLoyaltyLedger.ExpiryDate
+        LIMIT 50000
+      ];
+    }
+
+    // (OrderId, SubType, ExpiryDate) → Map<CreditId, Points> 자료구조
+    Map<String, Map<Id, Integer>> usageByOrderSubtypeExpiry = new Map<String, Map<Id, Integer>>();
+    for (AggregateResult ar : aggList) {
+      Id oid = (Id) ar.get('orderId');
+      Id cid = (Id) ar.get('creditId');
+      Id sid = (Id) ar.get('subtypeId');
+      Date expDate = (Date) ar.get('expiryDate');
+      if (oid == null || cid == null) continue;
+      Integer pts = ar.get('totalPts') == null ? 0 : ((Decimal) ar.get('totalPts')).abs().intValue();
+      String key = String.valueOf(oid) + '|' + String.valueOf(sid) + '|' + String.valueOf(expDate);
+      if (!usageByOrderSubtypeExpiry.containsKey(key)) {
+        usageByOrderSubtypeExpiry.put(key, new Map<Id, Integer>());
+      }
+      Map<Id, Integer> creds = usageByOrderSubtypeExpiry.get(key);
+      Integer prev = creds.containsKey(cid) ? creds.get(cid) : 0;
+      creds.put(cid, prev + pts);
+    }
+
+    // [3] 각 Cancel Credit 별로 분배
+    for (Id cancelId : cancelLLToOrder.keySet()) {
+      Id oid = cancelLLToOrder.get(cancelId);
+      Id ccSid = cancelLLToSubtype.get(cancelId);
+      Date ccExp = cancelLLToExpiry.get(cancelId);
+      Integer ccPts = cancelLLToPoints.get(cancelId);
+      if (ccPts == null || ccPts <= 0) continue;
+
+      // ExpiryDate + SubType 매칭 우선
+      String exactKey = String.valueOf(oid) + '|' + String.valueOf(ccSid) + '|' + String.valueOf(ccExp);
+      Map<Id, Integer> candidates = usageByOrderSubtypeExpiry.get(exactKey);
+
+      List<OriginPortion> portions = new List<OriginPortion>();
+      if (candidates != null && !candidates.isEmpty()) {
+        // 매칭된 후보 — Points 비례 분배 (사용량 비율)
+        Integer totalCandidatePts = 0;
+        for (Integer p : candidates.values()) totalCandidatePts += (p == null ? 0 : p);
+        if (totalCandidatePts > 0) {
+          Integer allocated = 0;
+          List<Id> candidateIds = new List<Id>(candidates.keySet());
+          for (Integer i = 0; i < candidateIds.size(); i++) {
+            Id origCid = candidateIds[i];
+            Integer origPts = candidates.get(origCid) == null ? 0 : candidates.get(origCid);
+            Integer portionPts;
+            if (i == candidateIds.size() - 1) {
+              // 마지막 — round-off 보정
+              portionPts = ccPts - allocated;
+              if (portionPts < 0) portionPts = 0;
+            } else {
+              Long num = (Long) ccPts * (Long) origPts;
+              portionPts = (Integer) (num / (Long) totalCandidatePts);
+            }
+            if (portionPts > 0) {
+              portions.add(new OriginPortion(origCid, portionPts));
+              allocated += portionPts;
+            }
+          }
+        }
+      }
+
+      // Fallback — 매칭 실패 시 기존 단일 매핑 결과 사용
+      if (portions.isEmpty() && fallbackSingleMap != null && fallbackSingleMap.containsKey(cancelId)) {
+        Id fallbackOrigin = fallbackSingleMap.get(cancelId);
+        if (fallbackOrigin != null) {
+          portions.add(new OriginPortion(fallbackOrigin, ccPts));
+        }
+      }
+
+      if (!portions.isEmpty()) {
+        result.put(cancelId, portions);
+      }
+    }
+
+    return result;
+  }
+
+  // [Precise Origin Mapping 2026-05-06] Cancel Credit 의 origin 분배 한 단위
+  private class OriginPortion {
+    Id originCreditLLId;
+    Integer points;
+    OriginPortion(Id originCreditLLId, Integer points) {
+      this.originCreditLLId = originCreditLLId;
+      this.points = points;
+    }
+  }
+
+  /**
    * [2026-04-24 R1-2 Fix / 2026-04-25 R1-9 Fix] 각 Credit LL 의 "순 사용량(PT_USE)" 계산.
    *
    * 기존 로직(~04-23):
@@ -440,7 +1217,10 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     Map<Id, Integer> orderRedeemCancelMap,
     Map<Id, Integer> orderPointUsedMap,
     Map<Id, Integer> orderDeletedDebitMap,
-    Map<Id, Id> redeemCancelCreditOriginMap
+    Map<Id, Id> redeemCancelCreditOriginMap,
+    Map<Id, List<OriginPortion>> redeemCancelCreditOriginPortions,
+    Map<Id, Id> cancelLLToOrderId,
+    Map<Id, List<OriginPortion>> hiddenRestoreCreditOriginPortions
   ) {
     Map<Id, Integer> result = new Map<Id, Integer>();
 
@@ -460,15 +1240,44 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       redeemCancelCreditOriginMap = new Map<Id, Id>();
     }
 
+    // [Raw Trace Mode 2026-05-05] Flag ON 시 raw LLT/LL 합산으로 PT_USE 계산.
+    //   배경: 기존 비례 감산은 (orderUsed × netRate / orderTotalUsed) 추정 분배 — round-off 누적 + 다중 SubType 분포에서 부정확.
+    //   raw 식: (a) X 활성 Debit + (b) origin=X Cancel Credit 활성 Debit
+    //         - (c) origin=X Cancel Credit Points - (d) origin=(Cancel-of-X) Cancel Credit Points → clamp 0
+    //   안전성: Flag OFF 시 기존 비례 감산 그대로 (회귀 영향 없음).
+    if (GdFeatureFlag.isEnabled('AccrualPtUse_RawTraceMode')) {
+      return buildAccrualUsedPointMap_Raw(memberId, creditLedgerIds,
+          orderRedeemCancelMap, orderPointUsedMap, orderDeletedDebitMap, redeemCancelCreditOriginMap,
+          redeemCancelCreditOriginPortions, cancelLLToOrderId, hiddenRestoreCreditOriginPortions);
+    }
+
     // 1단계: Credit LL × Order 별 Debit 사용량 집계 (삭제된 Debit 제외)
-    Map<Id, Map<Id, Integer>> usedByCreditByOrder = new Map<Id, Map<Id, Integer>>();
+    //   [PT_USE Round-off Fix 2026-05-05] 가산을 두 번 (1단계 자기 사용 / 3단계 Cancel 이월) 나눠 하면서
+    //   같은 Order 의 여러 (Credit, Order) 그룹마다 정수 나눗셈 round-off 가 누적되어 합계가
+    //   (orderUsed - effectiveCancel) 미만으로 떨어짐 (사용자 케이스 19000 → 18998).
+    //   해결: 두 단계 raw 결과를 (originCid, debitOrderId) 차원 으로 모두 모아두고,
+    //         debitOrderId 별 그룹 마지막에 round-off 보정. originCid 는 Cancel Credit 인 경우 매핑된 원 Credit.
+    //
+    //   추가 표기:
+    //     pendingByOrder: debitOrderId → List<{ creditId, rawPts }>
+    //     orderRawTotal:  debitOrderId → 그 Order 에서 활성 (origin Credit 별) raw 합
+    Map<Id, List<RawAccrualUsage>> pendingByOrder = new Map<Id, List<RawAccrualUsage>>();
+    Map<Id, Integer> orderRawTotal = new Map<Id, Integer>();
+
+    // [PT_USE Round-off Fix 2026-05-05] Cancel Credit 자체는 1단계 SOQL 제외 — 3단계에서 origin Credit 으로 이월되므로
+    //   그렇지 않으면 같은 사용분이 (1단계: Cancel 자기) + (3단계: origin 매핑) 으로 두 번 카운트되어 합계 초과 (회원 123002600463 케이스).
+    Set<Id> firstStageCreditIds = new Set<Id>(creditLedgerIds);
+    if (redeemCancelCreditOriginMap != null && !redeemCancelCreditOriginMap.isEmpty()) {
+      firstStageCreditIds.removeAll(redeemCancelCreditOriginMap.keySet());
+    }
+
     for (AggregateResult ar : [
       SELECT CreditLoyaltyLedgerId creditLedgerId,
              DebitLoyaltyLedger.TransactionJournal.OrderId orderId,
              SUM(Points) totalPoints
       FROM LoyaltyLedgerTraceability
       WHERE LoyaltyProgramMemberId = :memberId
-        AND CreditLoyaltyLedgerId IN :creditLedgerIds
+        AND CreditLoyaltyLedgerId IN :firstStageCreditIds
         AND ActionType = 'Debit'
         AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
         // [scn5 R1-10 Fix 2026-04-27] 반품 입금 삭제 재차감 Debit LLT 제외
@@ -490,53 +1299,18 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         continue;
       }
       Integer points = ar.get('totalPoints') == null ? 0 : ((Decimal) ar.get('totalPoints')).abs().intValue();
-      if (!usedByCreditByOrder.containsKey(creditId)) {
-        usedByCreditByOrder.put(creditId, new Map<Id, Integer>());
+      if (points <= 0) {
+        continue;
       }
-      usedByCreditByOrder.get(creditId).put(orderId, points);
+      if (!pendingByOrder.containsKey(orderId)) {
+        pendingByOrder.put(orderId, new List<RawAccrualUsage>());
+      }
+      pendingByOrder.get(orderId).add(new RawAccrualUsage(creditId, points));
+      Integer prev = orderRawTotal.containsKey(orderId) ? orderRawTotal.get(orderId) : 0;
+      orderRawTotal.put(orderId, prev + points);
     }
 
-    // 2단계: Credit LL 별로 주문 취소 여부를 반영한 순 사용량 계산
-    for (Id creditId : usedByCreditByOrder.keySet()) {
-      Integer netUsed = 0;
-      Map<Id, Integer> usedByOrder = usedByCreditByOrder.get(creditId);
-      for (Id orderId : usedByOrder.keySet()) {
-        Integer usedInThisOrder = usedByOrder.get(orderId);
-        if (usedInThisOrder == null || usedInThisOrder <= 0) {
-          continue;
-        }
-
-        // [2026-04-25] 효과 있는 취소 = 전체 취소 - 이미 상쇄된 삭제 Debit 분
-        Integer rawCancel = (orderId != null && orderRedeemCancelMap.containsKey(orderId))
-            ? orderRedeemCancelMap.get(orderId)
-            : 0;
-        Integer deletedDebit = (orderId != null && orderDeletedDebitMap.containsKey(orderId))
-            ? orderDeletedDebitMap.get(orderId)
-            : 0;
-        Integer orderCancel = Math.max(0, rawCancel - deletedDebit);
-
-        Integer orderTotalUsed = (orderId != null && orderPointUsedMap.containsKey(orderId))
-            ? orderPointUsedMap.get(orderId)
-            : 0;
-
-        if (orderCancel <= 0 || orderTotalUsed <= 0) {
-          // 취소 기록이 없거나 기준 사용량 미집계 → 원 사용량 반영
-          netUsed += usedInThisOrder;
-        } else if (orderCancel >= orderTotalUsed) {
-          // 전액 취소 → 이 Credit 의 해당 주문 사용량은 0
-        } else {
-          // 부분 취소 → 비례 잔여 계산 (오버플로 방어용 Long 중간 변환)
-          Long numerator = (Long) usedInThisOrder * (Long) (orderTotalUsed - orderCancel);
-          Integer remaining = (Integer) (numerator / (Long) orderTotalUsed);
-          if (remaining > 0) {
-            netUsed += remaining;
-          }
-        }
-      }
-      result.put(creditId, netUsed);
-    }
-
-    // [2026-04-25 추가 Fix] 3단계: Point Redeem Cancel Credit 사용분을 "원 Credit" 의 PT_USE 에 이월.
+    // [2026-04-25 추가 Fix] 3단계 합치기: Point Redeem Cancel Credit 사용분을 "원 Credit" 의 PT_USE 에 이월.
     //   - redeemCancelCreditOriginMap 이 비어있으면 SOQL 실행 없이 조기 스킵 (S1/S2 보호)
     //   - Cancel Credit 은 AccrualHistoryList 에서 숨김 처리되므로 그 자체의 PT_USE 는 집계 대상 아님
     //   - 대신 그 Cancel Credit 을 사용한 Debit LLT 의 Points 를 매핑된 원 Credit 에 가산하여
@@ -544,13 +1318,15 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     if (!redeemCancelCreditOriginMap.isEmpty()) {
       Set<Id> cancelCreditIds = redeemCancelCreditOriginMap.keySet();
       for (AggregateResult ar : [
-        SELECT CreditLoyaltyLedgerId cancelCreditId, SUM(Points) totalPts
+        SELECT CreditLoyaltyLedgerId cancelCreditId,
+               DebitLoyaltyLedger.TransactionJournal.OrderId debitOrderId,
+               SUM(Points) totalPts
         FROM LoyaltyLedgerTraceability
         WHERE LoyaltyProgramMemberId = :memberId
           AND CreditLoyaltyLedgerId IN :cancelCreditIds
           AND ActionType = 'Debit'
           AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
-        GROUP BY CreditLoyaltyLedgerId
+        GROUP BY CreditLoyaltyLedgerId, DebitLoyaltyLedger.TransactionJournal.OrderId
         LIMIT 50000
       ]) {
         Id cancelCid = (Id) ar.get('cancelCreditId');
@@ -562,16 +1338,574 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         if (!creditLedgerIds.contains(originCid)) {
           continue;
         }
-        Integer add = ar.get('totalPts') == null ? 0 : ((Decimal) ar.get('totalPts')).abs().intValue();
-        if (add <= 0) {
+        Integer rawAdd = ar.get('totalPts') == null ? 0 : ((Decimal) ar.get('totalPts')).abs().intValue();
+        if (rawAdd <= 0) {
           continue;
         }
-        Integer prev = result.containsKey(originCid) ? result.get(originCid) : 0;
-        result.put(originCid, prev + add);
+        Id debitOrderId = (Id) ar.get('debitOrderId');
+        if (!pendingByOrder.containsKey(debitOrderId)) {
+          pendingByOrder.put(debitOrderId, new List<RawAccrualUsage>());
+        }
+        pendingByOrder.get(debitOrderId).add(new RawAccrualUsage(originCid, rawAdd));
+        Integer prev = orderRawTotal.containsKey(debitOrderId) ? orderRawTotal.get(debitOrderId) : 0;
+        orderRawTotal.put(debitOrderId, prev + rawAdd);
+      }
+    }
+
+    // 2단계: Order 별 비례 분배 + 마지막 그룹 round-off 보정.
+    if (hiddenRestoreCreditOriginPortions != null && !hiddenRestoreCreditOriginPortions.isEmpty()) {
+      Set<Id> restoreCreditIds = hiddenRestoreCreditOriginPortions.keySet();
+      for (AggregateResult ar : [
+        SELECT CreditLoyaltyLedgerId restoreCreditId,
+               DebitLoyaltyLedger.TransactionJournal.OrderId debitOrderId,
+               SUM(Points) totalPts
+        FROM LoyaltyLedgerTraceability
+        WHERE LoyaltyProgramMemberId = :memberId
+          AND CreditLoyaltyLedgerId IN :restoreCreditIds
+          AND ActionType = 'Debit'
+          AND IsDeleted = FALSE
+          AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+        GROUP BY CreditLoyaltyLedgerId, DebitLoyaltyLedger.TransactionJournal.OrderId
+        LIMIT 50000
+      ]) {
+        Id restoreCid = (Id) ar.get('restoreCreditId');
+        List<OriginPortion> portions = hiddenRestoreCreditOriginPortions.get(restoreCid);
+        if (portions == null || portions.isEmpty()) {
+          continue;
+        }
+        Integer rawAdd = ar.get('totalPts') == null ? 0 : ((Decimal) ar.get('totalPts')).abs().intValue();
+        if (rawAdd <= 0) {
+          continue;
+        }
+        Integer portionTotal = 0;
+        for (OriginPortion p : portions) {
+          portionTotal += (p.points == null ? 0 : p.points);
+        }
+        if (portionTotal <= 0) {
+          continue;
+        }
+        Id debitOrderId = (Id) ar.get('debitOrderId');
+        Integer allocated = 0;
+        Integer lastIdx = portions.size() - 1;
+        for (Integer i = 0; i < portions.size(); i++) {
+          OriginPortion p = portions[i];
+          Integer share;
+          if (i == lastIdx) {
+            share = rawAdd - allocated;
+            if (share < 0) share = 0;
+          } else {
+            Long numerator = (Long) rawAdd * (Long) (p.points == null ? 0 : p.points);
+            share = (Integer) (numerator / (Long) portionTotal);
+          }
+          allocated += share;
+          if (share <= 0 || p.originCreditLLId == null || !creditLedgerIds.contains(p.originCreditLLId)) {
+            continue;
+          }
+          if (!pendingByOrder.containsKey(debitOrderId)) {
+            pendingByOrder.put(debitOrderId, new List<RawAccrualUsage>());
+          }
+          pendingByOrder.get(debitOrderId).add(new RawAccrualUsage(p.originCreditLLId, share));
+          Integer prev = orderRawTotal.containsKey(debitOrderId) ? orderRawTotal.get(debitOrderId) : 0;
+          orderRawTotal.put(debitOrderId, prev + share);
+        }
+      }
+    }
+
+    for (Id orderId : pendingByOrder.keySet()) {
+      List<RawAccrualUsage> rows = pendingByOrder.get(orderId);
+      Integer rawTotal = orderRawTotal.containsKey(orderId) ? orderRawTotal.get(orderId) : 0;
+
+      Integer rawCancel = (orderId != null && orderRedeemCancelMap.containsKey(orderId))
+          ? orderRedeemCancelMap.get(orderId)
+          : 0;
+      Integer deletedDebit = (orderId != null && orderDeletedDebitMap.containsKey(orderId))
+          ? orderDeletedDebitMap.get(orderId)
+          : 0;
+      Integer orderCancel = Math.max(0, rawCancel - deletedDebit);
+      Integer orderTotalUsed = (orderId != null && orderPointUsedMap.containsKey(orderId))
+          ? orderPointUsedMap.get(orderId)
+          : 0;
+
+      if (orderCancel <= 0 || orderTotalUsed <= 0) {
+        // 취소 없음 → 그대로 가산
+        for (RawAccrualUsage r : rows) {
+          Integer prev = result.containsKey(r.creditId) ? result.get(r.creditId) : 0;
+          result.put(r.creditId, prev + r.points);
+        }
+        continue;
+      }
+      if (orderCancel >= orderTotalUsed) {
+        // 전액 취소 → 가산 안 함
+        continue;
+      }
+
+      // 비례 감산: raw_i × (orderTotalUsed - orderCancel) / orderTotalUsed
+      //   합계 기대값: rawTotal × netRate. 마지막 그룹에 round-off 보정.
+      Integer netTotal = orderTotalUsed - orderCancel;
+      Long expectedSumNum = (Long) rawTotal * (Long) netTotal;
+      Integer expectedSum = (orderTotalUsed > 0)
+          ? (Integer) (expectedSumNum / (Long) orderTotalUsed)
+          : 0;
+      Integer allocated = 0;
+      Integer lastIdx = rows.size() - 1;
+      for (Integer i = 0; i < rows.size(); i++) {
+        RawAccrualUsage r = rows[i];
+        Integer adjustedAdd;
+        if (i == lastIdx) {
+          // 마지막 그룹 — round-off 보정 (남은 expected 모두 할당)
+          adjustedAdd = expectedSum - allocated;
+          if (adjustedAdd < 0) adjustedAdd = 0;
+        } else {
+          Long numerator = (Long) r.points * (Long) netTotal;
+          adjustedAdd = (Integer) (numerator / (Long) orderTotalUsed);
+        }
+        if (adjustedAdd > 0) {
+          Integer prev = result.containsKey(r.creditId) ? result.get(r.creditId) : 0;
+          result.put(r.creditId, prev + adjustedAdd);
+          allocated += adjustedAdd;
+        }
       }
     }
 
     return result;
+  }
+
+  /**
+   * [Raw Trace Mode 2026-05-05] PT_USE raw LLT/LL 합산.
+   *
+   * 식:
+   *   PT_USE(X) = (a) X 활성 Debit LLT 합
+   *             + (b) origin=X 인 Cancel Credit 활성 Debit LLT 합
+   *             - (c) origin=X 인 Cancel Credit LL.Points 합
+   *             - (d) origin=(Cancel-of-X) 인 Cancel Credit LL.Points 합
+   *             → clamp 0
+   *
+   * 활성 = LLT.IsDeleted=FALSE AND DebitTJ.IsDeleted__c=FALSE
+   *        AND notes ≠ RESTORE_NOTE/ECO_CANCEL_NOTE 처리:
+   *   - (a)/(b): RESTORE_NOTE 는 사용 복원이므로 포함, ECO_CANCEL_NOTE 는 소멸이므로 제외
+   *   - (c)/(d): Cancel Credit LL 의 LL.IsDeleted=FALSE AND TJ.IsDeleted__c=FALSE
+   *
+   * origin 매핑은 호출자가 build 한 redeemCancelCreditOriginMap 그대로 사용.
+   *
+   * governor limit: SOQL 4회 ((a) + (b) + (c)/(d) 통합 + Cancel Credit Points lookup).
+   */
+  private static Map<Id, Integer> buildAccrualUsedPointMap_Raw(
+    Id memberId,
+    Set<Id> creditLedgerIds,
+    Map<Id, Integer> orderRedeemCancelMap,
+    Map<Id, Integer> orderPointUsedMap,
+    Map<Id, Integer> orderDeletedDebitMap,
+    Map<Id, Id> redeemCancelCreditOriginMap,
+    Map<Id, List<OriginPortion>> redeemCancelCreditOriginPortions,
+    Map<Id, Id> cancelLLToOrderId,
+    Map<Id, List<OriginPortion>> hiddenRestoreCreditOriginPortions
+  ) {
+    Map<Id, Integer> result = new Map<Id, Integer>();
+    for (Id cid : creditLedgerIds) {
+      result.put(cid, 0);
+    }
+
+    // [Net Use Mode 2026-05-06] 정책: AccrualHistoryList PT_USE = Destory 표시 사용 LLT 의 origin=X 합 (순 사용).
+    //   사용자 정책 (옵션 1):
+    //     - 사용 흔적 누적이 아니라 "현재 살아있는 순 사용" 표시
+    //     - 환불받은 양은 PT_USE 에서 차감 (정합성)
+    //     - 두 영역 합 일치: SUM(AccrualHistoryList.PT_USE) = SUM(UserDestoryHistoryList "사용".PT_USE)
+    //     - LMS Aggr Available 과 정합 (회원 잔액 = 적립 - 순 사용)
+    //
+    //   식 (Destory 와 정확히 동일):
+    //     1. 활성 사용 LLT 들 SOQL 으로 가져옴 (RESTORE_NOTE 제외, ECO_CANCEL 제외, excludeDebitTjIds 제외).
+    //        creditLedgerIds 와 origin=creditLedgerIds 인 Cancel Credit (재귀) 모두 매핑 대상.
+    //     2. 각 OrderId 별 net 사용 = max(0, orderUsed - effectiveCancel) 계산.
+    //        effectiveCancel = max(0, orderRedeemCancelMap - orderDeletedDebitMap)
+    //        orderUsed = orderPointUsedMap (호출자가 빌드한 활성 Debit 합)
+    //     3. 각 LLT 의 PT_USE 기여 = LLT.Points × netRate (round-off 보정 포함).
+    //     4. 각 LLT 의 origin Credit (X) 으로 합산.
+    //
+    //   round-off 보정: 같은 OrderId 의 마지막 LLT 에 누적 보정 → SUM(LLT 비례 분배) = net 정확.
+
+    // excludeDebitTjIds 빌드 (HideUseRowOnInputDepositDelete Flag ON 시) — Destory SOQL 과 동일 셋 확보
+    Set<Id> excludeDebitTjIds = buildExcludeDebitTjIdsForRawMode(memberId);
+
+    // origin → [Cancel Credit Id] 역매핑
+    Map<Id, Set<Id>> originToCancels = new Map<Id, Set<Id>>();
+    if (redeemCancelCreditOriginMap != null) {
+      for (Id cancelCid : redeemCancelCreditOriginMap.keySet()) {
+        Id originCid = redeemCancelCreditOriginMap.get(cancelCid);
+        if (originCid == null) continue;
+        if (!originToCancels.containsKey(originCid)) {
+          originToCancels.put(originCid, new Set<Id>());
+        }
+        originToCancels.get(originCid).add(cancelCid);
+      }
+    }
+
+    // 각 X 의 모든 자식 Cancel Credit (재귀 — Cancel-of-Cancel 까지)
+    Map<Id, Id> cancelToTargetX = new Map<Id, Id>();   // Cancel Credit Id → 최상위 origin X
+    for (Id targetCid : creditLedgerIds) {
+      Set<Id> queue = new Set<Id>{ targetCid };
+      Set<Id> visited = new Set<Id>{ targetCid };
+      while (!queue.isEmpty()) {
+        Set<Id> next = new Set<Id>();
+        for (Id originCid : queue) {
+          if (originToCancels.containsKey(originCid)) {
+            for (Id cancelCid : originToCancels.get(originCid)) {
+              if (!visited.contains(cancelCid)) {
+                visited.add(cancelCid);
+                cancelToTargetX.put(cancelCid, targetCid);
+                next.add(cancelCid);
+              }
+            }
+          }
+        }
+        queue = next;
+      }
+    }
+
+    // SOQL 대상 Credit Id Set: creditLedgerIds + 모든 자식 Cancel Credit
+    Set<Id> allTraceCreditIds = new Set<Id>(creditLedgerIds);
+    allTraceCreditIds.addAll(cancelToTargetX.keySet());
+    if (hiddenRestoreCreditOriginPortions != null) {
+      allTraceCreditIds.addAll(hiddenRestoreCreditOriginPortions.keySet());
+    }
+
+    // 활성 사용 LLT 가져오기 — (a) X 자체 + (b) origin=X Cancel Credit (재귀)
+    //   GROUP BY (CreditId, OrderId) 으로 비례 분배 분모 (orderUsed) + Order 단위 보정 가능
+    //   각 (Credit, Order) 그룹의 LLT 들의 합을 활용
+    //   round-off 보정을 위해 SOQL 결과를 (Order, Credit 별 그룹 리스트) 로 정리
+    List<RawNetUseRow> rows = new List<RawNetUseRow>();
+    for (AggregateResult ar : [
+      SELECT CreditLoyaltyLedgerId creditId,
+             DebitLoyaltyLedger.TransactionJournal.OrderId orderId,
+             SUM(Points) total
+      FROM LoyaltyLedgerTraceability
+      WHERE LoyaltyProgramMemberId = :memberId
+        AND CreditLoyaltyLedgerId IN :allTraceCreditIds
+        AND ActionType = 'Debit'
+        AND IsDeleted = FALSE
+        AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+        AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
+        OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :ADDITIONAL_NOTE_FULL_RETURN_ECO_POINT_CANCEL)
+        AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
+        OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
+        AND DebitLoyaltyLedger.TransactionJournalId NOT IN :excludeDebitTjIds
+      GROUP BY CreditLoyaltyLedgerId, DebitLoyaltyLedger.TransactionJournal.OrderId
+      LIMIT 50000
+    ]) {
+      Id cid = (Id) ar.get('creditId');
+      Id oid = (Id) ar.get('orderId');
+      Integer pts = ar.get('total') == null ? 0 : ((Decimal) ar.get('total')).abs().intValue();
+      if (pts <= 0) continue;
+
+      // [Phase 2 Precise Origin 2026-05-06] Cancel Credit 사용분 → portions 비율 분할 우선.
+      //   redeemCancelCreditOriginPortions 가 빌드된 경우(=Flag ON), Cancel Credit (cid) 의 사용 LLT pts 를
+      //   여러 origin Credit 으로 비례 분배하여 row 들을 추가.
+      //   기존 단일 매핑(cancelToTargetX)은 portions 가 없는 cid 에만 적용 (재귀 Cancel-of-Cancel 등 fallback).
+      //   creditLedgerIds 직접 cid 는 그대로 자기 자신 origin 으로.
+      if (redeemCancelCreditOriginPortions != null
+          && redeemCancelCreditOriginPortions.containsKey(cid)) {
+        List<OriginPortion> portions = redeemCancelCreditOriginPortions.get(cid);
+        Integer totalPortionPts = 0;
+        for (OriginPortion p : portions) {
+          totalPortionPts += (p.points == null ? 0 : p.points);
+        }
+        if (totalPortionPts > 0 && portions != null && !portions.isEmpty()) {
+          Integer allocated = 0;
+          Integer lastIdx = portions.size() - 1;
+          for (Integer i = 0; i < portions.size(); i++) {
+            OriginPortion p = portions[i];
+            // creditLedgerIds 에 포함되지 않는 origin (예: 외부 LL) 은 매핑 대상 아님 → 비례 분배에서 제외 안 하고
+            // 일단 분배 후 check (그대로 합산 안 됨) → 단순화 위해 여기서 컨티뉴 시 round-off 누적이 깨질 수 있어
+            // 일단 모든 portion 을 분배 후 result 매핑 시 creditLedgerIds 멤버십 체크.
+            Integer share;
+            if (i == lastIdx) {
+              share = pts - allocated;
+              if (share < 0) share = 0;
+            } else {
+              Long num = (Long) pts * (Long) (p.points == null ? 0 : p.points);
+              share = (Integer) (num / (Long) totalPortionPts);
+            }
+            if (share > 0 && p.originCreditLLId != null && creditLedgerIds.contains(p.originCreditLLId)) {
+              rows.add(new RawNetUseRow(p.originCreditLLId, oid, share));
+            }
+            allocated += share;
+          }
+          continue;
+        }
+      }
+
+      if (hiddenRestoreCreditOriginPortions != null
+          && hiddenRestoreCreditOriginPortions.containsKey(cid)) {
+        List<OriginPortion> portions = hiddenRestoreCreditOriginPortions.get(cid);
+        Integer totalPortionPts = 0;
+        for (OriginPortion p : portions) {
+          totalPortionPts += (p.points == null ? 0 : p.points);
+        }
+        if (totalPortionPts > 0 && portions != null && !portions.isEmpty()) {
+          Integer allocated = 0;
+          Integer lastIdx = portions.size() - 1;
+          for (Integer i = 0; i < portions.size(); i++) {
+            OriginPortion p = portions[i];
+            Integer share;
+            if (i == lastIdx) {
+              share = pts - allocated;
+              if (share < 0) share = 0;
+            } else {
+              Long num = (Long) pts * (Long) (p.points == null ? 0 : p.points);
+              share = (Integer) (num / (Long) totalPortionPts);
+            }
+            if (share > 0 && p.originCreditLLId != null && creditLedgerIds.contains(p.originCreditLLId)) {
+              rows.add(new RawNetUseRow(p.originCreditLLId, oid, share));
+            }
+            allocated += share;
+          }
+          continue;
+        }
+      }
+
+      // origin X 결정 — Cancel Credit (cancelToTargetX 에 있음) 은 origin X 우선 매핑.
+      //   `creditLedgerIds` 에 Cancel Credit 도 포함 가능 (응답 표시는 별도 hide) → 매핑 충돌 방지 위해 cancelToTargetX 우선.
+      Id targetX = cancelToTargetX.containsKey(cid) ? cancelToTargetX.get(cid)
+          : (creditLedgerIds.contains(cid) ? cid : null);
+      if (targetX == null) continue;
+      rows.add(new RawNetUseRow(targetX, oid, pts));
+    }
+
+    if (rows.isEmpty()) {
+      return result;
+    }
+
+    // OrderId 별 그룹핑 (round-off 보정용)
+    Map<Id, List<RawNetUseRow>> rowsByOrder = new Map<Id, List<RawNetUseRow>>();
+    Map<Id, Integer> orderRawTotalLocal = new Map<Id, Integer>();   // 그 Order 의 (X, X-자식) raw 합
+    for (RawNetUseRow r : rows) {
+      if (r.orderId == null) {
+        // Order 없는 LLT (마이그 적립 등) — 전액 가산 (환불 없음)
+        Integer prev = result.containsKey(r.creditId) ? result.get(r.creditId) : 0;
+        result.put(r.creditId, prev + r.points);
+        continue;
+      }
+      if (!rowsByOrder.containsKey(r.orderId)) {
+        rowsByOrder.put(r.orderId, new List<RawNetUseRow>());
+      }
+      rowsByOrder.get(r.orderId).add(r);
+      Integer prev = orderRawTotalLocal.containsKey(r.orderId) ? orderRawTotalLocal.get(r.orderId) : 0;
+      orderRawTotalLocal.put(r.orderId, prev + r.points);
+    }
+
+    // [Phase 2.1 2026-05-06] portions 기반 (originLLId, orderId) → 환불액 맵 빌드.
+    //   각 Cancel Credit LL 의 OrderId(=환불 발생 판매 Order) 별로 portions 비율 분배 합산.
+    //   Order 별 portions 환불 합 == effectiveCancel 이면 origin 별 직접 차감 가능 → 정확한 분배.
+    //   불일치 Order 는 fallback (기존 비례 분배).
+    Map<Id, Map<Id, Integer>> orderToOriginRefund = new Map<Id, Map<Id, Integer>>();
+    if (redeemCancelCreditOriginPortions != null && cancelLLToOrderId != null
+        && !redeemCancelCreditOriginPortions.isEmpty() && !cancelLLToOrderId.isEmpty()) {
+      for (Id cancelLLId : redeemCancelCreditOriginPortions.keySet()) {
+        Id refundOrderId = cancelLLToOrderId.get(cancelLLId);
+        if (refundOrderId == null) continue;
+        List<OriginPortion> portions = redeemCancelCreditOriginPortions.get(cancelLLId);
+        if (portions == null) continue;
+        if (!orderToOriginRefund.containsKey(refundOrderId)) {
+          orderToOriginRefund.put(refundOrderId, new Map<Id, Integer>());
+        }
+        Map<Id, Integer> originRefund = orderToOriginRefund.get(refundOrderId);
+        for (OriginPortion p : portions) {
+          if (p.originCreditLLId == null) continue;
+          // origin 이 creditLedgerIds 에 없으면 (외부 LL — 매핑 대상 아님) 차감 무의미 → 스킵
+          if (!creditLedgerIds.contains(p.originCreditLLId)) continue;
+          Integer prev = originRefund.containsKey(p.originCreditLLId) ? originRefund.get(p.originCreditLLId) : 0;
+          originRefund.put(p.originCreditLLId, prev + (p.points == null ? 0 : p.points));
+        }
+      }
+    }
+
+    // 각 OrderId 별로 비례 분배 + 마지막 row round-off 보정
+    for (Id oid : rowsByOrder.keySet()) {
+      List<RawNetUseRow> orderRows = rowsByOrder.get(oid);
+      Integer rawTotal = orderRawTotalLocal.get(oid);
+
+      // orderUsed = orderPointUsedMap (호출자가 빌드한 활성 Debit 합 — Destory 와 같은 분모)
+      Integer orderUsed = (orderPointUsedMap != null && orderPointUsedMap.containsKey(oid))
+          ? orderPointUsedMap.get(oid) : 0;
+      Integer rawCancel = (orderRedeemCancelMap != null && orderRedeemCancelMap.containsKey(oid))
+          ? orderRedeemCancelMap.get(oid) : 0;
+      Integer deletedDebit = (orderDeletedDebitMap != null && orderDeletedDebitMap.containsKey(oid))
+          ? orderDeletedDebitMap.get(oid) : 0;
+      Integer effectiveCancel = Math.max(0, rawCancel - deletedDebit);
+
+      // 전액 환불 → 모두 스킵
+      if (orderUsed > 0 && effectiveCancel >= orderUsed) {
+        continue;
+      }
+
+      // 환불 없음 → 그대로 가산
+      if (orderUsed <= 0 || effectiveCancel <= 0) {
+        for (RawNetUseRow r : orderRows) {
+          Integer prev = result.containsKey(r.creditId) ? result.get(r.creditId) : 0;
+          result.put(r.creditId, prev + r.points);
+        }
+        continue;
+      }
+
+      // [Phase 2.1] portions 기반 origin 직접 차감 시도.
+      //   조건: 해당 Order 에 portions 매핑 존재 + 환불 총합 == effectiveCancel (정합 검증).
+      //   정합 시: 각 origin 별 (사용 - 환불) 직접 가산 → 비례 분배 우회.
+      //   부정합 (매칭 못한 환불 포함) → fallback 비례 분배.
+      Boolean useDirectOriginRefund = false;
+      Map<Id, Integer> originRefundForThisOrder = orderToOriginRefund.get(oid);
+      if (originRefundForThisOrder != null && !originRefundForThisOrder.isEmpty()) {
+        Integer totalOriginRefund = 0;
+        for (Integer v : originRefundForThisOrder.values()) totalOriginRefund += v;
+        // effectiveCancel 과 일치(±0) 시 portions 매핑이 환불 전체를 커버 → 직접 차감 안전
+        if (totalOriginRefund == effectiveCancel) {
+          useDirectOriginRefund = true;
+        }
+      }
+
+      if (useDirectOriginRefund) {
+        // origin 별 (사용 합 - 환불 합) clamp 0 직접 가산
+        Map<Id, Integer> originUsedForThisOrder = new Map<Id, Integer>();
+        for (RawNetUseRow r : orderRows) {
+          Integer prev = originUsedForThisOrder.containsKey(r.creditId) ? originUsedForThisOrder.get(r.creditId) : 0;
+          originUsedForThisOrder.put(r.creditId, prev + r.points);
+        }
+        for (Id originCid : originUsedForThisOrder.keySet()) {
+          Integer used = originUsedForThisOrder.get(originCid);
+          Integer refund = originRefundForThisOrder.containsKey(originCid) ? originRefundForThisOrder.get(originCid) : 0;
+          Integer netUsed = Math.max(0, used - refund);
+          if (netUsed > 0) {
+            Integer prev = result.containsKey(originCid) ? result.get(originCid) : 0;
+            result.put(originCid, prev + netUsed);
+          }
+        }
+        continue;
+      }
+
+      // 부분 환불 → 비례 분배 + 마지막 row round-off 보정 (fallback)
+      //   netRate = (orderUsed - effectiveCancel) / orderUsed
+      //   합계 기대값 = rawTotal × netRate
+      Integer netTotal = orderUsed - effectiveCancel;
+      Long expectedSumNum = (Long) rawTotal * (Long) netTotal;
+      Integer expectedSum = (orderUsed > 0)
+          ? (Integer) (expectedSumNum / (Long) orderUsed)
+          : 0;
+      Integer allocated = 0;
+      Integer lastIdx = orderRows.size() - 1;
+      for (Integer i = 0; i < orderRows.size(); i++) {
+        RawNetUseRow r = orderRows[i];
+        Integer adjustedAdd;
+        if (i == lastIdx) {
+          // 마지막 row — round-off 보정 (남은 expected 모두 할당)
+          adjustedAdd = expectedSum - allocated;
+          if (adjustedAdd < 0) adjustedAdd = 0;
+        } else {
+          Long numerator = (Long) r.points * (Long) netTotal;
+          adjustedAdd = (Integer) (numerator / (Long) orderUsed);
+        }
+        if (adjustedAdd > 0) {
+          Integer prev = result.containsKey(r.creditId) ? result.get(r.creditId) : 0;
+          result.put(r.creditId, prev + adjustedAdd);
+          allocated += adjustedAdd;
+        }
+      }
+    }
+
+    return result;
+  }
+
+  // [Net Use Mode 2026-05-06] raw 식 내부 row 보관용
+  private class RawNetUseRow {
+    Id creditId;       // origin X (creditLedgerIds 중 하나)
+    Id orderId;        // Debit OrderId
+    Integer points;    // (Credit, Order) 그룹의 raw 사용 합
+    RawNetUseRow(Id creditId, Id orderId, Integer points) {
+      this.creditId = creditId;
+      this.orderId = orderId;
+      this.points = points;
+    }
+  }
+
+  /**
+   * [Destory Consistency Fix 2026-05-06] HideUseRowOnInputDepositDelete Flag 로 Destory 가 hide 하는
+   * Debit TJ Id 셋을 동일하게 빌드하여 raw 모드 PT_USE 와 Destory 사용 행의 일관성을 보장.
+   *
+   * 알고리즘:
+   *   1. 활성 'del_point_*' Cancel TJ 조회 → (OrderId, 원본 DepositNo) 셋 추출.
+   *   2. 매칭되는 원 Point Debit TJ Id 셋 빌드 (OrderId+DepositNo 정확 매칭).
+   *
+   * Flag OFF 시 빈 셋 반환 (NOT IN empty = always true → 영향 없음).
+   */
+  private static Set<Id> buildExcludeDebitTjIdsForRawMode(Id memberId) {
+    Set<Id> excludeDebitTjIds = new Set<Id>();
+    if (!GdFeatureFlag.isEnabled('HideUseRowOnInputDepositDelete')) {
+      return excludeDebitTjIds;
+    }
+    Map<Id, Set<String>> excludeOrigDepositNoByOrderId = new Map<Id, Set<String>>();
+    Map<String, Datetime> excludeCutoffByOrderDepositKey = new Map<String, Datetime>();
+    for (TransactionJournal cancelTj : [
+      SELECT Id, OrderId, DepositNo__c, CreatedDate
+      FROM TransactionJournal
+      WHERE MemberId = :memberId
+        AND IsDeleted__c = FALSE
+        AND DepositNo__c LIKE 'del_point_%'
+        AND JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL
+      LIMIT 5000
+    ]) {
+      if (cancelTj.OrderId == null || String.isBlank(cancelTj.DepositNo__c)) {
+        continue;
+      }
+      String origDepositNo = cancelTj.DepositNo__c.substring('del_point_'.length());
+      if (String.isBlank(origDepositNo)) {
+        continue;
+      }
+      if (!excludeOrigDepositNoByOrderId.containsKey(cancelTj.OrderId)) {
+        excludeOrigDepositNoByOrderId.put(cancelTj.OrderId, new Set<String>());
+      }
+      excludeOrigDepositNoByOrderId.get(cancelTj.OrderId).add(origDepositNo);
+      String cutoffKey = String.valueOf(cancelTj.OrderId) + '|' + origDepositNo;
+      if (!excludeCutoffByOrderDepositKey.containsKey(cutoffKey)
+          || cancelTj.CreatedDate < excludeCutoffByOrderDepositKey.get(cutoffKey)) {
+        excludeCutoffByOrderDepositKey.put(cutoffKey, cancelTj.CreatedDate);
+      }
+    }
+    if (excludeOrigDepositNoByOrderId.isEmpty()) {
+      return excludeDebitTjIds;
+    }
+    Set<Id> targetOrderIds = excludeOrigDepositNoByOrderId.keySet();
+    Set<String> allOrigDepositNos = new Set<String>();
+    for (Set<String> s : excludeOrigDepositNoByOrderId.values()) {
+      allOrigDepositNos.addAll(s);
+    }
+    for (TransactionJournal origTj : [
+      SELECT Id, OrderId, DepositNo__c, CreatedDate
+      FROM TransactionJournal
+      WHERE MemberId = :memberId
+        AND OrderId IN :targetOrderIds
+        AND DepositNo__c IN :allOrigDepositNos
+        AND JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_POINT_DEBIT
+        AND IsDeleted__c = FALSE
+      LIMIT 5000
+    ]) {
+      Set<String> depositNosForOrder = excludeOrigDepositNoByOrderId.get(origTj.OrderId);
+      String cutoffKey = String.valueOf(origTj.OrderId) + '|' + origTj.DepositNo__c;
+      Datetime cutoff = excludeCutoffByOrderDepositKey.get(cutoffKey);
+      if (depositNosForOrder != null
+          && depositNosForOrder.contains(origTj.DepositNo__c)
+          && cutoff != null
+          && origTj.CreatedDate <= cutoff) {
+        excludeDebitTjIds.add(origTj.Id);
+      }
+    }
+    return excludeDebitTjIds;
+  }
+
+  // [PT_USE Round-off Fix 2026-05-05] buildAccrualUsedPointMap 내부 1+3단계 raw row 보관용.
+  private class RawAccrualUsage {
+    Id creditId;
+    Integer points;
+    RawAccrualUsage(Id creditId, Integer points) {
+      this.creditId = creditId;
+      this.points = points;
+    }
   }
 
   private static Map<Id, Integer> buildAccrualReductionPointMap(Id memberId, Set<Id> creditLedgerIds) {
@@ -605,11 +1939,47 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     return result;
   }
 
+  private static Map<Id, Integer> buildAccrualSaleCancelPointMap(Id memberId, Set<Id> creditLedgerIds) {
+    Map<Id, Integer> result = new Map<Id, Integer>();
+
+    if (memberId == null || creditLedgerIds == null || creditLedgerIds.isEmpty()) {
+      return result;
+    }
+
+    for (AggregateResult ar : [
+      SELECT CreditLoyaltyLedgerId creditLedgerId, SUM(Points) totalPoints
+      FROM LoyaltyLedgerTraceability
+      WHERE LoyaltyProgramMemberId = :memberId
+        AND CreditLoyaltyLedgerId IN :creditLedgerIds
+        AND ActionType = 'CreditCancellation'
+        AND DebitLoyaltyLedger.TransactionJournal.JournalType.Name = :JOURNAL_TYPE_NAME_ACCRUAL_REVERSAL
+        AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+        AND (
+          DebitLoyaltyLedger.TransactionJournal.SaleId__c = NULL
+          OR DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsReductionOrder__c != TRUE
+        )
+      GROUP BY CreditLoyaltyLedgerId
+      LIMIT 50000
+    ]) {
+      Id creditLedgerId = (Id) ar.get('creditLedgerId');
+      if (creditLedgerId == null) {
+        continue;
+      }
+      Integer amount = ar.get('totalPoints') == null ? 0 : ((Decimal) ar.get('totalPoints')).abs().intValue();
+      result.put(creditLedgerId, amount);
+    }
+
+    return result;
+  }
+
   private static Map<Id, Integer> buildAccrualExpiredPointMap(
       Id memberId,
       List<LoyaltyLedger> creditLedgers,
       Map<Id, Integer> reductionPointMap,
-      Map<Id, Id> ecoRestoreLLToOriginLLId
+      Map<Id, Id> ecoRestoreLLToOriginLLId,
+      Map<Id, List<OriginPortion>> hiddenRestoreCreditOriginPortions,
+      Map<Id, List<OriginPortion>> activeReturnRestoreCreditOriginPortions,
+      Map<Id, List<OriginPortion>> directRestoreCreditOriginPortions
   ) {
     Map<Id, Integer> result = new Map<Id, Integer>();
 
@@ -642,6 +2012,55 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
 
     Map<String, Integer> availableExpiredByKey = new Map<String, Integer>();
     Map<Id, Integer> returnCancelByCreditLedgerId = new Map<Id, Integer>();
+    Map<Id, Integer> returnCancelTransferredFromRestoreByOriginCreditLLId = new Map<Id, Integer>();
+    Map<Id, Integer> restoredPointsByOriginCreditLLId = new Map<Id, Integer>();
+    Map<Id, Integer> restoredPointsByDirectCreditLLId = new Map<Id, Integer>();
+    Map<Id, List<OriginPortion>> optionCRestoreCreditOriginPortionsByRestoreLLId =
+      hiddenRestoreCreditOriginPortions == null
+        ? new Map<Id, List<OriginPortion>>()
+        : hiddenRestoreCreditOriginPortions;
+    Map<Id, List<OriginPortion>> activeRestoreCreditOriginPortionsByRestoreLLId =
+      activeReturnRestoreCreditOriginPortions == null
+        ? new Map<Id, List<OriginPortion>>()
+        : activeReturnRestoreCreditOriginPortions;
+    Map<Id, List<OriginPortion>> directRestoreCreditOriginPortionsByRestoreLLId =
+      directRestoreCreditOriginPortions == null
+        ? new Map<Id, List<OriginPortion>>()
+        : directRestoreCreditOriginPortions;
+
+    if (!activeRestoreCreditOriginPortionsByRestoreLLId.isEmpty()) {
+      for (List<OriginPortion> portions : activeRestoreCreditOriginPortionsByRestoreLLId.values()) {
+        if (portions == null) {
+          continue;
+        }
+        for (OriginPortion p : portions) {
+          if (p == null || p.originCreditLLId == null || p.points == null || p.points <= 0) {
+            continue;
+          }
+          Integer prev = restoredPointsByOriginCreditLLId.containsKey(p.originCreditLLId)
+              ? restoredPointsByOriginCreditLLId.get(p.originCreditLLId)
+              : 0;
+          restoredPointsByOriginCreditLLId.put(p.originCreditLLId, prev + p.points);
+        }
+      }
+    }
+
+    if (!directRestoreCreditOriginPortionsByRestoreLLId.isEmpty()) {
+      for (List<OriginPortion> portions : directRestoreCreditOriginPortionsByRestoreLLId.values()) {
+        if (portions == null) {
+          continue;
+        }
+        for (OriginPortion p : portions) {
+          if (p == null || p.originCreditLLId == null || p.points == null || p.points <= 0) {
+            continue;
+          }
+          Integer prev = restoredPointsByDirectCreditLLId.containsKey(p.originCreditLLId)
+              ? restoredPointsByDirectCreditLLId.get(p.originCreditLLId)
+              : 0;
+          restoredPointsByDirectCreditLLId.put(p.originCreditLLId, prev + p.points);
+        }
+      }
+    }
 
     /**
      * [26.04.02 수정] 반품 포인트 적립취소 미표시 오류 해결
@@ -706,6 +2125,7 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       //   해결: 재적립 LL Id 도 IN 절에 포함하고, 결과에서 OrderId 그룹핑하여 원본 LL 로 합산.
       Set<Id> allEcoRelatedLLIds = new Set<Id>(creditLedgerIds);
       allEcoRelatedLLIds.addAll(ecoRestoreLLToOriginLLId.keySet());
+      allEcoRelatedLLIds.addAll(optionCRestoreCreditOriginPortionsByRestoreLLId.keySet());
 
       for (AggregateResult ar : [
         SELECT CreditLoyaltyLedgerId creditLedgerId, SUM(Points) totalPoints
@@ -715,7 +2135,10 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
           AND CreditLoyaltyLedgerId IN :allEcoRelatedLLIds
           AND ActionType = 'CreditCancellation'
           AND (
-            DebitLoyaltyLedger.TransactionJournal.JournalType.Name = :JOURNAL_TYPE_NAME_ACCRUAL_REVERSAL
+            (
+              DebitLoyaltyLedger.TransactionJournal.JournalType.Name = :JOURNAL_TYPE_NAME_ACCRUAL_REVERSAL
+              AND DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsReductionOrder__c = TRUE
+            )
             OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = :ADDITIONAL_NOTE_FULL_RETURN_ECO_POINT_CANCEL
           )
           AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
@@ -729,6 +2152,27 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         // [Eco Restore Sum Fix 2026-05-03] 재적립 LL 의 차감은 원본 LL 의 PT_DESTROY 로 이전 합산.
         //   creditLedgerId 가 재적립 LL Id 이면 → 원본 LL Id 로 매핑 후 누적.
         //   그 외에는 원본 LL Id 로 직접 누적 (= 기존 동작).
+        if (optionCRestoreCreditOriginPortionsByRestoreLLId.containsKey(creditLedgerId)) {
+          Integer restoredAgainstRestoreCredit = restoredPointsByDirectCreditLLId.containsKey(creditLedgerId)
+            ? restoredPointsByDirectCreditLLId.get(creditLedgerId)
+            : 0;
+          Integer effectiveTransferredPoints = Math.max(0, points - restoredAgainstRestoreCredit);
+          List<OriginPortion> portions = capOriginPortions(
+            optionCRestoreCreditOriginPortionsByRestoreLLId.get(creditLedgerId),
+            effectiveTransferredPoints
+          );
+          for (OriginPortion p : portions) {
+            if (p == null || p.originCreditLLId == null || p.points == null || p.points <= 0) {
+              continue;
+            }
+            Integer prev = returnCancelTransferredFromRestoreByOriginCreditLLId.containsKey(p.originCreditLLId)
+              ? returnCancelTransferredFromRestoreByOriginCreditLLId.get(p.originCreditLLId)
+              : 0;
+            returnCancelTransferredFromRestoreByOriginCreditLLId.put(p.originCreditLLId, prev + p.points);
+          }
+          continue;
+        }
+
         Id targetLLId = ecoRestoreLLToOriginLLId.containsKey(creditLedgerId)
             ? ecoRestoreLLToOriginLLId.get(creditLedgerId)
             : creditLedgerId;
@@ -752,8 +2196,15 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       Integer allocatable = availableExpiredByKey.containsKey(key) ? availableExpiredByKey.get(key) : 0;
       Integer expiredPoints = Math.min(remaining, allocatable);
       Integer returnCancelledPoints = returnCancelByCreditLedgerId.containsKey(credit.Id) ? returnCancelByCreditLedgerId.get(credit.Id) : 0;
+      Integer restoredPoints = restoredPointsByOriginCreditLLId.containsKey(credit.Id)
+          ? restoredPointsByOriginCreditLLId.get(credit.Id)
+          : 0;
+      returnCancelledPoints = Math.max(0, returnCancelledPoints - restoredPoints);
+      Integer transferredReturnCancelledPoints = returnCancelTransferredFromRestoreByOriginCreditLLId.containsKey(credit.Id)
+          ? returnCancelTransferredFromRestoreByOriginCreditLLId.get(credit.Id)
+          : 0;
 
-      result.put(credit.Id, expiredPoints + returnCancelledPoints);
+      result.put(credit.Id, expiredPoints + returnCancelledPoints + transferredReturnCancelledPoints);
       availableExpiredByKey.put(key, Math.max(0, allocatable - expiredPoints));
     }
 
@@ -1367,6 +2818,7 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     List<LoyaltyLedger> ledgers = [
       SELECT
         Id,
+        IsDeleted,                                    // [Active Only Fix 2026-05-07] Cancel Credit 활성 필터링용
         ActivityDate,
         AdditionalNotes,
         EventType,
@@ -1387,11 +2839,17 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         LoyaltyPgmCrcySubtypeId,
         LoyaltyPgmCrcySubtype.Name,
         LoyaltyPgmCrcySubtype.PointTypeCode__c,
+        LoyaltyPgmCrcySubtype.UsagePriorityNumber, // 26.05.05 CS - AccrualHistoryList 정렬 키
         TransactionJournal.OrderId,
         TransactionJournal.Order.SaleNo__c,
         TransactionJournal.Order.ActualPaymentAmount__c,
         TransactionJournal.Order.IsDeleted__c,
-        TransactionJournal.Promotion.PromotionNo__c
+        TransactionJournal.Promotion.PromotionNo__c,
+        TransactionJournal.SaleId__c,
+        TransactionJournal.SaleId__r.SaleNo__c,
+        TransactionJournal.SaleId__r.IsDeleted__c,
+        TransactionJournal.SaleId__r.IsReductionOrder__c,
+        TransactionJournal.SaleId__r.OriginalOrderId__c
       FROM LoyaltyLedger
       WHERE LoyaltyProgramMemberId = :memberId
       ORDER BY ActivityDate DESC
@@ -1412,6 +2870,7 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     //   - Point Redeem Cancel Credit 을 참조한 Debit 로우의 NO_SAL_SAVE 를 원 Credit 의 판매번호로 교체
     Map<Id, Integer> orderPointUsedMap = new Map<Id, Integer>();
     Map<Id, String> saleNoByCreditLLId = new Map<Id, String>();
+    Map<Id, Datetime> ledgerIdToActivityDateForDisplay = new Map<Id, Datetime>();
     Map<Id, Integer> orderDeletedDebitMap = new Map<Id, Integer>();
     // [Eco Restore Sum Fix 2026-05-03] 재적립 에코 LL 의 차감을 원본 에코 LL 의 PT_DESTROY 로 이전 합산하기 위한 매핑.
     //   배경: 통반품 → 취소 → 재통반품 시나리오에서 재적립 LL 은 응답에서 제외되지만 (Fix #7),
@@ -1422,7 +2881,11 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     //   2차 패스: 재적립 에코 LL (마커=ECO_POINT_RESTORE_NOTE) → 원본 LL Id 매핑 구축.
     Map<Id, Id> ecoRestoreLLToOriginLLId = new Map<Id, Id>();
     Map<Id, Id> orderIdToEcoOriginLLId = new Map<Id, Id>();
+    Map<String, LoyaltyLedger> optionCBaseCreditByDisplayKey = new Map<String, LoyaltyLedger>();
     for (LoyaltyLedger ll : ledgers) {
+      if (ll.Id != null && ll.ActivityDate != null) {
+        ledgerIdToActivityDateForDisplay.put(ll.Id, ll.ActivityDate);
+      }
       if (ll.EventType == 'Credit'
           && ll.Id != null
           && ll.TransactionJournal != null
@@ -1436,7 +2899,22 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
           orderIdToEcoOriginLLId.put(ll.TransactionJournal.OrderId, ll.Id);
         }
       }
+      if (ll.EventType == 'Credit'
+          && ll.Id != null
+          && ll.TransactionJournal != null
+          && ll.TransactionJournal.OrderId != null
+          && ll.LoyaltyPgmCrcySubtypeId != null
+          && ll.ExpiryDate != null
+          && !shouldExcludeFromAccrualHistory(ll)
+          && !isOptionCSalePatchForceCreditNote(ll.TransactionJournal.AdditionalNotes__c)
+          && !isOptionCReturnRestoreCreditNote(ll.TransactionJournal.AdditionalNotes__c)) {
+        String displayKey = buildRestoreOriginKey(ll.TransactionJournal.OrderId, ll.LoyaltyPgmCrcySubtypeId, ll.ExpiryDate);
+        if (!optionCBaseCreditByDisplayKey.containsKey(displayKey)) {
+          optionCBaseCreditByDisplayKey.put(displayKey, ll);
+        }
+      }
     }
+
     for (LoyaltyLedger ll : ledgers) {
       if (ll.EventType == 'Credit'
           && ll.Id != null
@@ -1447,6 +2925,7 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         ecoRestoreLLToOriginLLId.put(ll.Id, orderIdToEcoOriginLLId.get(ll.TransactionJournal.OrderId));
       }
     }
+
     for (LoyaltyLedger ll : ledgers) {
       if (ll.EventType == 'Credit' && !shouldExcludeFromAccrualHistory(ll)) {
         creditLedgers.add(ll);
@@ -1496,6 +2975,144 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     // [2026-04-24 R1-1~R2-3 Fix] 회원의 Point Redeem Cancel TJ 집계 — SOQL 1회 (AccrualHistory+UserDestory 공용)
     // [2026-04-25 추가] 이미 삭제된 Debit 과 상쇄된 취소분 (orderDeletedDebitMap) 은 실효성 취소에서 제외해야 함.
     //   → effective cancel = max(0, redeemCancel - deletedDebit) 를 각 소비 지점에서 적용
+    Map<String, List<LoyaltyLedger>> originCreditsByRestoreKey = new Map<String, List<LoyaltyLedger>>();
+    for (LoyaltyLedger ll : creditLedgers) {
+      if (!isRestoreOriginCandidate(ll)) {
+        continue;
+      }
+      if (ll.Id == null
+          || ll.TransactionJournal == null
+          || ll.TransactionJournal.OrderId == null
+          || ll.LoyaltyPgmCrcySubtypeId == null
+          || ll.ExpiryDate == null) {
+        continue;
+      }
+      String key = buildRestoreOriginKey(ll.TransactionJournal.OrderId, ll.LoyaltyPgmCrcySubtypeId, ll.ExpiryDate);
+      if (!originCreditsByRestoreKey.containsKey(key)) {
+        originCreditsByRestoreKey.put(key, new List<LoyaltyLedger>());
+      }
+      originCreditsByRestoreKey.get(key).add(ll);
+    }
+
+    Map<Id, List<OriginPortion>> hiddenRestoreCreditOriginPortions = new Map<Id, List<OriginPortion>>();
+    Map<Id, List<OriginPortion>> activeReturnRestoreCreditOriginPortions = new Map<Id, List<OriginPortion>>();
+    Map<Id, Integer> activeRestoreRemainingByOriginCreditLLId = new Map<Id, Integer>();
+    Map<Id, Integer> optionCActiveRestoreRemainingByOriginCreditLLId = new Map<Id, Integer>();
+    Set<Id> optionCRestoreCreditLLIdsLinkedToDeletedReturn =
+      buildOptionCRestoreCreditLLIdsLinkedToDeletedReturn(ledgers);
+    Map<Id, List<OriginPortion>> optionCRestoreDirectOriginPortionsBySourceTj =
+      buildOptionCRestoreOriginPortionsBySourceTj(memberId, ledgers, false);
+    Map<Id, List<OriginPortion>> optionCRestoreOriginPortionsBySourceTj =
+      buildOptionCRestoreOriginPortionsBySourceTj(memberId, ledgers, true);
+    for (LoyaltyLedger ll : ledgers) {
+      if (ll.EventType != 'Credit'
+          || ll.Id == null
+          || ll.TransactionJournal == null
+          || ll.TransactionJournal.OrderId == null
+          || ll.LoyaltyPgmCrcySubtypeId == null
+          || ll.ExpiryDate == null
+          || ll.Points == null) {
+        continue;
+      }
+      String note = ll.TransactionJournal.AdditionalNotes__c;
+      Boolean isOptionCForceCreditRestore = isOptionCReturnRestoreCreditNote(note);
+      Boolean isUnmarkedReturnPurchaseAccrualRestore =
+          note == null
+          && ll.TransactionJournal.JournalType != null
+          && ll.TransactionJournal.JournalType.Name == JOURNAL_TYPE_NAME_ACCRUAL
+          && ll.TransactionJournal.JournalSubType != null
+          && ll.TransactionJournal.JournalSubType.Name == 'Purchase Accrual'
+          && ll.TransactionJournal.SaleId__r != null
+          && ll.TransactionJournal.SaleId__r.IsReductionOrder__c == true
+          && ll.TransactionJournal.SaleId__r.OriginalOrderId__c != null;
+      if (note != RESTORE_PURCHASE_ACCRUAL_NOTE
+          && note != RESTORE_PROMOTION_ACCRUAL_NOTE
+          && note != ECO_POINT_RESTORE_NOTE
+          && !isOptionCForceCreditRestore
+          && !isUnmarkedReturnPurchaseAccrualRestore) {
+        continue;
+      }
+      Boolean isDeletedReturnRestore = ll.TransactionJournal.SaleId__r != null
+          && ll.TransactionJournal.SaleId__r.IsDeleted__c == true;
+      isDeletedReturnRestore = isDeletedReturnRestore
+          || optionCRestoreCreditLLIdsLinkedToDeletedReturn.contains(ll.Id);
+      Id restoreOriginOrderId = isUnmarkedReturnPurchaseAccrualRestore
+          ? ll.TransactionJournal.SaleId__r.OriginalOrderId__c
+          : ll.TransactionJournal.OrderId;
+      String key = buildRestoreOriginKey(restoreOriginOrderId, ll.LoyaltyPgmCrcySubtypeId, ll.ExpiryDate);
+      List<LoyaltyLedger> originCandidates = originCreditsByRestoreKey.get(key);
+      List<OriginPortion> directOptionCPortions = optionCRestoreOriginPortionsBySourceTj.get(ll.Id);
+      if ((originCandidates == null || originCandidates.isEmpty())
+          && (directOptionCPortions == null || directOptionCPortions.isEmpty())) {
+        continue;
+      }
+      Integer restorePoints = ll.Points.abs().intValue();
+      if (restorePoints <= 0) {
+        continue;
+      }
+      List<OriginPortion> portions = new List<OriginPortion>();
+      if (directOptionCPortions != null && !directOptionCPortions.isEmpty()) {
+        portions.addAll(directOptionCPortions);
+      } else {
+        Integer candidateTotal = 0;
+        for (LoyaltyLedger origin : originCandidates) {
+          candidateTotal += origin.Points == null ? 0 : origin.Points.abs().intValue();
+        }
+        if (candidateTotal <= 0) {
+          continue;
+        }
+        Integer allocated = 0;
+        Integer lastIdx = originCandidates.size() - 1;
+        for (Integer i = 0; i < originCandidates.size(); i++) {
+          LoyaltyLedger origin = originCandidates[i];
+          Integer share;
+          if (i == lastIdx) {
+            share = restorePoints - allocated;
+            if (share < 0) share = 0;
+          } else {
+            Integer originPoints = origin.Points == null ? 0 : origin.Points.abs().intValue();
+            Long numerator = (Long) restorePoints * (Long) originPoints;
+            share = (Integer) (numerator / (Long) candidateTotal);
+          }
+          allocated += share;
+          if (share > 0) {
+            portions.add(new OriginPortion(origin.Id, share));
+          }
+        }
+      }
+      if (!portions.isEmpty()) {
+        hiddenRestoreCreditOriginPortions.put(ll.Id, portions);
+        if (!isDeletedReturnRestore) {
+          activeReturnRestoreCreditOriginPortions.put(ll.Id, portions);
+          List<OriginPortion> activeRemainingPortions = portions;
+          if (isOptionCForceCreditRestore) {
+            List<OriginPortion> directActiveRemainingPortions = optionCRestoreDirectOriginPortionsBySourceTj.get(ll.Id);
+            if (directActiveRemainingPortions != null && !directActiveRemainingPortions.isEmpty()) {
+              activeRemainingPortions = directActiveRemainingPortions;
+            }
+            for (OriginPortion p : activeRemainingPortions) {
+              if (p.originCreditLLId == null || p.points == null || p.points <= 0) {
+                continue;
+              }
+              Integer prev = optionCActiveRestoreRemainingByOriginCreditLLId.containsKey(p.originCreditLLId)
+                ? optionCActiveRestoreRemainingByOriginCreditLLId.get(p.originCreditLLId)
+                : 0;
+              optionCActiveRestoreRemainingByOriginCreditLLId.put(p.originCreditLLId, prev + p.points);
+            }
+          }
+          for (OriginPortion p : activeRemainingPortions) {
+            if (p.originCreditLLId == null || p.points == null || p.points <= 0) {
+              continue;
+            }
+            Integer prev = activeRestoreRemainingByOriginCreditLLId.containsKey(p.originCreditLLId)
+              ? activeRestoreRemainingByOriginCreditLLId.get(p.originCreditLLId)
+              : 0;
+            activeRestoreRemainingByOriginCreditLLId.put(p.originCreditLLId, prev + p.points);
+          }
+        }
+      }
+    }
+
     Map<Id, Integer> orderRedeemCancelMap = buildOrderRedeemCancelMap(memberId);
 
     // [2026-04-25 추가 Fix] Point Redeem Cancel Credit → 원 Credit 매핑 (DELETE /sale/deposit + PATCH 재등록 시나리오)
@@ -1503,13 +3120,84 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     //   - 있는 경우에만 buildAccrualUsedPointMap 의 이월 단계 활성
     Map<Id, Id> redeemCancelCreditOriginMap = buildRedeemCancelCreditOriginMap(memberId, ledgers);
 
+    // [Origin ActivityDate Fix 2026-05-06] Cancel Credit (Point Redeem Cancel) 의 사용 LLT 에 대해
+    //   DT_SAVE 를 원 적립 Credit LL 의 ActivityDate 로 덮어쓰기 위한 사전 매핑.
+    //   Flag ON 시: cancelLLId → origin LL.ActivityDate 매핑 (origin 매핑 재귀 추적 후 최종 origin 의 ActivityDate)
+    //   배경: LMS 표준 API 가 재적립 Cancel Credit 의 ActivityDate 를 today 로 설정 → DT_SAVE 가 재적립일로 표시되는 결함.
+    //   해결: 화면 표시 단계에서 cancelLLId 의 ActivityDate 를 origin LL 의 ActivityDate 로 덮어씀 (LMS 데이터 안 건드림).
+    Boolean preserveOriginActivityDate = GdFeatureFlag.isEnabled('CancelCredit_PreserveOriginActivityDate');
+    Map<Id, Datetime> cancelLLToOriginActivityDate = new Map<Id, Datetime>();
+    if (preserveOriginActivityDate && !redeemCancelCreditOriginMap.isEmpty()) {
+      // ledgers 안에 모든 LL 이 있으므로 거기서 ActivityDate 추출
+      Map<Id, Datetime> ledgerIdToActivityDate = new Map<Id, Datetime>();
+      for (LoyaltyLedger ll : ledgers) {
+        if (ll.Id != null && ll.ActivityDate != null) {
+          ledgerIdToActivityDate.put(ll.Id, ll.ActivityDate);
+        }
+      }
+      // 각 cancelLLId 에 대해 origin 재귀 추적 후 최종 origin 의 ActivityDate 매핑
+      for (Id cancelLLId : redeemCancelCreditOriginMap.keySet()) {
+        Id current = cancelLLId;
+        Set<Id> visited = new Set<Id>();
+        while (redeemCancelCreditOriginMap.containsKey(current) && !visited.contains(current)) {
+          visited.add(current);
+          current = redeemCancelCreditOriginMap.get(current);
+          if (current == null) break;
+        }
+        if (current != null && ledgerIdToActivityDate.containsKey(current)) {
+          cancelLLToOriginActivityDate.put(cancelLLId, ledgerIdToActivityDate.get(current));
+        }
+      }
+    }
+
+    // [Phase 2 Precise Origin 2026-05-06] Flag ON 시 다중 분배 매핑 (portions) 빌드.
+    //   raw 모드의 Cancel Credit 사용분을 origin 비율 분할로 더 정확히 귀속.
+    //   Flag OFF → null 전달 → 기존 단일 매핑 동작 그대로.
+    // [Phase 2.1 2026-05-06] cancelLLToOrderId 도 함께 빌드 — Cancel Credit 의 환불(차감) 도
+    //   origin 별 직접 차감 으로 처리하기 위함.
+    // [Phase 3 2026-05-06] originLLId → ActivityDate 매핑도 메서드 스코프로 빌드 →
+    //   UserDestoryHistoryList Cancel Credit 사용 row 의 portions 분할 시 각 row 의 DT_SAVE 결정.
+    Map<Id, List<OriginPortion>> redeemCancelCreditOriginPortions = null;
+    Map<Id, Id> cancelLLToOrderId = null;
+    Map<Id, Datetime> originLLToActivityDate = null;
+    if (GdFeatureFlag.isEnabled('RedeemCancelOriginMap_Precise')
+        && !redeemCancelCreditOriginMap.isEmpty()) {
+      redeemCancelCreditOriginPortions = buildRedeemCancelCreditOriginPortions(
+          memberId, ledgers, redeemCancelCreditOriginMap);
+      redeemCancelCreditOriginPortions = expandOriginPortionsToFinalOrigin(
+          redeemCancelCreditOriginPortions, hiddenRestoreCreditOriginPortions);
+      cancelLLToOrderId = new Map<Id, Id>();
+      originLLToActivityDate = new Map<Id, Datetime>();
+      for (LoyaltyLedger ll : ledgers) {
+        if (ll.Id != null && ll.ActivityDate != null) {
+          originLLToActivityDate.put(ll.Id, ll.ActivityDate);
+        }
+        // [Active Only Fix 2026-05-07] buildRedeemCancelCreditOriginPortions 와 일관 — 삭제된 Cancel Credit 제외.
+        //   둘이 일치하지 않으면 portions 매핑은 활성만 잡고, cancelLLToOrderId 는 비활성도 포함되어
+        //   Phase 2.1 정합 검증 시 환불 합 부풀려져 fallback 비례 진입 (회원 193001000334 케이스).
+        if (ll.EventType == 'Credit'
+            && ll.IsDeleted == false
+            && ll.TransactionJournal != null
+            && ll.TransactionJournal.IsDeleted__c == false
+            && ll.TransactionJournal.OrderId != null
+            && ll.TransactionJournal.JournalSubType != null
+            && ll.TransactionJournal.JournalSubType.Name == JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL) {
+          cancelLLToOrderId.put(ll.Id, ll.TransactionJournal.OrderId);
+        }
+      }
+    }
+
     Map<Id, Integer> accrualUsedPointMap = buildAccrualUsedPointMap(
-        memberId, accrualLedgerIds, orderRedeemCancelMap, orderPointUsedMap, orderDeletedDebitMap, redeemCancelCreditOriginMap);
+        memberId, accrualLedgerIds, orderRedeemCancelMap, orderPointUsedMap, orderDeletedDebitMap, redeemCancelCreditOriginMap,
+        redeemCancelCreditOriginPortions, cancelLLToOrderId, hiddenRestoreCreditOriginPortions);
+    Map<Id, Integer> accrualSaleCancelPointMap = buildAccrualSaleCancelPointMap(memberId, accrualLedgerIds);
     Map<Id, Integer> accrualReductionPointMap = buildAccrualReductionPointMap(memberId, accrualLedgerIds);
     Map<Id, Integer> accrualExpiredPointMap = buildAccrualExpiredPointMap(
-        memberId, creditLedgers, accrualReductionPointMap, ecoRestoreLLToOriginLLId);
-    Map<Id, Integer> pointPaymentSummaryMap = buildPointPaymentSummaryMap(accrualOrderIds);
-    Map<Id, Integer> couponPaymentSummaryMap = buildCouponPaymentSummaryMap(accrualOrderIds);
+        memberId, creditLedgers, accrualReductionPointMap, ecoRestoreLLToOriginLLId,
+        hiddenRestoreCreditOriginPortions, activeReturnRestoreCreditOriginPortions, optionCRestoreDirectOriginPortionsBySourceTj);
+    PaymentSummaryResult paymentSummary = buildPaymentSummaryMaps(accrualOrderIds);
+    Map<Id, Integer> pointPaymentSummaryMap = paymentSummary.pointByOrderId;
+    Map<Id, Integer> couponPaymentSummaryMap = paymentSummary.couponByOrderId;
 
     // -------------------------------------------------------
     // Ledger → 적립 / 사용·소멸 분리
@@ -1533,6 +3221,12 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         Id orderId = ll.TransactionJournal != null ? ll.TransactionJournal.OrderId : null;
         Integer usedPoints = accrualUsedPointMap.containsKey(ll.Id) ? accrualUsedPointMap.get(ll.Id) : 0;
         Integer destroyedPoints = accrualExpiredPointMap.containsKey(ll.Id) ? accrualExpiredPointMap.get(ll.Id) : 0;
+        Integer saleCanceledPoints = accrualSaleCancelPointMap.containsKey(ll.Id) ? accrualSaleCancelPointMap.get(ll.Id) : 0;
+        Integer originalSavePoints = ll.Points == null ? 0 : ll.Points.intValue();
+        Integer effectiveSavePoints = Math.max(0, originalSavePoints - saleCanceledPoints);
+        if (effectiveSavePoints <= 0) {
+          continue;
+        }
         Integer usedSalePoints = (orderId != null && pointPaymentSummaryMap.containsKey(orderId)) ? pointPaymentSummaryMap.get(orderId) : 0;
         Integer usedSaleCouponAmount = (orderId != null && couponPaymentSummaryMap.containsKey(orderId)) ? couponPaymentSummaryMap.get(orderId) : 0;
         PointResDto.CreditPointResponse response = new PointResDto.CreditPointResponse(
@@ -1542,6 +3236,26 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
           usedSalePoints,
           usedSaleCouponAmount
         );
+        response.PT_SAVE = effectiveSavePoints;
+        if (ll.TransactionJournal != null
+            && isOptionCSalePatchForceCreditNote(ll.TransactionJournal.AdditionalNotes__c)
+            && ll.TransactionJournal.OrderId != null
+            && ll.LoyaltyPgmCrcySubtypeId != null
+            && ll.ExpiryDate != null) {
+          String displayKey = buildRestoreOriginKey(ll.TransactionJournal.OrderId, ll.LoyaltyPgmCrcySubtypeId, ll.ExpiryDate);
+          LoyaltyLedger baseCredit = optionCBaseCreditByDisplayKey.get(displayKey);
+          if (baseCredit != null) {
+            PointResDto.CreditPointResponse baseDisplay = new PointResDto.CreditPointResponse(baseCredit, 0, 0, usedSalePoints, usedSaleCouponAmount);
+            response.YM_CREATE = baseDisplay.YM_CREATE;
+            response.NM_TYPE_SAVE = baseDisplay.NM_TYPE_SAVE;
+            response.DT_SAVE = baseDisplay.DT_SAVE;
+            response.DT_SAVE_PLAN = baseDisplay.DT_SAVE_PLAN;
+            response.DT_LIMIT_START = baseDisplay.DT_LIMIT_START;
+            response.DT_LIMIT_END = baseDisplay.DT_LIMIT_END;
+            response.DT_DESTROY_PLAN = baseDisplay.DT_DESTROY_PLAN;
+            response.NO_PROM_MBR = baseDisplay.NO_PROM_MBR;
+          }
+        }
 
         // accrualHistoryList.add(row);
         creditPointResponseList.add(response);
@@ -1554,12 +3268,13 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       // usageExpiryHistoryList.add(row);
       // }
     }
-    // [Sort Fix 2026-04-28] 정렬 키 (DT_CREATE / CD_TYPE_POINT / NO_SEQ_CREATE) 오름차순 적용
+    // 26.05.05 CS - 정렬 키 (YM_CREATE / NO_SAL / UsagePriorityNumber / Id) 오름차순 적용
     creditSortables.sort();
     creditPointResponseList.clear();
     for (CreditSortable s : creditSortables) {
       creditPointResponseList.add(s.response);
     }
+    creditPointResponseList = aggregateCreditPointResponsesForDisplay(creditPointResponseList);
     /**
      * 포인트 적립 내역
      */
@@ -1573,6 +3288,84 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     //   FROM LoyaltyAggrSubPointExprLedger__c
     //   WHERE LoyaltyProgramMemberId__c = :memberId
     // ];
+
+    // [HideUseRowOnInputDepositDelete Fix 2026-05-05]
+    //   배경: 사용자 정책 — "포인트 사용 입금 건을 삭제하면 사용 행이 사라져야 한다."
+    //         그러나 v3 paradigm 에서 입금 삭제 시 원 Point Debit TJ 는 IsDeleted=FALSE 로 보존되어
+    //         회원도움창 SOQL 매칭으로 사용 행이 그대로 노출되는 문제.
+    //   식별: 입금 삭제 흐름 (GdSaleDepositServiceImpl.cls:1498) 은 Cancel TJ 에 'del_point_*' prefix 부여.
+    //         반품 흐름은 prefix 없는 일반 DepositNo. 이 차이로 두 시나리오 구분.
+    //   해결: Flag ON 시 'del_point_*' Cancel TJ 의 OrderId+원본DepositNo 셋 빌드 →
+    //         그 셋과 일치하는 원 Debit TJ 의 LLT 는 응답에서 제외.
+    //   회귀 안전:
+    //     - Flag OFF: 기존 SOQL 그대로 (회귀 영향 없음).
+    //     - Flag ON: 시나리오 1 (일반 사용), 2 (반품으로 사용 취소), 3 (반품 입금 삭제) 영향 없음 검증.
+    //                시나리오 4 (사용 입금 삭제) 만 사용 행 사라짐 (의도된 동작).
+    //     - PT_USE 계산 (buildAccrualUsedPointMap) 은 별도 SOQL 이며 영향 없음.
+    Boolean hideUseRowOnInputDelete = GdFeatureFlag.isEnabled('HideUseRowOnInputDepositDelete');
+    Set<Id> excludeDebitTjIds = new Set<Id>();
+    if (hideUseRowOnInputDelete) {
+      // Step A: 활성 'del_point_*' Cancel TJ 조회 — (OrderId, 원본DepositNo) 추출
+      Map<Id, Set<String>> excludeOrigDepositNoByOrderId = new Map<Id, Set<String>>();
+      Map<String, Datetime> excludeCutoffByOrderDepositKey = new Map<String, Datetime>();
+      for (TransactionJournal cancelTj : [
+        SELECT Id, OrderId, DepositNo__c, CreatedDate
+        FROM TransactionJournal
+        WHERE MemberId = :memberId
+          AND IsDeleted__c = FALSE
+          AND DepositNo__c LIKE 'del_point_%'
+          AND JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL
+        LIMIT 5000
+      ]) {
+        if (cancelTj.OrderId == null || String.isBlank(cancelTj.DepositNo__c)) {
+          continue;
+        }
+        // 원본 DepositNo = 'del_point_' 이후 문자열
+        String origDepositNo = cancelTj.DepositNo__c.substring('del_point_'.length());
+        if (String.isBlank(origDepositNo)) {
+          continue;
+        }
+        if (!excludeOrigDepositNoByOrderId.containsKey(cancelTj.OrderId)) {
+          excludeOrigDepositNoByOrderId.put(cancelTj.OrderId, new Set<String>());
+        }
+        excludeOrigDepositNoByOrderId.get(cancelTj.OrderId).add(origDepositNo);
+        String cutoffKey = String.valueOf(cancelTj.OrderId) + '|' + origDepositNo;
+        if (!excludeCutoffByOrderDepositKey.containsKey(cutoffKey)
+            || cancelTj.CreatedDate < excludeCutoffByOrderDepositKey.get(cutoffKey)) {
+          excludeCutoffByOrderDepositKey.put(cutoffKey, cancelTj.CreatedDate);
+        }
+      }
+
+      // Step B: 매칭되는 원 Point Debit TJ Id 셋 빌드 (OrderId + DepositNo 단위 정확 매칭)
+      if (!excludeOrigDepositNoByOrderId.isEmpty()) {
+        Set<Id> targetOrderIds = excludeOrigDepositNoByOrderId.keySet();
+        Set<String> allOrigDepositNos = new Set<String>();
+        for (Set<String> s : excludeOrigDepositNoByOrderId.values()) {
+          allOrigDepositNos.addAll(s);
+        }
+        for (TransactionJournal origTj : [
+          SELECT Id, OrderId, DepositNo__c, CreatedDate
+          FROM TransactionJournal
+          WHERE MemberId = :memberId
+            AND OrderId IN :targetOrderIds
+            AND DepositNo__c IN :allOrigDepositNos
+            AND JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_POINT_DEBIT
+            AND IsDeleted__c = FALSE
+          LIMIT 5000
+        ]) {
+          // (OrderId, DepositNo) 정확 매칭 확인 (cross-order 오매칭 방지)
+          Set<String> depositNosForOrder = excludeOrigDepositNoByOrderId.get(origTj.OrderId);
+          String cutoffKey = String.valueOf(origTj.OrderId) + '|' + origTj.DepositNo__c;
+          Datetime cutoff = excludeCutoffByOrderDepositKey.get(cutoffKey);
+          if (depositNosForOrder != null
+              && depositNosForOrder.contains(origTj.DepositNo__c)
+              && cutoff != null
+              && origTj.CreatedDate <= cutoff) {
+            excludeDebitTjIds.add(origTj.Id);
+          }
+        }
+      }
+    }
 
     List<LoyaltyLedgerTraceability> lltList = [
       SELECT
@@ -1595,6 +3388,8 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         LoyaltyPgmCurrencySubtypeId,
         LoyaltyProgramMemberId,
         LoyaltyPgmCurrencySubtype.Name,
+        LoyaltyPgmCurrencySubtype.UsagePriorityNumber, // 26.05.05 CS - UserDestoryHistoryList 정렬 키
+        LoyaltyPgmCurrencySubtype.PointTypeCode__c, // 정렬 정책 2026-05-05 - 포인트구분
         DebitLoyaltyLedger.ActivityDate,
         DebitLoyaltyLedger.TransactionJournal.OrderId,
         DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
@@ -1613,6 +3408,7 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         DebitLoyaltyLedger.TransactionJournal.Order.ActualPaymentAmount__c,
         DebitLoyaltyLedger.Points,
         DebitLoyaltyLedger.TransactionJournal.RelatedJournal.IsDeleted__c,
+        DebitLoyaltyLedger.TransactionJournal.JournalType.Name,
         DebitLoyaltyLedger.TransactionJournal.JournalDate
       FROM LoyaltyLedgerTraceability
       // WHERE DebitLoyaltyLedger.EventType = 'Debit' AND LoyaltyProgramMemberId = :memberId  // 기존 로직
@@ -1637,13 +3433,19 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       //   해결: SaleId 가 가리키는 반품 Order 가 IsDeleted=TRUE 이면 = "반품이 삭제됨" 신호이므로
       //         그 LLT 는 응답에서 제외. SaleId__c = NULL 케이스는 OR 분기로 그대로 통과.
       //         (buildAccrualExpiredPointMap 의 동일 fix 와 일관)
+      // [HideUseRowOnInputDepositDelete Fix 2026-05-05]
+      //   - excludeDebitTjIds 가 비어있지 않으면 (Flag ON + del_point_* Cancel 존재) 해당 Debit TJ Id 의 LLT 제외.
+      //   - bind variable 은 Flag OFF 시에도 빈 셋으로 평가되므로 SOQL 동작에 영향 없음 (NOT IN empty = always true).
       WHERE
         ((ActionType = 'Debit'
         AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+        AND (CreditLoyaltyLedger.TransactionJournalId = NULL
+        OR CreditLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
         AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
         OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
         AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
-        OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :ADDITIONAL_NOTE_FULL_RETURN_ECO_POINT_CANCEL))
+        OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :ADDITIONAL_NOTE_FULL_RETURN_ECO_POINT_CANCEL)
+        AND (DebitLoyaltyLedger.TransactionJournalId NOT IN :excludeDebitTjIds))
         OR ((ActionType = 'DebitCancellation'
         OR ActionType = 'CreditCancellation')
         AND (DebitLoyaltyLedger.TransactionJournal.RelatedJournalId = NULL
@@ -1654,13 +3456,115 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       ORDER BY CreatedDate DESC
       LIMIT 20000
     ];
+    // [PT_USE Round-off Fix 2026-05-05] Order 단위 사용 LLT 의 통합 비례 감산을 위한 사전 집계.
+    //   기존: LLT 별 개별 비례 감산 (정수 나눗셈) → round-off 누적으로 합계가 정확값 미만.
+    //   수정: 같은 Debit OrderId 의 활성 'Debit' LLT 들의 원본 Points 합계를 미리 집계 →
+    //         루프 내에서 LLT 별 비례 분배 + 마지막 LLT 에 round-off 보정.
+    //   효과: 같은 주문의 사용 행 PT_USE 합계가 (orderUsed - effectiveCancel) 와 정확히 일치.
+    Map<Id, Integer> orderTotalRawDebit = new Map<Id, Integer>();
+    Map<Id, Integer> orderActiveDebitCount = new Map<Id, Integer>();
+    Map<Id, Integer> orderProcessedDebitCount = new Map<Id, Integer>();
+    Map<Id, Integer> orderAllocatedNet = new Map<Id, Integer>();
+    for (LoyaltyLedgerTraceability llt : lltList) {
+      if (llt.ActionType == 'Debit'
+          && llt.DebitLoyaltyLedger != null
+          && llt.DebitLoyaltyLedger.TransactionJournal != null
+          && llt.DebitLoyaltyLedger.TransactionJournal.OrderId != null
+          && llt.Points != null) {
+        Id oid = llt.DebitLoyaltyLedger.TransactionJournal.OrderId;
+        Integer pts = llt.Points.abs().intValue();
+        Integer prev = orderTotalRawDebit.containsKey(oid) ? orderTotalRawDebit.get(oid) : 0;
+        orderTotalRawDebit.put(oid, prev + pts);
+        Integer cnt = orderActiveDebitCount.containsKey(oid) ? orderActiveDebitCount.get(oid) : 0;
+        orderActiveDebitCount.put(oid, cnt + 1);
+      }
+    }
+
+    // [Phase 3.1 2026-05-06] portions 기반 (orderId, originLLId) → 환불액 맵 빌드.
+    //   사용자 정책: 환불(=사용 취소) 은 사용 행에 origin 별로 정확히 차감 → 0행 은 제거.
+    //   기존 비례 감산은 Order 합 정합만 보장하고 origin 별 분포는 비례 분배 (부정확).
+    //   Phase 3.1 은 portions 매핑이 환불 전체를 커버하는 경우 (정합) → origin 직접 차감으로 전환.
+    Map<Id, Map<Id, Integer>> orderToOriginRefundDestory = new Map<Id, Map<Id, Integer>>();
+    // 처리 중 차감되는 잔여 환불액 (LLT 처리 루프 내에서 점차 감소)
+    Map<Id, Map<Id, Integer>> orderOriginRefundRemaining = new Map<Id, Map<Id, Integer>>();
+    if (redeemCancelCreditOriginPortions != null && cancelLLToOrderId != null
+        && !redeemCancelCreditOriginPortions.isEmpty() && !cancelLLToOrderId.isEmpty()) {
+      for (Id cancelLLId : redeemCancelCreditOriginPortions.keySet()) {
+        Id refundOrderId = cancelLLToOrderId.get(cancelLLId);
+        if (refundOrderId == null) continue;
+        List<OriginPortion> portions = redeemCancelCreditOriginPortions.get(cancelLLId);
+        if (portions == null) continue;
+        if (!orderToOriginRefundDestory.containsKey(refundOrderId)) {
+          orderToOriginRefundDestory.put(refundOrderId, new Map<Id, Integer>());
+          orderOriginRefundRemaining.put(refundOrderId, new Map<Id, Integer>());
+        }
+        Map<Id, Integer> originRefund = orderToOriginRefundDestory.get(refundOrderId);
+        Map<Id, Integer> originRemaining = orderOriginRefundRemaining.get(refundOrderId);
+        for (OriginPortion p : portions) {
+          if (p.originCreditLLId == null) continue;
+          Integer prev = originRefund.containsKey(p.originCreditLLId) ? originRefund.get(p.originCreditLLId) : 0;
+          originRefund.put(p.originCreditLLId, prev + (p.points == null ? 0 : p.points));
+          Integer prevR = originRemaining.containsKey(p.originCreditLLId) ? originRemaining.get(p.originCreditLLId) : 0;
+          originRemaining.put(p.originCreditLLId, prevR + (p.points == null ? 0 : p.points));
+        }
+      }
+    }
+
     // [Sort Fix 2026-04-28] UserDestoryHistoryList 정렬 — response 별 representative LLT 정렬 키 보존용
     List<DebitSortable> debitSortablesAll = new List<DebitSortable>();
     if (!lltList.isEmpty()) {
       for (LoyaltyLedgerTraceability llt : lltList) {
+        if (isSaleModificationCreditCancellation(llt)) {
+          continue;
+        }
         PointResDto.DebitPointResponse response = new PointResDto.DebitPointResponse(llt);
         if ((llt.ActionType == 'DebitCancellation' || llt.ActionType == 'CreditCancellation') && llt.Points != null) {
           response.PT_USE = Integer.valueOf(llt.Points.abs());
+        }
+        if (llt.ActionType == 'CreditCancellation'
+            && llt.CreditLoyaltyLedgerId != null
+            && activeRestoreRemainingByOriginCreditLLId.containsKey(llt.CreditLoyaltyLedgerId)) {
+          Integer restoreRemaining = activeRestoreRemainingByOriginCreditLLId.get(llt.CreditLoyaltyLedgerId);
+          Integer currentUse = response.PT_USE == null ? 0 : response.PT_USE;
+          Integer restored = Math.min(restoreRemaining, currentUse);
+          response.PT_USE = currentUse - restored;
+          activeRestoreRemainingByOriginCreditLLId.put(llt.CreditLoyaltyLedgerId, restoreRemaining - restored);
+          if (response.PT_USE <= 0) {
+            continue;
+          }
+        }
+        if (llt.ActionType == 'CreditCancellation') {
+          response.NO_SAL = '';
+          response.NO_SAL_SAVE = (llt.CreditLoyaltyLedger != null &&
+            llt.CreditLoyaltyLedger.TransactionJournal != null &&
+            llt.CreditLoyaltyLedger.TransactionJournal.Order != null &&
+            String.isNotBlank(llt.CreditLoyaltyLedger.TransactionJournal.Order.SaleNo__c))
+            ? llt.CreditLoyaltyLedger.TransactionJournal.Order.SaleNo__c
+            : response.NO_SAL_SAVE;
+          response.NO_SAL_RTN = (llt.DebitLoyaltyLedger != null &&
+            llt.DebitLoyaltyLedger.TransactionJournal != null &&
+            llt.DebitLoyaltyLedger.TransactionJournal.SaleId__r != null &&
+            llt.DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsReductionOrder__c == true &&
+            String.isNotBlank(llt.DebitLoyaltyLedger.TransactionJournal.SaleId__r.SaleNo__c))
+            ? llt.DebitLoyaltyLedger.TransactionJournal.SaleId__r.SaleNo__c
+            : '';
+          if (llt.CreditLoyaltyLedgerId != null
+              && hiddenRestoreCreditOriginPortions.containsKey(llt.CreditLoyaltyLedgerId)) {
+            List<OriginPortion> portions = hiddenRestoreCreditOriginPortions.get(llt.CreditLoyaltyLedgerId);
+            if (portions != null && !portions.isEmpty()) {
+              OriginPortion originPortion = portions[0];
+              Id originCreditLLId = originPortion == null ? null : originPortion.originCreditLLId;
+              response.NO_SAL_SAVE = originCreditLLId != null && saleNoByCreditLLId.containsKey(originCreditLLId)
+                ? saleNoByCreditLLId.get(originCreditLLId)
+                : '';
+              if (originCreditLLId != null && ledgerIdToActivityDateForDisplay.containsKey(originCreditLLId)) {
+                Datetime originActivityDate = ledgerIdToActivityDateForDisplay.get(originCreditLLId);
+                if (originActivityDate != null) {
+                  response.DT_SAVE = originActivityDate.format('yyyyMMdd');
+                }
+              }
+            }
+          }
         }
         if (llt.ActionType == 'DebitCancellation') {
           response.NO_SAL = (llt.DebitLoyaltyLedger != null &&
@@ -1683,136 +3587,246 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
             : response.NO_SAL_RTN;
         }
 
-        // [R2-1/R2-2/R2-3 Fix 2026-04-24 / R2-7/R2-8 Fix 2026-04-25] "사용(Debit)" 로우에 주문 단위 취소 반영
-        //   - Point Redeem Cancel TJ 의 OrderId == 이 Debit 의 원 주문 Id 인 경우,
-        //     해당 주문에서 취소된 포인트 총액을 기준으로 "전액/부분" 판정.
-        //   - effectiveCancel = max(0, orderRedeemCancelMap - orderDeletedDebitMap)
-        //     (DELETE /sale/deposit 경로에서 이미 삭제 Debit 과 상쇄된 Cancel 분 제외)
-        //   - 전액 취소 (effectiveCancel >= orderUsed) → 이 로우 스킵 (R2-1/R2-3 해결)
-        //   - 부분 취소 → PT_USE 를 비례 감산 (R2-2 해결)
-        //   - DebitCancellation/CreditCancellation 로우는 대상이 아님 (이미 위에서 PT_USE 재설정됨).
+        // [정책 2/3 복원 Fix 2026-05-05] "사용(Debit)" 로우에 주문 단위 취소 반영
+        //   정책: A판매에서 1,000P 사용 → 반품으로 일부(500) 환불 → 사용 행 PT_USE 1,000 → 500 으로 감산.
+        //         A판매에서 1,000P 사용 → 반품으로 전액(1,000) 환불 → 사용 행 자체 제거.
+        //   계산: effectiveCancel = max(0, orderRedeemCancelMap - orderDeletedDebitMap)
+        //         (DELETE /sale/deposit 경로에서 이미 삭제 Debit 과 상쇄된 Cancel 분 제외)
+        //   전액 취소 (effectiveCancel >= orderUsed) → 사용 행 스킵
+        //   부분 취소 → PT_USE 비례 감산 (PT_USE * (orderUsed - effectiveCancel) / orderUsed)
+        //   DebitCancellation/CreditCancellation 로우는 위에서 이미 처리되어 영향 없음.
+        Boolean skipThisDebitRow = false;
         if (llt.ActionType == 'Debit'
             && llt.DebitLoyaltyLedger != null
             && llt.DebitLoyaltyLedger.TransactionJournal != null
             && llt.DebitLoyaltyLedger.TransactionJournal.OrderId != null) {
-          // [정책 변경 2026-05-03] 사용 행 비례 감산/행 제거 로직 제거
-          //   배경: 기존 R2-2/R2-3 정책 ("사용 행을 net 으로 표시") 이 회원/운영자 입장에서
-          //         "이 판매에서 얼마 썼고 얼마 환불받았는지" 흐름을 추적 불가능하게 만듦.
-          //   새 정책: 사용 행은 원본 PT_USE 유지 + 별도 "포인트 사용 취소" 행으로 환불 표시.
-          //         별도 합성 행 추가는 lltList 루프 다음의 "포인트 사용 취소 합성 로직" 에서 처리.
+          Id debitOrderId = llt.DebitLoyaltyLedger.TransactionJournal.OrderId;
+          Integer rawCancel = orderRedeemCancelMap.containsKey(debitOrderId)
+              ? orderRedeemCancelMap.get(debitOrderId) : 0;
+          Integer deletedDebit = orderDeletedDebitMap.containsKey(debitOrderId)
+              ? orderDeletedDebitMap.get(debitOrderId) : 0;
+          Integer effectiveCancel = Math.max(0, rawCancel - deletedDebit);
+          Integer orderUsed = orderPointUsedMap.containsKey(debitOrderId)
+              ? orderPointUsedMap.get(debitOrderId) : 0;
 
-          // [2026-04-25 추가 Fix] Point Redeem Cancel Credit 참조 Debit 로우의 NO_SAL_SAVE 덮어쓰기 (유지)
-          //   - Cancel Credit 을 사용하면 기본값은 Cancel 주문의 판매번호 (자기참조 형태)
-          //   - 이를 "원 Credit (같은 주문의 원 적립)" 의 판매번호로 교체해
-          //     이어지는 병합에서 원 Credit 기준 단일 로우로 통합되도록 함
-          // [NO_SAL_SAVE 보정 Fix 2026-05-03] 수동 적립/마이그레이션 적립 케이스 보정
-          //   배경: 원 Credit 이 수동 적립 (TJ.OrderId=null) 또는 마이그레이션 적립인 경우,
-          //         saleNoByCreditLLId 에 해당 LL 이 등록되지 않아 (원 Credit.TJ.Order.SaleNo 빈 값) 보정 분기 진입 못 함.
-          //         그 결과 Cancel Credit 의 자기참조 (Cancel TJ.Order = 사용 취소된 판매) 가 그대로 노출됨.
-          //   증상: 수동 적립 → A 판매 사용 → 사용 취소 → B 판매 사용 시
-          //         B 판매 사용 행의 NO_SAL_SAVE 에 A 판매번호가 잘못 노출.
-          //   해결: 매핑 자체가 있으면 (= Cancel Credit → 원 Credit 매핑 성립)
-          //         원 Credit 의 판매번호 존재 여부와 무관하게 무조건 덮어쓰기 (없으면 빈 값으로).
-          //   영향 분석: 케이스 A (판매 자동 적립) - 결과 동일, 케이스 C/E (수동/마이그레이션) - 정정.
-          //              시나리오 1~7 의 R 회귀 모두 영향 없음 (사전 검증 완료).
-          if (llt.CreditLoyaltyLedgerId != null
+          if (effectiveCancel > 0 && orderUsed > 0 && effectiveCancel >= orderUsed) {
+            skipThisDebitRow = true;
+          }
+
+          // [Phase 3.1 2026-05-06] portions 정합 시 origin 직접 차감 모드 진입 여부.
+          //   조건: 해당 Order 에 portions 매핑 환불 합 == effectiveCancel (정합).
+          //   정합 시 → 비례 감산 / 전액 취소 분기 둘 다 우회 (Phase 3 split 분기에서 origin 별 직접 차감).
+          //   부정합 시 → 기존 비례 감산 / 전액 취소 분기 그대로 (fallback, 회귀 안전).
+          Boolean useDirectOriginRefundDestory = false;
+          if (!skipThisDebitRow) {
+            Map<Id, Integer> originRefundForThisOrder = orderToOriginRefundDestory.get(debitOrderId);
+            if (originRefundForThisOrder != null && !originRefundForThisOrder.isEmpty()
+                && effectiveCancel > 0) {
+              Integer totalOriginRefund = 0;
+              for (Integer v : originRefundForThisOrder.values()) totalOriginRefund += v;
+              if (totalOriginRefund == effectiveCancel) {
+                useDirectOriginRefundDestory = true;
+              }
+            }
+          }
+
+          if (!skipThisDebitRow && effectiveCancel > 0 && orderUsed > 0 && !useDirectOriginRefundDestory) {
+            if (effectiveCancel >= orderUsed) {
+              // 전액 취소 → 이 사용 행 스킵 (정책 3)
+              skipThisDebitRow = true;
+            } else {
+              // 부분 취소 → PT_USE Order 단위 통합 비례 분배 (정책 2)
+              //   기존(LLT별 정수 나눗셈) → round-off 누적으로 합계가 (orderUsed-effectiveCancel) 미만 발생.
+              //   변경: 같은 Order 활성 Debit LLT 들에 net 을 비례 분배하고,
+              //         마지막 LLT 에 누적 round-off 보정으로 합계가 정확히 net 과 일치.
+              Integer originalPt = response.PT_USE != null ? response.PT_USE : 0;
+              Integer netUsed = orderUsed - effectiveCancel;
+              Integer rawTotal = orderTotalRawDebit.containsKey(debitOrderId)
+                  ? orderTotalRawDebit.get(debitOrderId) : 0;
+              Integer activeCnt = orderActiveDebitCount.containsKey(debitOrderId)
+                  ? orderActiveDebitCount.get(debitOrderId) : 0;
+              Integer processed = orderProcessedDebitCount.containsKey(debitOrderId)
+                  ? orderProcessedDebitCount.get(debitOrderId) : 0;
+              Integer allocated = orderAllocatedNet.containsKey(debitOrderId)
+                  ? orderAllocatedNet.get(debitOrderId) : 0;
+              Integer adjusted;
+              if (rawTotal > 0 && activeCnt > 0 && processed + 1 == activeCnt) {
+                // 마지막 LLT — round-off 보정: 남은 net 을 모두 할당
+                adjusted = netUsed - allocated;
+                if (adjusted < 0) adjusted = 0;
+              } else if (rawTotal > 0) {
+                // [Phase 3 Fix 2026-05-06] Integer 오버플로 방지 — Long 캐스팅.
+                //   기존: originalPt * netUsed 가 Integer 곱셈으로 처리되어
+                //   60000 * 50000 = 3,000,000,000 > Integer.MAX (2,147,483,647) → 오버플로 음수 발생.
+                //   merge 시 round-off 보정으로 합은 유지되지만 개별 row 분포는 음수/큰값 으로 잘못됨.
+                Long num = (Long) originalPt * (Long) netUsed;
+                adjusted = (Integer) (num / (Long) rawTotal);
+              } else {
+                Long num = (Long) originalPt * (Long) netUsed;
+                adjusted = (Integer) (num / (Long) orderUsed);
+              }
+              response.PT_USE = adjusted;
+              orderProcessedDebitCount.put(debitOrderId, processed + 1);
+              orderAllocatedNet.put(debitOrderId, allocated + adjusted);
+            }
+          }
+
+          // [2026-04-25 / 2026-05-03 NO_SAL_SAVE 보정 Fix] (유지)
+          //   Cancel Credit 을 사용한 Debit 로우의 NO_SAL_SAVE 를 원 Credit 의 판매번호로 교체.
+          //   수동 적립/마이그레이션 적립 케이스 (원 Credit.TJ.OrderId=null) 도 빈 값으로 덮어쓰기.
+          if (!skipThisDebitRow
+              && llt.CreditLoyaltyLedgerId != null
               && redeemCancelCreditOriginMap.containsKey(llt.CreditLoyaltyLedgerId)) {
             Id originCid = redeemCancelCreditOriginMap.get(llt.CreditLoyaltyLedgerId);
             if (originCid != null) {
               String originSaleNo = saleNoByCreditLLId.containsKey(originCid)
                   ? saleNoByCreditLLId.get(originCid)
                   : '';
-              // 원 Credit 의 판매번호가 빈 값이어도 무조건 덮어쓰기 (자기참조 방지)
               response.NO_SAL_SAVE = String.isNotBlank(originSaleNo) ? originSaleNo : '';
             }
           }
         }
 
-        debitPointResponseList.add(response);
-        debitSortablesAll.add(new DebitSortable(response, llt));
+        // [Origin ActivityDate Fix 2026-05-06] Flag ON 시 Cancel Credit 의 사용 LLT 의 DT_SAVE 를 원 적립일로 덮어쓰기
+        //   LMS 데이터의 Cancel Credit ActivityDate=today 결함을 화면 표시 단계에서만 보정.
+        //   Cancel-of-Cancel 다단도 재귀 추적으로 최종 origin ActivityDate 사용.
+        if (!skipThisDebitRow
+            && preserveOriginActivityDate
+            && llt.CreditLoyaltyLedgerId != null
+            && cancelLLToOriginActivityDate.containsKey(llt.CreditLoyaltyLedgerId)) {
+          Datetime origDate = cancelLLToOriginActivityDate.get(llt.CreditLoyaltyLedgerId);
+          if (origDate != null) {
+            response.DT_SAVE = origDate.format('yyyyMMdd');
+          }
+        }
+
+        if (skipThisDebitRow) {
+          continue;
+        }
+
+        // [Phase 3 Precise Origin DT_SAVE 분할 2026-05-06] Cancel Credit 의 사용 LLT 가 portions 매핑에 있으면
+        //   portions 비율로 N개 분할 row 생성 (각 row 의 DT_SAVE / NO_SAL_SAVE 가 origin 별 정확).
+        //   Flag OFF (portions=null) 또는 매핑 없음 → 기존 단일 row 그대로.
+        // [Phase 3.1 2026-05-06] Phase 3.1 모드 ON 시 — split 후 각 row 에 origin 잔여 환불 직접 차감 (0 row 제거).
+        //   직접 사용 LLT (적립 LL) 도 자기 origin 잔여 환불 직접 차감.
+        Boolean splitByPortions = false;
+        Id debitOrderForRefund = (llt.ActionType == 'Debit'
+            && llt.DebitLoyaltyLedger != null
+            && llt.DebitLoyaltyLedger.TransactionJournal != null)
+            ? llt.DebitLoyaltyLedger.TransactionJournal.OrderId : null;
+        Boolean phase31Active = (debitOrderForRefund != null
+            && orderOriginRefundRemaining.containsKey(debitOrderForRefund));
+        // 정합 검증 — 해당 Order 의 portions 환불 합 == effectiveCancel
+        if (phase31Active) {
+          Integer totRef = 0;
+          Map<Id, Integer> oref = orderToOriginRefundDestory.get(debitOrderForRefund);
+          if (oref != null) for (Integer v : oref.values()) totRef += v;
+          Integer rawC = orderRedeemCancelMap.containsKey(debitOrderForRefund)
+              ? orderRedeemCancelMap.get(debitOrderForRefund) : 0;
+          Integer delD = orderDeletedDebitMap.containsKey(debitOrderForRefund)
+              ? orderDeletedDebitMap.get(debitOrderForRefund) : 0;
+          Integer effC = Math.max(0, rawC - delD);
+          if (totRef != effC) {
+            phase31Active = false;
+          }
+        }
+
+        if (llt.ActionType == 'Debit'
+            && llt.CreditLoyaltyLedgerId != null
+            && redeemCancelCreditOriginPortions != null
+            && redeemCancelCreditOriginPortions.containsKey(llt.CreditLoyaltyLedgerId)) {
+          List<OriginPortion> portions = redeemCancelCreditOriginPortions.get(llt.CreditLoyaltyLedgerId);
+          if (portions != null && !portions.isEmpty()) {
+            // portions 기반 row 생성 — size==1 도 정확한 origin 사용 위해 처리
+            //   (기존 cancelLLToOriginActivityDate 의 단일 매핑은 다중 origin 케이스에서 잘못된 origin 가리킬 수 있음).
+            Integer baseUse = (response.PT_USE == null ? 0 : response.PT_USE);
+            Integer totalPortionPts = 0;
+            for (OriginPortion p : portions) totalPortionPts += (p.points == null ? 0 : p.points);
+            if (totalPortionPts > 0 && baseUse > 0) {
+              Integer allocated = 0;
+              Integer lastIdx = portions.size() - 1;
+              for (Integer i = 0; i < portions.size(); i++) {
+                OriginPortion p = portions[i];
+                Integer share;
+                if (i == lastIdx) {
+                  share = baseUse - allocated;
+                  if (share < 0) share = 0;
+                } else {
+                  Long num = (Long) baseUse * (Long) (p.points == null ? 0 : p.points);
+                  share = (Integer) (num / (Long) totalPortionPts);
+                }
+                allocated += share;
+                if (share <= 0) {
+                  continue;
+                }
+                // [Phase 3.1] 모드 ON 시 origin 잔여 환불 직접 차감
+                Integer netShare = share;
+                if (phase31Active && p.originCreditLLId != null) {
+                  Map<Id, Integer> remaining = orderOriginRefundRemaining.get(debitOrderForRefund);
+                  if (remaining != null && remaining.containsKey(p.originCreditLLId)) {
+                    Integer rem = remaining.get(p.originCreditLLId);
+                    if (rem > 0) {
+                      Integer take = Math.min(rem, share);
+                      netShare = share - take;
+                      remaining.put(p.originCreditLLId, rem - take);
+                    }
+                  }
+                  if (netShare <= 0) continue; // 0 행 제거
+                }
+                // 새 response 인스턴스 생성 — 같은 LLT 기반, PT_USE / DT_SAVE / NO_SAL_SAVE 만 origin 별로
+                PointResDto.DebitPointResponse splitResp = new PointResDto.DebitPointResponse(llt);
+                splitResp.PT_USE = netShare;
+                // DT_SAVE = origin LL.ActivityDate (있으면)
+                if (originLLToActivityDate != null && p.originCreditLLId != null
+                    && originLLToActivityDate.containsKey(p.originCreditLLId)) {
+                  Datetime od = originLLToActivityDate.get(p.originCreditLLId);
+                  if (od != null) {
+                    splitResp.DT_SAVE = od.format('yyyyMMdd');
+                  }
+                }
+                // NO_SAL_SAVE = origin LL 의 SaleNo. origin 이 saleNoByCreditLLId 에 없으면 (수동 적립 등) 빈 값.
+                String osn = '';
+                if (p.originCreditLLId != null && saleNoByCreditLLId.containsKey(p.originCreditLLId)) {
+                  String s = saleNoByCreditLLId.get(p.originCreditLLId);
+                  osn = String.isNotBlank(s) ? s : '';
+                }
+                splitResp.NO_SAL_SAVE = osn;
+                debitPointResponseList.add(splitResp);
+                debitSortablesAll.add(new DebitSortable(splitResp, llt));
+              }
+              splitByPortions = true;
+            }
+          }
+        }
+
+        if (!splitByPortions) {
+          // [Phase 3.1] 직접 사용 LLT — 자기 origin (LLT.CreditLoyaltyLedgerId) 잔여 환불 직접 차감
+          if (phase31Active
+              && llt.ActionType == 'Debit'
+              && llt.CreditLoyaltyLedgerId != null) {
+            Map<Id, Integer> remaining = orderOriginRefundRemaining.get(debitOrderForRefund);
+            Integer baseUse = (response.PT_USE == null ? 0 : response.PT_USE);
+            if (remaining != null && remaining.containsKey(llt.CreditLoyaltyLedgerId) && baseUse > 0) {
+              Integer rem = remaining.get(llt.CreditLoyaltyLedgerId);
+              if (rem > 0) {
+                Integer take = Math.min(rem, baseUse);
+                Integer netUseAdj = baseUse - take;
+                remaining.put(llt.CreditLoyaltyLedgerId, rem - take);
+                response.PT_USE = netUseAdj;
+                if (netUseAdj <= 0) continue; // 0 행 제거
+              }
+            }
+          }
+          debitPointResponseList.add(response);
+          debitSortablesAll.add(new DebitSortable(response, llt));
+        }
       }
     }
 
-    // [정책 변경 2026-05-03] "포인트 사용 취소" 행 합성
-    //   목적: 활성 Point Redeem Cancel TJ 1건당 응답 행 1건씩 추가.
-    //   매핑:
-    //     - NM_PERSON = "포인트 사용 취소"
-    //     - PT_USE = Cancel LL 의 Points
-    //     - NM_TYPE_POINT = LoyaltyPgmCrcySubtype.Name
-    //     - NO_SAL_SAVE = 원판매번호 (Cancel TJ.Order.SaleNo__c, 없으면 OrderNo__c)
-    //     - NO_SAL_RTN = 반품번호 (Cancel TJ.SaleId__r.SaleNo__c, 자기참조 또는 NULL 시 빈 값)
-    //     - NO_SAL_ORD = 주문번호 (Cancel TJ.Order.OrderNo__c)
-    //   필터:
-    //     - Cancel TJ.IsDeleted = FALSE (반품 입금 삭제 시 자동 제외)
-    //     - SaleId__r.IsDeleted__c = FALSE (반품 자체 삭제 시 자동 제외)
-    List<LoyaltyLedger> redeemCancelLLList = [
-      SELECT Id, Points, ActivityDate,
-             LoyaltyPgmCrcySubtype.Name,
-             TransactionJournal.OrderId,
-             TransactionJournal.Order.SaleNo__c,
-             TransactionJournal.Order.OrderNo__c,
-             TransactionJournal.Order.ActualPaymentAmount__c,
-             TransactionJournal.SaleId__c,
-             TransactionJournal.SaleId__r.SaleNo__c,
-             TransactionJournal.SaleId__r.IsDeleted__c,
-             TransactionJournal.JournalDate
-      FROM LoyaltyLedger
-      WHERE LoyaltyProgramMemberId = :memberId
-        AND EventType = 'Credit'
-        AND TransactionJournal.JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL
-        AND TransactionJournal.IsDeleted__c = FALSE
-        AND TransactionJournal.OrderId != NULL
-        AND (TransactionJournal.SaleId__c = NULL
-             OR TransactionJournal.SaleId__r.IsDeleted__c = FALSE)
-      ORDER BY CreatedDate
-      LIMIT 5000
-    ];
-
-    for (LoyaltyLedger cancelLL : redeemCancelLLList) {
-      PointResDto.DebitPointResponse cancelRow = new PointResDto.DebitPointResponse();
-      cancelRow.NM_PERSON = '포인트 사용 취소';
-      cancelRow.PT_USE = cancelLL.Points == null ? 0 : Integer.valueOf(cancelLL.Points.abs());
-      cancelRow.NM_TYPE_POINT = (cancelLL.LoyaltyPgmCrcySubtype != null && cancelLL.LoyaltyPgmCrcySubtype.Name != null)
-          ? cancelLL.LoyaltyPgmCrcySubtype.Name : '';
-
-      // 원판매/원주문 식별
-      String origSaleNo = (cancelLL.TransactionJournal != null && cancelLL.TransactionJournal.Order != null
-          && String.isNotBlank(cancelLL.TransactionJournal.Order.SaleNo__c))
-          ? cancelLL.TransactionJournal.Order.SaleNo__c : '';
-      String origOrderNo = (cancelLL.TransactionJournal != null && cancelLL.TransactionJournal.Order != null
-          && String.isNotBlank(cancelLL.TransactionJournal.Order.OrderNo__c))
-          ? cancelLL.TransactionJournal.Order.OrderNo__c : '';
-
-      cancelRow.NO_SAL_SAVE = String.isNotBlank(origSaleNo) ? origSaleNo : origOrderNo;
-      cancelRow.NO_SAL_ORD = origOrderNo;
-      cancelRow.NO_SAL = '';
-
-      // 반품번호 매핑 (반품이 아닌 자기참조/NULL 케이스는 빈 값)
-      String returnSaleNo = '';
-      if (cancelLL.TransactionJournal != null
-          && cancelLL.TransactionJournal.SaleId__c != null
-          && cancelLL.TransactionJournal.SaleId__c != cancelLL.TransactionJournal.OrderId
-          && cancelLL.TransactionJournal.SaleId__r != null
-          && String.isNotBlank(cancelLL.TransactionJournal.SaleId__r.SaleNo__c)) {
-        returnSaleNo = cancelLL.TransactionJournal.SaleId__r.SaleNo__c;
-      }
-      cancelRow.NO_SAL_RTN = returnSaleNo;
-
-      // 날짜 매핑
-      cancelRow.YM_CREATE = (cancelLL.ActivityDate != null) ? cancelLL.ActivityDate.format('yyyyMM') : '';
-      cancelRow.DT_USE = (cancelLL.TransactionJournal != null && cancelLL.TransactionJournal.JournalDate != null)
-          ? cancelLL.TransactionJournal.JournalDate.format('yyyyMMdd') : '';
-      cancelRow.DT_SAVE = (cancelLL.ActivityDate != null) ? cancelLL.ActivityDate.format('yyyyMMdd') : '';
-
-      // 판매 금액
-      Decimal amSal = (cancelLL.TransactionJournal != null && cancelLL.TransactionJournal.Order != null
-          && cancelLL.TransactionJournal.Order.ActualPaymentAmount__c != null)
-          ? cancelLL.TransactionJournal.Order.ActualPaymentAmount__c : 0;
-      cancelRow.AM_SAL = Integer.valueOf(amSal);
-
-      debitPointResponseList.add(cancelRow);
-      debitSortablesAll.add(new DebitSortable(cancelRow, null));
-    }
+    // [정책 변경 2026-05-05] "포인트 사용 취소" 합성 행 제거 (정책 5)
+    //   배경: 사용 행 PT_USE 감산/제거 정책 (정책 2/3) 으로 환불 효과가 사용 행 자체에 반영됨.
+    //         별도 "포인트 사용 취소" 행은 회원/운영자에게 중복 정보 + 노이즈가 되므로 제거.
+    //   영향: UserDestoryHistoryList row 수가 줄어듦. 다른 영역 영향 없음.
 
     // [2026-04-25 추가 Fix] UserDestoryHistoryList "사용(Debit)" 로우 병합
     //   - 같은 (NO_SAL + NM_TYPE_POINT + NO_SAL_SAVE) 키의 로우들을 PT_USE 합산해 단일 로우로 통합
@@ -1825,16 +3839,28 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       List<PointResDto.DebitPointResponse> mergedList = new List<PointResDto.DebitPointResponse>();
       for (Integer i = 0; i < debitPointResponseList.size(); i++) {
         PointResDto.DebitPointResponse r = debitPointResponseList[i];
-        DebitSortable sk = (i < debitSortablesAll.size()) ? debitSortablesAll[i] : new DebitSortable(r, null);
+        // 정렬 정책 2026-05-05 - fallback 은 LLT=null 로 첫 번째 생성자 호출 (이론상 도달 불가, 안전장치).
+        DebitSortable sk = (i < debitSortablesAll.size()) ? debitSortablesAll[i] : new DebitSortable(r, (LoyaltyLedgerTraceability) null);
         Boolean isUsageRow = ('사용'.equals(r.NM_PERSON)) && String.isNotBlank(r.NO_SAL);
         if (!isUsageRow) {
           mergedList.add(r);
           debitSortablesMerged.add(sk);
           continue;
         }
-        String key = String.valueOf(r.NO_SAL) + '|'
-            + (r.NM_TYPE_POINT == null ? '' : r.NM_TYPE_POINT) + '|'
-            + (r.NO_SAL_SAVE == null ? '' : r.NO_SAL_SAVE);
+        // [Phase 3 Fix 2026-05-06] Flag ON 시에만 DT_SAVE 도 키에 포함 — portions 분할 row 가 같은
+        //   NO_SAL+NM_TYPE_POINT+NO_SAL_SAVE 조합이지만 DT_SAVE 가 다른 경우 (다중 origin) 별 row 로 유지.
+        //   Flag OFF 면 기존 동작 그대로 (회귀 영향 0).
+        String key;
+        if (redeemCancelCreditOriginPortions != null && !redeemCancelCreditOriginPortions.isEmpty()) {
+          key = String.valueOf(r.NO_SAL) + '|'
+              + (r.NM_TYPE_POINT == null ? '' : r.NM_TYPE_POINT) + '|'
+              + (r.NO_SAL_SAVE == null ? '' : r.NO_SAL_SAVE) + '|'
+              + (r.DT_SAVE == null ? '' : r.DT_SAVE);
+        } else {
+          key = String.valueOf(r.NO_SAL) + '|'
+              + (r.NM_TYPE_POINT == null ? '' : r.NM_TYPE_POINT) + '|'
+              + (r.NO_SAL_SAVE == null ? '' : r.NO_SAL_SAVE);
+        }
         if (usageMergedByKey.containsKey(key)) {
           PointResDto.DebitPointResponse existing = usageMergedByKey.get(key);
           Integer prev = existing.PT_USE == null ? 0 : existing.PT_USE;
@@ -1849,7 +3875,7 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       debitPointResponseList = mergedList;
     }
 
-    // [Sort Fix 2026-04-28] UserDestoryHistoryList 정렬 키 (YM_CREATE / DTS_INSERT / NO_SEQ_CREATE) 오름차순 적용
+    // 26.05.05 CS - 정렬 키 (DT_USE / NO_SAL / NO_SAL_SAVE / UsagePriorityNumber / Id) 오름차순 적용
     if (!debitSortablesMerged.isEmpty()) {
       debitSortablesMerged.sort();
       debitPointResponseList = new List<PointResDto.DebitPointResponse>();
@@ -1857,6 +3883,18 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         debitPointResponseList.add(s.response);
       }
     }
+
+    // [Group-By Aggregation Fix 2026-05-06]
+    //   사용자 정책: 같은 (YM_CREATE, NM_TYPE_POINT, NM_PERSON, DT_USE, NO_SAL, DT_SAVE, NO_SAL_ORD) 그룹의
+    //   사용 행을 단일 행으로 통합하여 PT_USE 합산. NO_SAL_SAVE, NO_SAL_RTN 도 키에 포함하여 사용 취소 행 분리 유지.
+    //   배경: 회원 043004800023 SOR202605060282 케이스 — 구매포인트 5,738 + 88,524 가 별도 2행으로 표시되는 결함.
+    //         그룹바이로 단일 행 (94,262) 통합 → 사용자 직관 개선.
+    //   효과:
+    //     - 같은 SubType + 같은 NO_SAL_ORD/NO_SAL 의 분리 행 → 1행 통합 (PT_USE 합산).
+    //     - 다른 SubType (구매 vs 기타) 은 자연 분리 유지.
+    //     - 정렬은 통합 전에 이미 적용됨 → 통합 후 첫 행의 정렬 위치 유지.
+    //     - Accrual PT_USE 합 = Destory 사용 합 일관성 보장 (단순 통합이라 합 변화 없음).
+    debitPointResponseList = aggregateDestoryRowsByGroup(debitPointResponseList);
 
     /**
      * 포인트 사용/소멸 내역
@@ -1924,73 +3962,256 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     return ApiResult.ok(200, '회원도움정보 조회 성공', data);
   }
 
-  // [Sort Fix 2026-04-28] 회원정보 도움창 응답 정렬용 wrapper
-  //   AccrualHistoryList 정렬 키: 1) ll.ActivityDate (DT_CREATE) 2) PointTypeCode__c (CD_TYPE_POINT) 3) ll.Id (NO_SEQ_CREATE)
-  //   - 모두 오름차순. 응답 스펙은 변경하지 않고 LL/LLT 의 raw 키로 정렬만 적용.
+  // [정렬 정책 2026-05-05] AccrualHistoryList 정렬 키 (정책 6).
+  //   순서: 1) 적립월 (YM_CREATE)  2) 판매번호 (NO_SAL)
+  //         3) 포인트구분 (LoyaltyPgmCrcySubtype.PointTypeCode__c)
+  //         4) ll.Id (tie-breaker)
+  //   - 모두 오름차순. 응답 스펙 변경 없음.
+  private static List<PointResDto.CreditPointResponse> aggregateCreditPointResponsesForDisplay(
+      List<PointResDto.CreditPointResponse> rows
+  ) {
+    List<PointResDto.CreditPointResponse> result = new List<PointResDto.CreditPointResponse>();
+    if (rows == null || rows.isEmpty()) {
+      return result;
+    }
+
+    Map<String, PointResDto.CreditPointResponse> rowByKey = new Map<String, PointResDto.CreditPointResponse>();
+    List<String> keyOrder = new List<String>();
+    for (PointResDto.CreditPointResponse row : rows) {
+      if (row == null) {
+        continue;
+      }
+      String key = buildCreditDisplayAggregateKey(row);
+      if (!rowByKey.containsKey(key)) {
+        rowByKey.put(key, row);
+        keyOrder.add(key);
+        continue;
+      }
+
+      PointResDto.CreditPointResponse base = rowByKey.get(key);
+      base.PT_SAVE_PLAN = safeAdd(base.PT_SAVE_PLAN, row.PT_SAVE_PLAN);
+      base.PT_SAVE = safeAdd(base.PT_SAVE, row.PT_SAVE);
+      base.PT_USE = safeAdd(base.PT_USE, row.PT_USE);
+      base.PT_DESTROY = safeAdd(base.PT_DESTROY, row.PT_DESTROY);
+      base.PT_TARGET = safeAdd(base.PT_TARGET, row.PT_TARGET);
+
+      // Sale-level payment summaries can be repeated on delta accrual rows.
+      base.PT_USE_SALE = safeMax(base.PT_USE_SALE, row.PT_USE_SALE);
+      base.PT_USE_SALE_COUPON = safeMax(base.PT_USE_SALE_COUPON, row.PT_USE_SALE_COUPON);
+      base.AM_SAL = safeMax(base.AM_SAL, row.AM_SAL);
+
+      if (String.isBlank(base.DT_DESTROY_DEL_SALE) && String.isNotBlank(row.DT_DESTROY_DEL_SALE)) {
+        base.DT_DESTROY_DEL_SALE = row.DT_DESTROY_DEL_SALE;
+      }
+      if (String.isBlank(base.DT_DESTROY_PLAN) && String.isNotBlank(row.DT_DESTROY_PLAN)) {
+        base.DT_DESTROY_PLAN = row.DT_DESTROY_PLAN;
+      }
+    }
+
+    for (String key : keyOrder) {
+      result.add(rowByKey.get(key));
+    }
+    return result;
+  }
+
+  private static String buildCreditDisplayAggregateKey(PointResDto.CreditPointResponse row) {
+    return String.join(new List<String>{
+      nullToBlank(row.YM_CREATE),
+      nullToBlank(row.NO_SAL),
+      nullToBlank(row.NM_TYPE_SAVE),
+      nullToBlank(row.NM_TYPE_POINT),
+      nullToBlank(row.DT_SAVE),
+      nullToBlank(row.DT_LIMIT_START),
+      nullToBlank(row.DT_LIMIT_END),
+      nullToBlank(row.NO_PROM_MBR)
+    }, '|');
+  }
+
+  private static String nullToBlank(String value) {
+    return value == null ? '' : value;
+  }
+
+  private static Integer safeAdd(Integer leftValue, Integer rightValue) {
+    return (leftValue == null ? 0 : leftValue) + (rightValue == null ? 0 : rightValue);
+  }
+
+  private static Integer safeMax(Integer leftValue, Integer rightValue) {
+    Integer leftSafe = leftValue == null ? 0 : leftValue;
+    Integer rightSafe = rightValue == null ? 0 : rightValue;
+    return Math.max(leftSafe, rightSafe);
+  }
+
+  private static Boolean isSaleModificationCreditCancellation(LoyaltyLedgerTraceability llt) {
+    if (llt == null || llt.ActionType != 'CreditCancellation') {
+      return false;
+    }
+    if (llt.DebitLoyaltyLedger == null || llt.DebitLoyaltyLedger.TransactionJournal == null) {
+      return false;
+    }
+
+    TransactionJournal tj = llt.DebitLoyaltyLedger.TransactionJournal;
+    String journalTypeName = tj.JournalType == null ? null : tj.JournalType.Name;
+    if (journalTypeName != JOURNAL_TYPE_NAME_ACCRUAL_REVERSAL) {
+      return false;
+    }
+
+    // Return-driven accrual cancellations remain visible as "포인트 지급 취소".
+    if (tj.SaleId__r != null && tj.SaleId__r.IsReductionOrder__c == true) {
+      return false;
+    }
+    return true;
+  }
+
   private class CreditSortable implements Comparable {
     public PointResDto.CreditPointResponse response;
-    public Datetime activityDate;
+    public String yearMonth;
+    public String saleNo;
     public String pointTypeCode;
     public String idStr;
 
     public CreditSortable(PointResDto.CreditPointResponse r, LoyaltyLedger ll) {
       this.response = r;
-      this.activityDate = (ll != null) ? ll.ActivityDate : null;
-      this.pointTypeCode = (ll != null && ll.LoyaltyPgmCrcySubtype != null) ? ll.LoyaltyPgmCrcySubtype.PointTypeCode__c : null;
+      this.yearMonth = (r != null && r.YM_CREATE != null) ? r.YM_CREATE : '';
+      this.saleNo = (r != null && r.NO_SAL != null) ? r.NO_SAL : '';
+      this.pointTypeCode = (ll != null
+          && ll.LoyaltyPgmCrcySubtype != null
+          && ll.LoyaltyPgmCrcySubtype.PointTypeCode__c != null)
+        ? ll.LoyaltyPgmCrcySubtype.PointTypeCode__c
+        : '';
       this.idStr = (ll != null && ll.Id != null) ? String.valueOf(ll.Id) : '';
     }
 
     public Integer compareTo(Object other) {
       CreditSortable o = (CreditSortable) other;
-      // 1. ActivityDate 오름차순
-      Long mine = (activityDate == null) ? 0 : activityDate.getTime();
-      Long theirs = (o.activityDate == null) ? 0 : o.activityDate.getTime();
-      if (mine != theirs) {
-        return mine < theirs ? -1 : 1;
-      }
-      // 2. PointTypeCode 오름차순
-      String pa = (pointTypeCode == null) ? '' : pointTypeCode;
-      String pb = (o.pointTypeCode == null) ? '' : o.pointTypeCode;
-      Integer cmp = pa.compareTo(pb);
+      // 1. 적립월 오름차순
+      Integer cmp = yearMonth.compareTo(o.yearMonth);
       if (cmp != 0) {
         return cmp;
       }
-      // 3. Id 오름차순
+      // 2. 판매번호 오름차순
+      cmp = saleNo.compareTo(o.saleNo);
+      if (cmp != 0) {
+        return cmp;
+      }
+      // 3. 포인트구분 오름차순 (PointTypeCode)
+      cmp = pointTypeCode.compareTo(o.pointTypeCode);
+      if (cmp != 0) {
+        return cmp;
+      }
+      // 4. Id (tie-breaker)
       return idStr.compareTo(o.idStr);
     }
   }
 
-  // [Sort Fix 2026-04-28] UserDestoryHistoryList 정렬용 wrapper
-  //   정렬 키: 1) yyyyMM (YM_CREATE) 2) llt.CreatedDate (DTS_INSERT) 3) llt.Id (NO_SEQ_CREATE)
-  //   - 모두 오름차순.
+  // [정렬 정책 2026-05-05] UserDestoryHistoryList 정렬 키 (정책 6).
+  //   순서: 1) 발생일자 (DT_USE, yyyyMMdd)  2) 레코드 생성일시 (LLT.CreatedDate)
+  //         3) 판매번호 (NO_SAL)  4) 적립판매번호 (NO_SAL_SAVE)
+  //         5) 포인트구분 (LLT.LoyaltyPgmCurrencySubtype.PointTypeCode__c)
+  //         6) llt.Id (tie-breaker)
+  //   - 모두 오름차순. 응답 스펙 변경 없음.
+  //   - 정책 5 (합성 사용 취소 행 제거) 로 합성 행용 두 번째 생성자도 제거됨.
   private class DebitSortable implements Comparable {
     public PointResDto.DebitPointResponse response;
-    public String yearMonth;
-    public Datetime createdDate;
+    public String useDate;
+    public Datetime createdDt;
+    public String saleNo;
+    public String saleNoSave;
+    public String pointTypeCode;
     public String idStr;
 
+    // LLT 기반 (사용/소멸 행)
     public DebitSortable(PointResDto.DebitPointResponse r, LoyaltyLedgerTraceability llt) {
       this.response = r;
-      this.yearMonth = (llt != null && llt.CreatedDate != null) ? llt.CreatedDate.format('yyyyMM') : '';
-      this.createdDate = (llt != null) ? llt.CreatedDate : null;
+      this.useDate = (r != null && r.DT_USE != null) ? r.DT_USE : '';
+      this.createdDt = (llt != null && llt.CreatedDate != null) ? llt.CreatedDate : null;
+      this.saleNo = (r != null && r.NO_SAL != null) ? r.NO_SAL : '';
+      this.saleNoSave = (r != null && r.NO_SAL_SAVE != null) ? r.NO_SAL_SAVE : '';
+      this.pointTypeCode = (llt != null
+          && llt.LoyaltyPgmCurrencySubtype != null
+          && llt.LoyaltyPgmCurrencySubtype.PointTypeCode__c != null)
+        ? llt.LoyaltyPgmCurrencySubtype.PointTypeCode__c
+        : '';
       this.idStr = (llt != null && llt.Id != null) ? String.valueOf(llt.Id) : '';
     }
 
     public Integer compareTo(Object other) {
       DebitSortable o = (DebitSortable) other;
-      // 1. YM_CREATE 오름차순
-      Integer cmp = yearMonth.compareTo(o.yearMonth);
+      // 1. 발생일자 오름차순 (DT_USE, yyyyMMdd)
+      Integer cmp = useDate.compareTo(o.useDate);
       if (cmp != 0) {
         return cmp;
       }
-      // 2. CreatedDate 오름차순
-      Long mine = (createdDate == null) ? 0 : createdDate.getTime();
-      Long theirs = (o.createdDate == null) ? 0 : o.createdDate.getTime();
-      if (mine != theirs) {
-        return mine < theirs ? -1 : 1;
+      // 2. 레코드 생성일시 오름차순 (null 은 끝으로)
+      Boolean aNull = (createdDt == null);
+      Boolean bNull = (o.createdDt == null);
+      if (aNull && !bNull) return 1;
+      if (!aNull && bNull) return -1;
+      if (!aNull && !bNull) {
+        if (createdDt < o.createdDt) return -1;
+        if (createdDt > o.createdDt) return 1;
       }
-      // 3. Id 오름차순
+      // 3. 판매번호 오름차순
+      cmp = saleNo.compareTo(o.saleNo);
+      if (cmp != 0) {
+        return cmp;
+      }
+      // 4. 적립판매번호 오름차순
+      cmp = saleNoSave.compareTo(o.saleNoSave);
+      if (cmp != 0) {
+        return cmp;
+      }
+      // 5. 포인트구분 오름차순 (PointTypeCode)
+      cmp = pointTypeCode.compareTo(o.pointTypeCode);
+      if (cmp != 0) {
+        return cmp;
+      }
+      // 6. Id (tie-breaker)
       return idStr.compareTo(o.idStr);
     }
+  }
+
+  /**
+   * [Group-By Aggregation Fix 2026-05-06] UserDestoryHistoryList 행 통합.
+   *
+   * 그룹 키: YM_CREATE, NM_TYPE_POINT, NM_PERSON, DT_USE, NO_SAL, DT_SAVE, NO_SAL_ORD,
+   *         NO_SAL_SAVE, NO_SAL_RTN
+   * 통합 시 PT_USE 합산. 다른 필드는 첫 행 값 유지 (정렬 결과 보존).
+   *
+   * 입력 리스트는 정렬된 상태로 들어옴 → 통합 후에도 같은 정렬 순서 유지.
+   */
+  private static List<PointResDto.DebitPointResponse> aggregateDestoryRowsByGroup(
+    List<PointResDto.DebitPointResponse> rows
+  ) {
+    if (rows == null || rows.isEmpty()) {
+      return rows;
+    }
+    Map<String, PointResDto.DebitPointResponse> grouped = new Map<String, PointResDto.DebitPointResponse>();
+    List<String> orderedKeys = new List<String>();   // 정렬 순서 보존
+    for (PointResDto.DebitPointResponse row : rows) {
+      String key = String.valueOf(row.YM_CREATE)
+        + '|' + String.valueOf(row.NM_TYPE_POINT)
+        + '|' + String.valueOf(row.NM_PERSON)
+        + '|' + String.valueOf(row.DT_USE)
+        + '|' + String.valueOf(row.NO_SAL)
+        + '|' + String.valueOf(row.DT_SAVE)
+        + '|' + String.valueOf(row.NO_SAL_ORD)
+        + '|' + String.valueOf(row.NO_SAL_SAVE)
+        + '|' + String.valueOf(row.NO_SAL_RTN);
+      if (grouped.containsKey(key)) {
+        // 같은 그룹 — PT_USE 합산
+        PointResDto.DebitPointResponse existing = grouped.get(key);
+        Integer prevPt = existing.PT_USE != null ? existing.PT_USE : 0;
+        Integer addPt = row.PT_USE != null ? row.PT_USE : 0;
+        existing.PT_USE = prevPt + addPt;
+      } else {
+        grouped.put(key, row);
+        orderedKeys.add(key);
+      }
+    }
+    List<PointResDto.DebitPointResponse> result = new List<PointResDto.DebitPointResponse>();
+    for (String k : orderedKeys) {
+      result.add(grouped.get(k));
+    }
+    return result;
   }
 }

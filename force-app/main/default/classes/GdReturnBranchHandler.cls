@@ -226,13 +226,18 @@ public with sharing class GdReturnBranchHandler {
     String origSaleNo = toString(reqData.get('OriginalOrderId'));
     Decimal reqAmount = toDecimal(reqData.get('ActualPaymentAmount__c'));
     ForceDebitOutcome outcome = computeAndForceDebitForReturn(
-      origSaleNo, reqAmount, toString(reqData.get('orderId'))
+      origSaleNo, reqAmount, toString(reqData.get('orderId')), reqData
     );
 
     // 응답 enrich (force-debit 결과)
     standardResult.data.put('option_c_force_debit_requested', outcome.requested);
     standardResult.data.put('option_c_force_debit_actual', outcome.actual);
     standardResult.data.put('option_c_force_debit_loss', outcome.loss);
+    // 26.05.07 CS - 적립 base 보정 추적
+    standardResult.data.put('option_c_refund_amount', outcome.refundAmount);
+    standardResult.data.put('option_c_excluded_item_amount', outcome.excludedItemAmount);
+    standardResult.data.put('option_c_non_accrual_pm_amount', outcome.nonAccrualPMAmount);
+    standardResult.data.put('option_c_eligible_amount', outcome.eligibleAmount);
     if (outcome.success) {
       standardResult.data.put('point_processing', 'force_debited_with_estimation');
     }
@@ -241,6 +246,17 @@ public with sharing class GdReturnBranchHandler {
     }
 
     // 5. MigrationAdjustmentLog 기록 (Phase 6.4 — 실 force 결과 반영)
+    // 26.05.06 CS - 반품 Order Id 를 매핑 키로 함께 저장 (1:1 매칭, 매칭 트랩 회피).
+    Id returnOrderIdForLog = null;
+    Object returnOrderIdRaw = reqData.get('orderId');
+    if (returnOrderIdRaw != null) {
+      try {
+        returnOrderIdForLog = (Id) String.valueOf(returnOrderIdRaw);
+      } catch (Exception e) {
+        // Id 변환 실패 시 null 유지 (안전 정책)
+        System.debug('returnOrderId Id 변환 실패: ' + e.getMessage());
+      }
+    }
     Id logId = GdMigrationUtil.recordAdjustmentLog(
       outcome.memberId,
       null,
@@ -252,9 +268,13 @@ public with sharing class GdReturnBranchHandler {
       'Phase 6.4 — silent fail visualized + force-debit applied. ' +
       'returnOrderId=' + reqData.get('orderId') +
       ', requestedRefundAmount=' + (reqAmount == null ? 'null' : reqAmount.toPlainString()) +
+      ', excludedItemAmount=' + outcome.excludedItemAmount +
+      ', nonAccrualPMAmount=' + outcome.nonAccrualPMAmount +
+      ', eligibleAmount=' + outcome.eligibleAmount +
       ', forceDebitSuccess=' + outcome.success +
       ', estimateBreakdown=' + outcome.breakdown +
-      (String.isBlank(outcome.error) ? '' : ', forceDebitError=' + outcome.error)
+      (String.isBlank(outcome.error) ? '' : ', forceDebitError=' + outcome.error),
+      returnOrderIdForLog
     );
     if (logId != null) {
       standardResult.data.put('adjustment_log_id', logId);
@@ -276,18 +296,29 @@ public with sharing class GdReturnBranchHandler {
     Id memberId;
     String error;
     String breakdown = '';
+    // 26.05.07 CS - 적립 base 보정 추적용
+    Decimal refundAmount = 0;
+    Decimal excludedItemAmount = 0;
+    Decimal nonAccrualPMAmount = 0;
+    Decimal eligibleAmount = 0;
   }
 
   /**
    * 원판매 정보 조회 → 환불 금액 기준 적립 추정 → forceDebitPointsSafe 호출.
    * 모든 단계 try/catch — 실패 시 outcome 에 반영, throw 안 함.
+   *
+   * 26.05.07 CS - reqData 페이로드 기반 적립 base 보정 추가.
+   *   eligibleAmount = refundAmount - 적립 불가 품목 금액 - 적립 비대상 PM 금액
+   *   표준 calculateEligibleAccrualAmount 와 일관된 정책 적용.
    */
   private static ForceDebitOutcome computeAndForceDebitForReturn(
     String originalSaleNo,
     Decimal refundAmount,
-    String returnOrderId
+    String returnOrderId,
+    Map<String, Object> reqData
   ) {
     ForceDebitOutcome out = new ForceDebitOutcome();
+    out.refundAmount = (refundAmount == null) ? 0 : refundAmount;
     if (String.isBlank(originalSaleNo) || refundAmount == null || refundAmount <= 0) {
       out.error = 'invalid input';
       return out;
@@ -323,9 +354,25 @@ public with sharing class GdReturnBranchHandler {
       // 원판매에 적용된 Promotion 조회 (적립 TJ 의 PromotionId)
       Id promotionId = findPromotionIdForOriginalOrder(originalOrderId);
 
-      // 환불 금액 기준 적립 추정
+      // === 26.05.07 CS 적립 base 보정 ===
+      // 1. 적립 불가 품목 (IsExclude=true) 금액 차감
+      out.excludedItemAmount = computeExcludedItemAmountForReturn(originalOrderId, reqData);
+      // 2. 적립 비대상 PM (20/81/90/93) 환불 금액 차감
+      out.nonAccrualPMAmount = computeNonAccrualPMAmountFromTjPayload(reqData);
+      Decimal eligibleAmount = refundAmount - out.excludedItemAmount - out.nonAccrualPMAmount;
+      if (eligibleAmount < 0) {
+        eligibleAmount = 0;
+      }
+      out.eligibleAmount = eligibleAmount;
+
+      if (eligibleAmount <= 0) {
+        out.error = 'no eligible amount after exclusion (모두 적립 비대상)';
+        return out;
+      }
+
+      // 적립 추정 (보정된 eligibleAmount 사용)
       List<GdMigrationUtil.AccrualEstimate> estimates = GdMigrationUtil.calculateAccrualForOldOrder(
-        out.memberId, refundAmount, promotionId
+        out.memberId, eligibleAmount, promotionId
       );
 
       Decimal totalRequested = 0;
@@ -346,17 +393,20 @@ public with sharing class GdReturnBranchHandler {
       }
 
       // 강제 차감 (잔액 부족 시 부분 차감 + 손실 기록)
-      GdMigrationUtil.ForceDebitResult fd = GdMigrationUtil.forceDebitPointsSafe(
-        out.memberId, programId, originalOrderId, totalRequested,
-        'OPTC_RETURN_REGISTER_FORCE_DEBIT: returnOrderId=' + returnOrderId +
+      GdOptionCPointAdjustmentUtil.AccrualCancelResult fd = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
+        out.memberId, programId, originalOrderId, (Id) returnOrderId, totalRequested,
+        'OPTC_RETURN_REGISTER_ETC_ACCRUAL_CANCEL: returnOrderId=' + returnOrderId +
         ', originalSaleNo=' + originalSaleNo +
         ', refundAmount=' + refundAmount.toPlainString() +
+        ', excludedItemAmount=' + out.excludedItemAmount.toPlainString() +
+        ', nonAccrualPMAmount=' + out.nonAccrualPMAmount.toPlainString() +
+        ', eligibleAmount=' + eligibleAmount.toPlainString() +
         ', breakdown=' + breakdown
       );
       out.actual = fd.actualPoints;
       out.loss = fd.loss;
       out.success = fd.success;
-      out.debitTjId = fd.debitTjId;
+      out.debitTjId = fd.reversalTjId;
       out.error = fd.error;
       return out;
     } catch (Exception e) {
@@ -506,5 +556,133 @@ public with sharing class GdReturnBranchHandler {
       return (String) value;
     }
     return String.valueOf(value);
+  }
+
+  // ============================================================
+  // 26.05.07 CS — 적립 base 보정 helper
+  //
+  // 옵션 C 옛 판매 반품 등록 시 추정 base 가 환불 총액 그대로 사용되고 있어
+  // 표준 calculateEligibleAccrualAmount 의 정책과 어긋남. 두 가지 보정:
+  //   1. 적립 불가 품목 (OrderItem.IsExclude__c=true) 금액 차감
+  //   2. 적립 비대상 PaymentMethod (20/81/90/93) 환불 금액 차감
+  // ============================================================
+
+  // 적립 비대상 PaymentMethod (표준 calculateEligibleAccrualAmount 와 동일)
+  @TestVisible
+  private static final Set<String> NON_ACCRUAL_PMS = new Set<String>{ '20', '81', '90', '93' };
+
+  /**
+   * 반품 환불 페이로드에서 적립 불가 품목 (IsExclude=true) 금액 산출.
+   *
+   * 표준 GdReturnDepositServiceImpl.getExcludedReturnAmountFromRequest 의 패턴을 따름:
+   *   - 페이로드 OrderItem 의 OriginalOrderItemId__c / SaleSeqNo__c 로 원판매 OrderItem 매칭
+   *   - 원판매 OrderItem.IsExclude__c=true 인 라인만 합산
+   *   - 페이로드의 NetSalesUnitPrice__c 우선, 비어있으면 원판매 단가×수량 fallback
+   *
+   * 안전성: 모든 단계 try/catch, 실패 시 0 반환 (보정 안 함, 기존 동작 유지).
+   */
+  @TestVisible
+  private static Decimal computeExcludedItemAmountForReturn(
+    Id originalOrderId, Map<String, Object> reqData
+  ) {
+    if (originalOrderId == null || reqData == null) return 0;
+    try {
+      Object oiListObj = reqData.get('OrderItem');
+      if (!(oiListObj instanceof List<Object>)) return 0;
+
+      Set<Id> originalOiIdSet = new Set<Id>();
+      Set<String> saleSeqNoSet = new Set<String>();
+      List<Map<String, Object>> normalized = new List<Map<String, Object>>();
+
+      for (Object v : (List<Object>) oiListObj) {
+        if (!(v instanceof Map<String, Object>)) continue;
+        Map<String, Object> oi = (Map<String, Object>) v;
+        String oiIdStr = toString(oi.get('OriginalOrderItemId__c'));
+        String saleSeqNo = toString(oi.get('SaleSeqNo__c'));
+        Decimal netSalesUnitPrice = toDecimal(oi.get('NetSalesUnitPrice__c'));
+        if (String.isNotBlank(oiIdStr)) {
+          try { originalOiIdSet.add((Id) oiIdStr); } catch (Exception e) {}
+        }
+        if (String.isNotBlank(saleSeqNo)) saleSeqNoSet.add(saleSeqNo);
+        normalized.add(new Map<String, Object>{
+          'OriginalOrderItemId__c' => oiIdStr,
+          'SaleSeqNo__c' => saleSeqNo,
+          'NetSalesUnitPrice__c' => netSalesUnitPrice
+        });
+      }
+      if (originalOiIdSet.isEmpty() && saleSeqNoSet.isEmpty()) return 0;
+
+      Map<Id, OrderItem> originalById = new Map<Id, OrderItem>();
+      Map<String, OrderItem> originalBySaleSeqNo = new Map<String, OrderItem>();
+      for (OrderItem origOi : [
+        SELECT Id, SaleSeqNo__c, IsExclude__c, NetSalesUnitPrice__c, Quantity
+        FROM OrderItem
+        WHERE OrderId = :originalOrderId
+          AND (Id IN :originalOiIdSet OR SaleSeqNo__c IN :saleSeqNoSet)
+      ]) {
+        originalById.put(origOi.Id, origOi);
+        if (String.isNotBlank(origOi.SaleSeqNo__c)
+            && !originalBySaleSeqNo.containsKey(origOi.SaleSeqNo__c)) {
+          originalBySaleSeqNo.put(origOi.SaleSeqNo__c, origOi);
+        }
+      }
+
+      Decimal excluded = 0;
+      for (Map<String, Object> norm : normalized) {
+        String oiIdStr = (String) norm.get('OriginalOrderItemId__c');
+        String saleSeqNo = (String) norm.get('SaleSeqNo__c');
+        Decimal returnItemAmount = (Decimal) norm.get('NetSalesUnitPrice__c');
+
+        OrderItem origOi = null;
+        if (String.isNotBlank(oiIdStr)) {
+          try { origOi = originalById.get((Id) oiIdStr); } catch (Exception e) {}
+        }
+        if (origOi == null && String.isNotBlank(saleSeqNo)) {
+          origOi = originalBySaleSeqNo.get(saleSeqNo);
+        }
+        if (origOi == null) continue;
+        if (origOi.IsExclude__c != true) continue;
+
+        if (returnItemAmount != null) {
+          excluded += returnItemAmount;
+        } else {
+          Decimal unitPrice = origOi.NetSalesUnitPrice__c == null ? 0 : origOi.NetSalesUnitPrice__c;
+          Decimal qty = origOi.Quantity == null ? 1 : origOi.Quantity;
+          excluded += unitPrice * qty;
+        }
+      }
+      return excluded;
+    } catch (Exception e) {
+      System.debug('computeExcludedItemAmountForReturn exception: ' + e.getMessage());
+      return 0;
+    }
+  }
+
+  /**
+   * 환불 TJ 페이로드에서 적립 비대상 PaymentMethod (20/81/90/93) 합계 산출.
+   *
+   * 안전성: 모든 단계 try/catch, 실패 시 0 반환.
+   */
+  @TestVisible
+  private static Decimal computeNonAccrualPMAmountFromTjPayload(Map<String, Object> reqData) {
+    if (reqData == null) return 0;
+    try {
+      Object tjListObj = reqData.get('TransactionJournal');
+      if (!(tjListObj instanceof List<Object>)) return 0;
+      Decimal total = 0;
+      for (Object tjObj : (List<Object>) tjListObj) {
+        if (!(tjObj instanceof Map<String, Object>)) continue;
+        Map<String, Object> tj = (Map<String, Object>) tjObj;
+        String pm = toString(tj.get('PaymentMethod'));
+        Decimal amount = toDecimal(tj.get('TransactionAmount'));
+        if (pm != null && NON_ACCRUAL_PMS.contains(pm) && amount != null && amount > 0) {
+          total += amount;
+        }
+      }
+      return total;
+    } catch (Exception e) {
+      System.debug('computeNonAccrualPMAmountFromTjPayload exception: ' + e.getMessage());
+      return 0;
+    }
   }
 }

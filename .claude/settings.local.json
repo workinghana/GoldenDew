@@ -4,7 +4,9 @@
       "Bash(python -m pip list)",
       "Read(//c/Program Files/Google/Chrome/Application/**)",
       "Read(//c/Program Files \\(x86\\)/Google/Chrome/Application/**)",
-      "Read(//c/Program Files/Microsoft/Edge/Application/**)"
+      "Read(//c/Program Files/Microsoft/Edge/Application/**)",
+      "PowerShell(sf data query --query $soql --target-org goldendew-sb --json)",
+      "PowerShell($soql = \"SELECT COUNT\\(Id\\) total FROM ApexAuditTrail__c WHERE CreatedDate >= 2026-05-07T09:31:00.000+09:00 AND CreatedDate <= 2026-05-08T09:53:00.000+09:00\")"
     ]
   }
 }

@@ -13,7 +13,9 @@ private class PromotionDTOTest {
       PromotionCode = 'PDTO-' + String.valueOf(Math.random()).substring(2, 8),
       IsActive = isActive,
       StartDate = startDate,
-      EndDate = endDate
+      EndDate = endDate,
+      PublishStartDate__c = startDate,
+      PublishEndDate__c = endDate
       // ,
       // StoreType__c  = storeTypeValue
     );

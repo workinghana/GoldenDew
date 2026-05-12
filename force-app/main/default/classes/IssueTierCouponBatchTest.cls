@@ -1,5 +1,16 @@
 @IsTest
 private class IssueTierCouponBatchTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"success":true,"message":"ok","data":{"erpId":"OK"}}');
+      return res;
+    }
+  }
+
   private class MockBatchContext implements Database.BatchableContext {
     public Id getJobId() {
       return UserInfo.getUserId();
@@ -14,6 +25,10 @@ private class IssueTierCouponBatchTest {
     return prefix + '_' + String.valueOf(Datetime.now().getTime());
   }
 
+  private static void setMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
+
   private static String getGradeValue() {
     List<Schema.PicklistEntry> entries = Contact.Grade__c.getDescribe().getPicklistValues();
     return entries.isEmpty() ? null : entries[0].getValue();
@@ -26,6 +41,8 @@ private class IssueTierCouponBatchTest {
 
   @TestSetup
   static void setupData() {
+    setMock();
+
     JournalType jt = new JournalType(Name = 'Accrual', ProcessType = 'Loyalty');
     insert jt;
 
@@ -63,7 +80,8 @@ private class IssueTierCouponBatchTest {
       IsActive = true,
       Description = 'IssueTierCouponBatch test',
       ProductId = product.Id,
-      Type = 'ProductOrService',
+      Type = 'FixedValue',
+      FaceValue = 1000,
       ExpirationType = 'FixedDate',
       EffectiveDate = Date.today(),
       ExpirationDate = Date.today().addDays(30),
@@ -99,6 +117,8 @@ private class IssueTierCouponBatchTest {
   }
 
   private static VoucherDefinition createVoucherDefinition(Boolean isActive, Date expirationDate) {
+    setMock();
+
     LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
     Id categoryId = [SELECT Id FROM VoucherCategory__c LIMIT 1].Id;
     Id accountId = [SELECT Id FROM Account WHERE CompanyCode__c = '1000' LIMIT 1].Id;
@@ -112,7 +132,8 @@ private class IssueTierCouponBatchTest {
       IsActive = isActive,
       Description = 'IssueTierCouponBatch extra test',
       ProductId = product.Id,
-      Type = 'ProductOrService',
+      Type = 'FixedValue',
+      FaceValue = 1000,
       ExpirationType = 'FixedDate',
       EffectiveDate = Date.today().addDays(-10),
       ExpirationDate = expirationDate,
@@ -140,6 +161,8 @@ private class IssueTierCouponBatchTest {
 
   @IsTest
   static void testStart() {
+    setMock();
+
     IssueTierCouponBatch batch = new IssueTierCouponBatch(getTierId(), getVoucherDefinitionId(), Date.today());
 
     Test.startTest();
@@ -151,6 +174,8 @@ private class IssueTierCouponBatchTest {
 
   @IsTest
   static void testExecuteEmptyScope() {
+    setMock();
+
     IssueTierCouponBatch batch = new IssueTierCouponBatch(getTierId(), getVoucherDefinitionId(), Date.today());
 
     Test.startTest();
@@ -162,6 +187,8 @@ private class IssueTierCouponBatchTest {
 
   @IsTest
   static void testExecuteNoLoyaltyProgramMember() {
+    setMock();
+
     Contact noMemberContact = new Contact(LastName = uniq('NoMember'), MemberNo__c = uniq('NM'), Grade__c = getGradeValue());
     insert noMemberContact;
 
@@ -176,6 +203,8 @@ private class IssueTierCouponBatchTest {
 
   @IsTest
   static void testExecuteWithLoyaltyProgramMember() {
+    setMock();
+
     IssueTierCouponBatch batch = new IssueTierCouponBatch(getTierId(), getVoucherDefinitionId(), Date.today());
 
     Test.startTest();
@@ -194,7 +223,9 @@ private class IssueTierCouponBatchTest {
 
   @IsTest
   static void testExecuteWithInactiveVoucherDefinition() {
-    VoucherDefinition inactiveVd = createVoucherDefinition(false, Date.today().addDays(30));
+    setMock();
+
+    VoucherDefinition inactiveVd = createVoucherDefinition(true, Date.today().addDays(-1));
 
     IssueTierCouponBatch batch = new IssueTierCouponBatch(getTierId(), inactiveVd.Id, Date.today());
 
@@ -207,6 +238,8 @@ private class IssueTierCouponBatchTest {
 
   @IsTest
   static void testExecuteWithExpiredVoucherDefinition() {
+    setMock();
+
     VoucherDefinition expiredVd = createVoucherDefinition(true, Date.today().addDays(-1));
 
     IssueTierCouponBatch batch = new IssueTierCouponBatch(getTierId(), expiredVd.Id, Date.today());
@@ -220,6 +253,8 @@ private class IssueTierCouponBatchTest {
 
   @IsTest
   static void testFinish() {
+    setMock();
+
     IssueTierCouponBatch batch = new IssueTierCouponBatch(getTierId(), getVoucherDefinitionId(), Date.today());
 
     Test.startTest();
@@ -231,6 +266,8 @@ private class IssueTierCouponBatchTest {
 
   @IsTest
   static void testExecuteBatchFullFlow() {
+    setMock();
+
     Test.startTest();
     Database.executeBatch(new IssueTierCouponBatch(getTierId(), getVoucherDefinitionId(), Date.today()), 1);
     Test.stopTest();
@@ -240,6 +277,8 @@ private class IssueTierCouponBatchTest {
 
   @IsTest
   static void testExecute_upgradeCoupon_setsFaceValueZero() {
+    setMock();
+
     VoucherDefinition upgradeVd = createUpgradeVoucherDefinition();
 
     Test.startTest();
@@ -259,6 +298,8 @@ private class IssueTierCouponBatchTest {
   }
 
   private static VoucherDefinition createUpgradeVoucherDefinition() {
+    setMock();
+
     LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
     Id categoryId = [SELECT Id FROM VoucherCategory__c LIMIT 1].Id;
     Id accountId = [SELECT Id FROM Account WHERE CompanyCode__c = '1000' LIMIT 1].Id;

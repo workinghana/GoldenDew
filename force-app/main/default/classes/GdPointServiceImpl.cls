@@ -133,6 +133,13 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     return baseDate == null ? null : baseDate.addYears(2);
   }
 
+  private static Id resolvePurchaseAccrualOrderId(TransactionJournal sourceTj) {
+    if (sourceTj == null) {
+      return null;
+    }
+    return sourceTj.SaleId__c != null ? sourceTj.SaleId__c : sourceTj.OrderId;
+  }
+
   private static Integer compareSaleSequence(
     Datetime leftActivityDate,
     Datetime leftCreatedDate,
@@ -158,15 +165,18 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     return leftIdValue.compareTo(rightIdValue);
   }
 
+  // 포인트 적용 도움창 조회 관련 매서드 2
   private static SaleSequenceCutoff resolveSaleSequenceCutoff(Id orderId, String saleNo) {
     Id resolvedOrderId = orderId;
     String resolvedSaleNo = saleNo;
+    Date resolvedSaleDate;
 
     if (resolvedOrderId == null && String.isNotBlank(resolvedSaleNo)) {
-      List<Order> saleOrderList = [SELECT Id, SaleNo__c FROM Order WHERE SaleNo__c = :resolvedSaleNo LIMIT 1];
+      List<Order> saleOrderList = [SELECT Id, SaleNo__c, EffectiveDate FROM Order WHERE SaleNo__c = :resolvedSaleNo LIMIT 1];
       if (!saleOrderList.isEmpty()) {
         resolvedOrderId = saleOrderList[0].Id;
         resolvedSaleNo = saleOrderList[0].SaleNo__c;
+        resolvedSaleDate = saleOrderList[0].EffectiveDate;
       }
     }
 
@@ -175,9 +185,15 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     }
 
     if (String.isBlank(resolvedSaleNo)) {
-      List<Order> orderList = [SELECT SaleNo__c FROM Order WHERE Id = :resolvedOrderId LIMIT 1];
+      List<Order> orderList = [SELECT SaleNo__c, EffectiveDate FROM Order WHERE Id = :resolvedOrderId LIMIT 1];
       if (!orderList.isEmpty()) {
         resolvedSaleNo = orderList[0].SaleNo__c;
+        resolvedSaleDate = orderList[0].EffectiveDate;
+      }
+    } else if (resolvedSaleDate == null) {
+      List<Order> orderList = [SELECT EffectiveDate FROM Order WHERE Id = :resolvedOrderId LIMIT 1];
+      if (!orderList.isEmpty()) {
+        resolvedSaleDate = orderList[0].EffectiveDate;
       }
     }
 
@@ -191,8 +207,11 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
     if (!saleDepositList.isEmpty()) {
       TransactionJournal saleDeposit = saleDepositList[0];
+      Datetime cutoffActivityDate = resolvedSaleDate == null
+        ? saleDeposit.ActivityDate
+        : TimeUtil.dateToUtcStartOfDay(resolvedSaleDate);
       return new SaleSequenceCutoff(
-        saleDeposit.ActivityDate,
+        cutoffActivityDate,
         saleDeposit.CreatedDate,
         saleDeposit.Id,
         resolvedOrderId,
@@ -200,8 +219,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       );
     }
 
-    Datetime nowDt = Datetime.now();
-    return new SaleSequenceCutoff(nowDt, nowDt, null, resolvedOrderId, resolvedSaleNo);
+    return null;
   }
 
   private static List<AvailableCreditBalance> buildAvailableCreditBalances(
@@ -599,7 +617,57 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         )
       );
     }
+
     return result;
+  }
+
+  private static String resolveSaleNoForPointUsage(Id orderId) {
+    if (orderId == null) {
+      return null;
+    }
+
+    List<Order> orderList = [SELECT SaleNo__c, OrderNo__c FROM Order WHERE Id = :orderId LIMIT 1];
+    if (orderList.isEmpty()) {
+      return null;
+    }
+
+    return String.isNotBlank(orderList[0].SaleNo__c) ? orderList[0].SaleNo__c : orderList[0].OrderNo__c;
+  }
+
+  private static Integer calculatePointUsageAvailableLimit(TransactionJournal tj) {
+    if (tj == null || tj.MemberId == null || tj.TransactionAmount == null || tj.TransactionAmount <= 0) {
+      return null;
+    }
+
+    Date usageDate = tj.ActivityDate == null ? null : tj.ActivityDate.date();
+    String saleNo = resolveSaleNoForPointUsage(tj.OrderId);
+
+    if (usageDate == null || usageDate >= Date.today()) {
+      return null;
+    }
+
+    Datetime nextDayStart = TimeUtil.dateToUtcStartOfDay(usageDate.addDays(1));
+    Map<Id, Integer> currentAvailableByCreditLedgerId = new Map<Id, Integer>();
+    for (AvailableCreditBalance currentBalance : buildAvailableCreditBalances(tj.MemberId, null, null, saleNo)) {
+      if (currentBalance.creditLedgerId == null || currentBalance.availablePoints == null || currentBalance.availablePoints <= 0) {
+        continue;
+      }
+      currentAvailableByCreditLedgerId.put(currentBalance.creditLedgerId, currentBalance.availablePoints);
+    }
+
+    Integer available = 0;
+    for (AvailableCreditBalance historicalBalance : buildAvailableCreditBalances(tj.MemberId, null, nextDayStart, saleNo)) {
+      if (historicalBalance.creditLedgerId == null || historicalBalance.availablePoints == null || historicalBalance.availablePoints <= 0) {
+        continue;
+      }
+      Integer currentAvailable = currentAvailableByCreditLedgerId.containsKey(historicalBalance.creditLedgerId)
+        ? currentAvailableByCreditLedgerId.get(historicalBalance.creditLedgerId)
+        : 0;
+      if (currentAvailable > 0) {
+        available += Math.min(historicalBalance.availablePoints, currentAvailable);
+      }
+    }
+    return available;
   }
 
   /**
@@ -1407,6 +1475,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     }
   }
 
+  // 포인트 적용 도움창 조회 관련 매서드 1
   public ApiResult getPointApplyHelpBySaleSequence(Map<String, Object> reqData) {
     Map<String, Object> data = new Map<String, Object>();
     try {
@@ -1419,12 +1488,6 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       if (lpmList.isEmpty()) {
         throw new CustomException(400, '존재하지 않는 회원입니다. ' + memberNo);
       }
-
-      Object rawOrderId = reqData.get('orderId');
-      if (rawOrderId == null) {
-        rawOrderId = reqData.get('OrderId');
-      }
-      Id orderId = rawOrderId == null ? null : (Id) ValidationUtil.stringValidationEx(rawOrderId, 'orderId', false, false);
 
       Object rawSaleNo = reqData.get('SaleNo__c');
       if (rawSaleNo == null) {
@@ -1470,12 +1533,12 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         }
 
         
-
-        if (totalPoints < 10000) {
-          plist = new List<PointResDto.AvailablePointResponse>();
-          data.put('pointList', plist);
-          return ApiResult.ok(200, '포인트 적용 조회 실패', data);
-        }
+        // todo : 운영 시 주석 해제
+        // if (totalPoints < 10000) {
+        //   plist = new List<PointResDto.AvailablePointResponse>();
+        //   data.put('pointList', plist);
+        //   return ApiResult.ok(200, '포인트 적용 조회 실패', data);
+        // }
 
         data.put('pointList', plist);
 
@@ -1483,7 +1546,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       }
 
       // 경로 C: 과거 시뮬레이션 — 기존 Ledger 기반 로직 유지
-      SaleSequenceCutoff cutoff = resolveSaleSequenceCutoff(orderId, saleNo);
+      SaleSequenceCutoff cutoff = hasSaleFilter ? resolveSaleSequenceCutoff(null, saleNo) : null;
       Datetime nextDayStart = cutoff == null && orderDate != null ? TimeUtil.dateToUtcStartOfDay(orderDate.addDays(1)) : null;
 
       List<AvailableCreditBalance> availableBalanceList = buildAvailableCreditBalances(lpmList[0].Id, cutoff, nextDayStart, saleNo);
@@ -1508,9 +1571,10 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           totalPoints += pts;
         }
       }
-      if (totalPoints < 10000) {
-        return ApiResult.ok(200, '포인트 적용 조회 실패', data);
-      }
+      // todo : 운영 시 주석 해제
+      // if (totalPoints < 10000) {
+      //   return ApiResult.ok(200, '포인트 적용 조회 실패', data);
+      // }
       
       data.put('pointList', pointList);
 
@@ -1574,6 +1638,14 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         AND (TransactionJournal.Order.SaleNo__c = :saleNo
           OR TransactionJournal.SaleId__r.SaleNo__c = :saleNo)
         AND TransactionJournal.JournalType.Name IN ('Accrual')
+        AND (
+          TransactionJournal.AdditionalNotes__c = NULL
+          OR (
+            TransactionJournal.AdditionalNotes__c != 'Restore purchase accrual due to return deletion'
+            AND TransactionJournal.AdditionalNotes__c != 'Restore promotion point accrual due to return deletion'
+            AND TransactionJournal.AdditionalNotes__c != :ECO_POINT_RESTORE_NOTE
+          )
+        )
       LIMIT 1000
     ];
     if (saleCredits.isEmpty()) {
@@ -1853,6 +1925,18 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       tj.JournalSubTypeId = jstId;
       tj.Status = 'Pending';
 
+      Integer usageDateAvailableLimit = calculatePointUsageAvailableLimit(tj);
+      if (usageDateAvailableLimit != null && usageDateAvailableLimit < tj.TransactionAmount) {
+        throw new CustomException(
+          400,
+          '포인트 잔액이 부족합니다. 사용 가능 금액: ' +
+            usageDateAvailableLimit +
+            'P (요청: ' +
+            tj.TransactionAmount.intValue() +
+            'P)'
+        );
+      }
+
       List<LoyaltyMemberCurrency> lmcList = [
         SELECT LoyaltyMemberId, PointsBalance, LoyaltyProgramCurrency.Name
         FROM LoyaltyMemberCurrency
@@ -1896,7 +1980,10 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         totalAvailable += aggr.AvailablePoints__c;
       }
       if (totalAvailable < tj.transactionAmount) {
-        throw new CustomException(400, '포인트 잔액이 부족합니다.');
+        // [Insufficient Balance Message Fix 2026-05-07] 사용 가능 금액 / 요청 금액을 메시지에 포함.
+        //   배경: 클라이언트가 잔액 부족 응답 받을 때 추가 API 호출 없이 가용액을 알 수 있도록.
+        throw new CustomException(400,
+          '포인트 잔액이 부족합니다. 사용 가능 금액: ' + totalAvailable.intValue() + 'P (요청: ' + tj.transactionAmount.intValue() + 'P)');
       }
 
       // 3. 우선순위대로 서브타입별 차감액 분배
@@ -1999,140 +2086,142 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
   // ! 사용 X
   // 신규 로직 (Hana 2026-04-??) Start.
-  public List<GdSaleApiController.PointDebitDTO> debitPointBySaleSequence(TransactionJournal tj) {
-    try {
-      Long totalStartMs = Datetime.now().getTime();
-      Integer totalStartCpu = Limits.getCpuTime();
-      if (tj == null) {
-        throw new CustomException(400, 'TransactionJournal is null');
-      }
+  // public List<GdSaleApiController.PointDebitDTO> debitPointBySaleSequence(TransactionJournal tj) {
+  //   try {
+  //     Long totalStartMs = Datetime.now().getTime();
+  //     Integer totalStartCpu = Limits.getCpuTime();
+  //     if (tj == null) {
+  //       throw new CustomException(400, 'TransactionJournal is null');
+  //     }
 
-      Id jtId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_REDEMPTION, true);
-      Map<String, Object> jstCond = new Map<String, Object>{ 'Name' => JOURNAL_SUB_TYPE_NAME_POINT_DEBIT, 'JournalTypeId' => jtId };
-      Id jstId = SObjectUtil.findIdByConditions(JournalSubType.SObjectType, jstCond, true);
-      logTiming('debitPointBySaleSequence.resolveJournalTypes', totalStartMs, totalStartCpu);
+  //     Id jtId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_REDEMPTION, true);
+  //     Map<String, Object> jstCond = new Map<String, Object>{ 'Name' => JOURNAL_SUB_TYPE_NAME_POINT_DEBIT, 'JournalTypeId' => jtId };
+  //     Id jstId = SObjectUtil.findIdByConditions(JournalSubType.SObjectType, jstCond, true);
+  //     logTiming('debitPointBySaleSequence.resolveJournalTypes', totalStartMs, totalStartCpu);
 
-      tj.JournalReason__c = '1';
-      tj.JournalTypeId = jtId;
-      tj.JournalSubTypeId = jstId;
-      tj.Status = 'Pending';
+  //     tj.JournalReason__c = '1';
+  //     tj.JournalTypeId = jtId;
+  //     tj.JournalSubTypeId = jstId;
+  //     tj.Status = 'Pending';
 
-      List<LoyaltyMemberCurrency> lmcList = [
-        SELECT LoyaltyMemberId, PointsBalance, LoyaltyProgramCurrency.Name
-        FROM LoyaltyMemberCurrency
-        WHERE LoyaltyMemberId = :tj.MemberId AND LoyaltyProgramCurrency.Name = :LOYALTY_PROGRAM_CURRENCY_NAME
-        LIMIT 1
-      ];
-      tj.PostPointBalance__c = lmcList[0].PointsBalance - tj.TransactionAmount;
-      logTiming('debitPointBySaleSequence.loadMemberCurrency', totalStartMs, totalStartCpu);
+  //     List<LoyaltyMemberCurrency> lmcList = [
+  //       SELECT LoyaltyMemberId, PointsBalance, LoyaltyProgramCurrency.Name
+  //       FROM LoyaltyMemberCurrency
+  //       WHERE LoyaltyMemberId = :tj.MemberId AND LoyaltyProgramCurrency.Name = :LOYALTY_PROGRAM_CURRENCY_NAME
+  //       LIMIT 1
+  //     ];
+  //     tj.PostPointBalance__c = lmcList[0].PointsBalance - tj.TransactionAmount;
+  //     logTiming('debitPointBySaleSequence.loadMemberCurrency', totalStartMs, totalStartCpu);
 
-      insert tj;
-      logTiming('debitPointBySaleSequence.insertJournal', totalStartMs, totalStartCpu);
+  //     insert tj;
+  //     logTiming('debitPointBySaleSequence.insertJournal', totalStartMs, totalStartCpu);
 
-      String saleNo;
-      if (String.isNotBlank(tj.OrderId)) {
-        List<Order> oList = [SELECT OrderNo__c, SaleNo__c FROM Order WHERE Id = :tj.OrderId LIMIT 1];
-        if (!oList.isEmpty()) {
-          if (String.isNotBlank(oList[0].OrderNo__c)) {
-            saleNo = oList[0].OrderNo__c;
-          } else if (String.isNotBlank(oList[0].SaleNo__c)) {
-            saleNo = oList[0].SaleNo__c;
-          }
-        }
-      }
+  //     String saleNo;
+  //     if (String.isNotBlank(tj.OrderId)) {
+  //       List<Order> oList = [SELECT OrderNo__c, SaleNo__c FROM Order WHERE Id = :tj.OrderId LIMIT 1];
+  //       if (!oList.isEmpty()) {
+  //         if (String.isNotBlank(oList[0].OrderNo__c)) {
+  //           saleNo = oList[0].OrderNo__c;
+  //         } else if (String.isNotBlank(oList[0].SaleNo__c)) {
+  //           saleNo = oList[0].SaleNo__c;
+  //         }
+  //       }
+  //     }
 
-      SaleSequenceCutoff cutoff = resolveSaleSequenceCutoff(tj.OrderId, null);
-      if (cutoff == null) {
-        Datetime nowDt = tj.ActivityDate == null ? Datetime.now() : tj.ActivityDate;
-        cutoff = new SaleSequenceCutoff(nowDt, tj.CreatedDate, tj.Id, tj.OrderId, saleNo);
-      }
-      cutoff.activityDate = tj.ActivityDate == null ? cutoff.activityDate : tj.ActivityDate;
-      cutoff.createdDate = tj.CreatedDate == null ? cutoff.createdDate : tj.CreatedDate;
-      cutoff.journalId = tj.Id;
+  //     SaleSequenceCutoff cutoff = resolveSaleSequenceCutoff(tj.OrderId, null);
+  //     if (cutoff == null) {
+  //       Datetime nowDt = tj.ActivityDate == null ? Datetime.now() : tj.ActivityDate;
+  //       cutoff = new SaleSequenceCutoff(nowDt, tj.CreatedDate, tj.Id, tj.OrderId, saleNo);
+  //     }
+  //     cutoff.activityDate = tj.ActivityDate == null ? cutoff.activityDate : tj.ActivityDate;
+  //     cutoff.createdDate = tj.CreatedDate == null ? cutoff.createdDate : tj.CreatedDate;
+  //     cutoff.journalId = tj.Id;
 
-      List<AvailableCreditBalance> availableBalanceList = buildAvailableCreditBalances(tj.MemberId, cutoff, null, saleNo);
-      Decimal totalAvailable = 0;
-      for (AvailableCreditBalance balance : availableBalanceList) {
-        totalAvailable += balance.availablePoints;
-      }
-      if (totalAvailable < tj.TransactionAmount) {
-        throw new CustomException(400, '포인트 예약액이 부족합니다.');
-      }
+  //     List<AvailableCreditBalance> availableBalanceList = buildAvailableCreditBalances(tj.MemberId, cutoff, null, saleNo);
+  //     Decimal totalAvailable = 0;
+  //     for (AvailableCreditBalance balance : availableBalanceList) {
+  //       totalAvailable += balance.availablePoints;
+  //     }
+  //     if (totalAvailable < tj.TransactionAmount) {
+  //       // [Insufficient Balance Message Fix 2026-05-07] debitPoint 와 동일 패턴 — 가용 금액 포함.
+  //       throw new CustomException(400,
+  //         '포인트 예약액이 부족합니다. 사용 가능 금액: ' + totalAvailable.intValue() + 'P (요청: ' + tj.TransactionAmount.intValue() + 'P)');
+  //     }
 
-      Decimal remaining = tj.TransactionAmount;
-      Map<String, Decimal> subtypeDebitMap = new Map<String, Decimal>();
-      for (AvailableCreditBalance balance : availableBalanceList) {
-        if (remaining <= 0) {
-          break;
-        }
-        if (String.isBlank(balance.subtypeName) || balance.availablePoints == null || balance.availablePoints <= 0) {
-          continue;
-        }
-        Decimal amt = Math.min((Decimal) balance.availablePoints, remaining);
-        if (!subtypeDebitMap.containsKey(balance.subtypeName)) {
-          subtypeDebitMap.put(balance.subtypeName, 0);
-        }
-        subtypeDebitMap.put(balance.subtypeName, subtypeDebitMap.get(balance.subtypeName) + amt);
-        remaining -= amt;
-      }
+  //     Decimal remaining = tj.TransactionAmount;
+  //     Map<String, Decimal> subtypeDebitMap = new Map<String, Decimal>();
+  //     for (AvailableCreditBalance balance : availableBalanceList) {
+  //       if (remaining <= 0) {
+  //         break;
+  //       }
+  //       if (String.isBlank(balance.subtypeName) || balance.availablePoints == null || balance.availablePoints <= 0) {
+  //         continue;
+  //       }
+  //       Decimal amt = Math.min((Decimal) balance.availablePoints, remaining);
+  //       if (!subtypeDebitMap.containsKey(balance.subtypeName)) {
+  //         subtypeDebitMap.put(balance.subtypeName, 0);
+  //       }
+  //       subtypeDebitMap.put(balance.subtypeName, subtypeDebitMap.get(balance.subtypeName) + amt);
+  //       remaining -= amt;
+  //     }
 
-      List<Map<String, Object>> reqList = new List<Map<String, Object>>();
-      for (String subtypeName : subtypeDebitMap.keySet()) {
-        Map<String, Object> req = new Map<String, Object>();
-        req.put('loyaltyProgramMemberId', tj.MemberId);
-        req.put('points', subtypeDebitMap.get(subtypeName));
-        req.put('journalId', tj.Id);
-        req.put('loyaltyProgramCurrencySubtypeName', subtypeName);
-        reqList.add(req);
-      }
+  //     List<Map<String, Object>> reqList = new List<Map<String, Object>>();
+  //     for (String subtypeName : subtypeDebitMap.keySet()) {
+  //       Map<String, Object> req = new Map<String, Object>();
+  //       req.put('loyaltyProgramMemberId', tj.MemberId);
+  //       req.put('points', subtypeDebitMap.get(subtypeName));
+  //       req.put('journalId', tj.Id);
+  //       req.put('loyaltyProgramCurrencySubtypeName', subtypeName);
+  //       reqList.add(req);
+  //     }
 
-      List<LoyaltyManagement.DebitPointsOutput> resList = LoyaltyPointService.debitPoints(reqList);
-      logTiming('debitPointBySaleSequence.loyaltyPointServiceDebit', totalStartMs, totalStartCpu);
+  //     List<LoyaltyManagement.DebitPointsOutput> resList = LoyaltyPointService.debitPoints(reqList);
+  //     logTiming('debitPointBySaleSequence.loyaltyPointServiceDebit', totalStartMs, totalStartCpu);
 
-      String memberNo;
-      List<LoyaltyProgramMember> lpmList = [
-        SELECT Contact.MemberNo__c
-        FROM LoyaltyProgramMember
-        WHERE Id = :tj.MemberId
-        LIMIT 1
-      ];
-      if (!lpmList.isEmpty()) {
-        memberNo = lpmList[0].Contact.MemberNo__c;
-      }
+  //     String memberNo;
+  //     List<LoyaltyProgramMember> lpmList = [
+  //       SELECT Contact.MemberNo__c
+  //       FROM LoyaltyProgramMember
+  //       WHERE Id = :tj.MemberId
+  //       LIMIT 1
+  //     ];
+  //     if (!lpmList.isEmpty()) {
+  //       memberNo = lpmList[0].Contact.MemberNo__c;
+  //     }
 
-      List<LoyaltyLedgerTraceability> lltList = [
-        SELECT Points, LastModifiedDate, DebitLoyaltyLedgerId, LoyaltyPgmCurrencySubtype.PointTypeCode__c, CreditLoyaltyLedgerId
-        FROM LoyaltyLedgerTraceability
-        WHERE LoyaltyProgramMemberId = :tj.MemberId AND DebitLoyaltyLedger.TransactionJournalId = :tj.Id
-        LIMIT 100
-      ];
-      if (lltList.isEmpty()) {
-        throw new CustomException(400, '포인트 사용 추적 내용이 존재하지 않습니다. ' + tj.Id);
-      }
+  //     List<LoyaltyLedgerTraceability> lltList = [
+  //       SELECT Points, LastModifiedDate, DebitLoyaltyLedgerId, LoyaltyPgmCurrencySubtype.PointTypeCode__c, CreditLoyaltyLedgerId
+  //       FROM LoyaltyLedgerTraceability
+  //       WHERE LoyaltyProgramMemberId = :tj.MemberId AND DebitLoyaltyLedger.TransactionJournalId = :tj.Id
+  //       LIMIT 100
+  //     ];
+  //     if (lltList.isEmpty()) {
+  //       throw new CustomException(400, '포인트 사용 추적 내용이 존재하지 않습니다. ' + tj.Id);
+  //     }
 
-      List<GdSaleApiController.PointDebitDTO> pdDtoList = new List<GdSaleApiController.PointDebitDTO>();
-      for (LoyaltyLedgerTraceability llt : lltList) {
-        GdSaleApiController.PointDebitDTO pcDto = new GdSaleApiController.PointDebitDTO();
-        pcDto.CD_LEDGER = llt.DebitLoyaltyLedgerId;
-        pcDto.CD_JOURNAL = llt.CreditLoyaltyLedgerId;
-        pcDto.CD_TYPE_POINT = llt.LoyaltyPgmCurrencySubtype.PointTypeCode__c;
-        pcDto.CD_RESON = tj.JournalReason__c;
-        pcDto.NO_MBR = memberNo;
-        if (String.isNotBlank(saleNo)) {
-          pcDto.NO_SAL = saleNo;
-        }
-        pcDto.PT_USE = llt.Points;
-        pcDto.DTS_INSERT = String.valueOf(llt.LastModifiedDate);
-        pdDtoList.add(pcDto);
-      }
+  //     List<GdSaleApiController.PointDebitDTO> pdDtoList = new List<GdSaleApiController.PointDebitDTO>();
+  //     for (LoyaltyLedgerTraceability llt : lltList) {
+  //       GdSaleApiController.PointDebitDTO pcDto = new GdSaleApiController.PointDebitDTO();
+  //       pcDto.CD_LEDGER = llt.DebitLoyaltyLedgerId;
+  //       pcDto.CD_JOURNAL = llt.CreditLoyaltyLedgerId;
+  //       pcDto.CD_TYPE_POINT = llt.LoyaltyPgmCurrencySubtype.PointTypeCode__c;
+  //       pcDto.CD_RESON = tj.JournalReason__c;
+  //       pcDto.NO_MBR = memberNo;
+  //       if (String.isNotBlank(saleNo)) {
+  //         pcDto.NO_SAL = saleNo;
+  //       }
+  //       pcDto.PT_USE = llt.Points;
+  //       pcDto.DTS_INSERT = String.valueOf(llt.LastModifiedDate);
+  //       pdDtoList.add(pcDto);
+  //     }
 
-      return pdDtoList;
-    } catch (ValidationException ve) {
-      throw new CustomException(ve.code, ve.detail);
-    } catch (Exception e) {
-      throw e;
-    }
-  }
+  //     return pdDtoList;
+  //   } catch (ValidationException ve) {
+  //     throw new CustomException(ve.code, ve.detail);
+  //   } catch (Exception e) {
+  //     throw e;
+  //   }
+  // }
   // 신규 로직 (Hana 2026-04-??) End.
 
   /**
@@ -2227,6 +2316,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           AND Points > 0
           AND ExpiryDate >= TODAY
           AND LoyaltyPgmCrcySubtype.PointTypeCode__c != NULL
+          AND TransactionJournal.JournalSubType.Name != :JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL
         ORDER BY ExpiryDate ASC, LoyaltyPgmCrcySubtype.UsagePriorityNumber ASC, CreatedDate ASC, Id ASC
         LIMIT 50000
       ];
@@ -2245,6 +2335,8 @@ public with sharing class GdPointServiceImpl implements GdPointService {
             LoyaltyProgramMemberId = :tj.MemberId
             AND CreditLoyaltyLedgerId IN :creditIds
             AND ActionType IN ('Debit', 'DebitCancellation', 'CreditCancellation')
+            AND (ActionType != 'Debit'
+              OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
           GROUP BY CreditLoyaltyLedgerId, ActionType
         ]) {
           Id cid = (Id) ar.get('credId');
@@ -2274,14 +2366,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         String crsn = (c.TransactionJournal != null && c.TransactionJournal.SaleId__r != null)
           ? c.TransactionJournal.SaleId__r.SaleNo__c
           : null;
-        // [v3 fix 2026-04-24] Flag ON 하에선 재적립 Credit (Point Redeem Cancel) 이 same-sale 에
-        //   연결돼 있어도 실제 사용 가능한 별도 Credit 이므로 same-sale 필터로 배제하지 않음.
-        String cJst = (c.TransactionJournal != null && c.TransactionJournal.JournalSubType != null)
-          ? c.TransactionJournal.JournalSubType.Name
-          : null;
-        Boolean v3SkipSameSale = (cJst == JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL
-            && GdFeatureFlag.isEnabled('PointCancel_PreserveTrace'));
-        if (!v3SkipSameSale && String.isNotBlank(saleNo) && (saleNo == csn || saleNo == crsn)) {
+        if (String.isNotBlank(saleNo) && (saleNo == csn || saleNo == crsn)) {
           continue;
         }
 
@@ -2310,7 +2395,11 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       }
 
       if (remaining > 0) {
-        throw new CustomException(400, '포인트 잔액이 부족합니다.');
+        // [Insufficient Balance Message Fix 2026-05-07] 가용 금액 / 요청 금액 포함.
+        //   available = 요청 - 잔여 (할당 못한 부분 = 가용 부족분)
+        Decimal available = tj.TransactionAmount - remaining;
+        throw new CustomException(400,
+          '포인트 잔액이 부족합니다. 사용 가능 금액: ' + available.intValue() + 'P (요청: ' + tj.TransactionAmount.intValue() + 'P)');
       }
 
       // 8. Debit LoyaltyLedger insert (단일, subtypeId=null, ExpiryDate=null - 표준 동작 일치)
@@ -2407,6 +2496,9 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
   /**
    * 특정 포인트 포인트 차감
+   * 
+   * @version V1
+   * @author Changhwan Kim
    */
   public List<PointDebitDTO> debitSpecificPoints(TransactionJournal tj, List<LoyaltyLedger> llList) {
     try {
@@ -2487,11 +2579,319 @@ public with sharing class GdPointServiceImpl implements GdPointService {
   }
 
   /**
+   * 특정 Credit 포인트 원장을 직접 차감한다.
+   * 
+   * @version V2
+   * @since 2026-05-09
+   * @author Changhwan Kim
+   */
+  public List<PointDebitDTO> debitSpecificPointsV2(TransactionJournal tj, List<LoyaltyLedger> llList) {
+    if (llList == null || llList.isEmpty()) {
+      throw new CustomException(400, '차감 대상 포인트 원장이 존재하지 않습니다.');
+    }
+    Map<Id, Decimal> requestedPointsByLedgerId = new Map<Id, Decimal>();
+    for (LoyaltyLedger ll : llList) {
+      if (ll != null && ll.Id != null) {
+        requestedPointsByLedgerId.put(ll.Id, ll.Points);
+      }
+    }
+    return debitSpecificPointsV3(tj, requestedPointsByLedgerId);
+  }
+
+  public List<PointDebitDTO> debitSpecificPointsV3(TransactionJournal tj, Map<Id, Decimal> requestedPointsByLedgerId) {
+    try {
+      if (tj == null) {
+        throw new CustomException(400, 'TransactionJournal is null');
+      }
+      if (tj.MemberId == null) {
+        throw new CustomException(400, 'TransactionJournal.MemberId is required');
+      }
+      if (requestedPointsByLedgerId == null || requestedPointsByLedgerId.isEmpty()) {
+        throw new CustomException(400, '차감 대상 포인트 원장이 존재하지 않습니다.');
+      }
+
+      Id jtId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_REDEMPTION, true);
+      Map<String, Object> jstCond = new Map<String, Object>{ 'Name' => JOURNAL_SUB_TYPE_NAME_POINT_DEBIT, 'JournalTypeId' => jtId };
+      Id jstId = SObjectUtil.findIdByConditions(JournalSubType.SObjectType, jstCond, true);
+      Id loyaltyProgramCurrencyId = SObjectUtil.findIdByName(LoyaltyProgramCurrency.SObjectType, LOYALTY_PROGRAM_CURRENCY_NAME, true);
+
+      Set<Id> sourceLedgerIds = new Set<Id>();
+      for (Id ledgerId : requestedPointsByLedgerId.keySet()) {
+        if (ledgerId != null) {
+          sourceLedgerIds.add(ledgerId);
+        }
+      }
+      if (sourceLedgerIds.isEmpty()) {
+        throw new CustomException(400, '차감 대상 포인트 원장 Id가 존재하지 않습니다.');
+      }
+
+      List<LoyaltyLedger> sourceLedgers = [
+        SELECT
+          Id,
+          EventType,
+          Points,
+          ExpiryDate,
+          LoyaltyProgramMemberId,
+          LoyaltyPgmCrcySubtypeId,
+          LoyaltyPgmCrcySubtype.Name,
+          LoyaltyPgmCrcySubtype.PointTypeCode__c
+        FROM LoyaltyLedger
+        WHERE Id IN :sourceLedgerIds
+        ORDER BY ExpiryDate ASC, CreatedDate ASC, Id ASC
+      ];
+      if (sourceLedgers.isEmpty()) {
+        throw new CustomException(400, '차감 대상 포인트 원장을 찾을 수 없습니다.');
+      }
+
+      Set<Id> creditLedgerIds = new Set<Id>();
+      for (LoyaltyLedger ll : sourceLedgers) {
+        if (ll.EventType != 'Credit') {
+          throw new CustomException(400, '차감 대상은 Credit 포인트 원장만 가능합니다. ' + ll.Id);
+        }
+        if (ll.LoyaltyProgramMemberId != tj.MemberId) {
+          throw new CustomException(400, '차감 대상 포인트 원장의 회원이 요청 회원과 다릅니다. ' + ll.Id);
+        }
+        if (ll.Points == null || ll.Points <= 0) {
+          continue;
+        }
+        if (ll.LoyaltyPgmCrcySubtypeId == null) {
+          throw new CustomException(400, '차감 대상 포인트 원장의 포인트 유형이 없습니다. ' + ll.Id);
+        }
+        creditLedgerIds.add(ll.Id);
+      }
+
+      // 기존 로직 Start
+      // Map<Id, Decimal> reductionByCreditLedgerId = new Map<Id, Decimal>();
+      // if (!creditLedgerIds.isEmpty()) {
+      //   for (AggregateResult ar : [
+      //     SELECT CreditLoyaltyLedgerId creditId, ActionType actionType, SUM(Points) totalPoints
+      // 기존 로직 End
+      // 신규 로직 Start
+      Map<Id, Decimal> reductionByCreditLedgerId = new Map<Id, Decimal>();
+      Map<Id, Decimal> cancellationByCreditLedgerId = new Map<Id, Decimal>();
+      if (!creditLedgerIds.isEmpty()) {
+        for (AggregateResult ar : [
+          SELECT CreditLoyaltyLedgerId creditId, ActionType actionType, SUM(Points) totalPoints
+          // 신규 로직 End
+          FROM LoyaltyLedgerTraceability
+          WHERE
+          // 기존 로직 Start
+          // LoyaltyProgramMemberId = :tj.MemberId
+          //   AND CreditLoyaltyLedgerId IN :creditLedgerIds
+          //   AND ActionType IN ('Debit', 'DebitCancellation', 'CreditCancellation')
+          //   AND (DebitLoyaltyLedgerId = NULL
+          //     OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
+          // 기존 로직 End
+          // 신규 로직 Start
+            LoyaltyProgramMemberId = :tj.MemberId
+            AND CreditLoyaltyLedgerId IN :creditLedgerIds
+            AND IsDeleted = FALSE
+            AND ActionType IN ('Debit', 'DebitCancellation', 'CreditCancellation')
+            AND (DebitLoyaltyLedgerId = NULL
+              OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
+              // 신규 로직 End
+          GROUP BY CreditLoyaltyLedgerId, ActionType
+          // 기존 로직 Start
+      //     ]) {
+      //     Id creditId = (Id) ar.get('creditId');
+      //     String actionType = (String) ar.get('actionType');
+      //     Decimal totalPoints = ar.get('totalPoints') == null ? 0 : ((Decimal) ar.get('totalPoints')).abs();
+      //     Decimal current = reductionByCreditLedgerId.containsKey(creditId) ? reductionByCreditLedgerId.get(creditId) : 0;
+      //     if (actionType == 'DebitCancellation') {
+      //       reductionByCreditLedgerId.put(creditId, Math.max(0, current - totalPoints));
+      //     } else {
+      //       reductionByCreditLedgerId.put(creditId, current + totalPoints);
+      //     }
+      //   }
+      // }
+      // 기존 로직 End
+      // 신규 로직 Start
+        ]) {
+          Id creditId = (Id) ar.get('creditId');
+          String actionType = (String) ar.get('actionType');
+          Decimal totalPoints = ar.get('totalPoints') == null ? 0 : ((Decimal) ar.get('totalPoints')).abs();
+          if (actionType == 'DebitCancellation') {
+            Decimal currentCancellation = cancellationByCreditLedgerId.containsKey(creditId) ? cancellationByCreditLedgerId.get(creditId) : 0;
+            cancellationByCreditLedgerId.put(creditId, currentCancellation + totalPoints);
+          } else {
+            Decimal current = reductionByCreditLedgerId.containsKey(creditId) ? reductionByCreditLedgerId.get(creditId) : 0;
+            reductionByCreditLedgerId.put(creditId, current + totalPoints);
+          }
+        }
+        for (Id creditId : cancellationByCreditLedgerId.keySet()) {
+          Decimal reduced = reductionByCreditLedgerId.containsKey(creditId) ? reductionByCreditLedgerId.get(creditId) : 0;
+          reductionByCreditLedgerId.put(creditId, Math.max(0, reduced - cancellationByCreditLedgerId.get(creditId)));
+        }
+      }
+      // 신규 로직 End
+
+      tj.JournalReason__c = '1';
+      tj.JournalTypeId = jtId;
+      tj.JournalSubTypeId = jstId;
+      tj.Status = 'Pending';
+      insert tj;
+
+      List<LoyaltyLedger> debitLedgers = new List<LoyaltyLedger>();
+      List<Id> traceCreditLedgerIds = new List<Id>();
+      List<Id> traceSubtypeIds = new List<Id>();
+      List<Decimal> tracePoints = new List<Decimal>();
+
+      for (LoyaltyLedger sourceLedger : sourceLedgers) {
+        if (sourceLedger.Points == null || sourceLedger.Points <= 0) {
+          continue;
+        }
+        Decimal alreadyReduced = reductionByCreditLedgerId.containsKey(sourceLedger.Id)
+          ? reductionByCreditLedgerId.get(sourceLedger.Id)
+          : 0;
+        Decimal availablePoints = sourceLedger.Points - alreadyReduced;
+        if (availablePoints <= 0) {
+          continue;
+        }
+        Decimal requestedPoints = requestedPointsByLedgerId.containsKey(sourceLedger.Id)
+          ? requestedPointsByLedgerId.get(sourceLedger.Id)
+          : sourceLedger.Points;
+        Decimal debitPoints = Math.min(availablePoints, requestedPoints);
+        if (debitPoints <= 0) {
+          continue;
+        }
+
+        LoyaltyLedger debitLedger = new LoyaltyLedger();
+        debitLedger.LoyaltyProgramMemberId = tj.MemberId;
+        debitLedger.LoyaltyProgramCurrencyId = loyaltyProgramCurrencyId;
+        debitLedger.TransactionJournalId = tj.Id;
+        debitLedger.LoyaltyPgmCrcySubtypeId = sourceLedger.LoyaltyPgmCrcySubtypeId;
+        debitLedger.Points = debitPoints;
+        debitLedger.EventType = 'Debit';
+        debitLedger.ActivityDate = tj.ActivityDate != null ? tj.ActivityDate : Datetime.now();
+        debitLedgers.add(debitLedger);
+
+        traceCreditLedgerIds.add(sourceLedger.Id);
+        traceSubtypeIds.add(sourceLedger.LoyaltyPgmCrcySubtypeId);
+        tracePoints.add(debitPoints);
+      }
+
+      if (debitLedgers.isEmpty()) {
+        throw new CustomException(400, '차감 가능한 포인트 원장 잔액이 존재하지 않습니다.');
+      }
+
+      insert debitLedgers;
+
+      List<LoyaltyLedgerTraceability> traceList = new List<LoyaltyLedgerTraceability>();
+      Decimal totalDebitPoints = 0;
+      for (Integer i = 0; i < debitLedgers.size(); i++) {
+        LoyaltyLedgerTraceability trace = new LoyaltyLedgerTraceability();
+        trace.ActionType = 'Debit';
+        trace.LoyaltyProgramMemberId = tj.MemberId;
+        trace.LoyaltyProgramCurrencyId = loyaltyProgramCurrencyId;
+        trace.LoyaltyPgmCurrencySubtypeId = traceSubtypeIds[i];
+        trace.CreditLoyaltyLedgerId = traceCreditLedgerIds[i];
+        trace.DebitLoyaltyLedgerId = debitLedgers[i].Id;
+        trace.Points = tracePoints[i];
+        traceList.add(trace);
+        totalDebitPoints += tracePoints[i];
+      }
+      insert traceList;
+
+      List<LoyaltyMemberCurrency> lmcList = [
+        SELECT Id, TotalPointsRedeemed
+        FROM LoyaltyMemberCurrency
+        WHERE LoyaltyMemberId = :tj.MemberId AND LoyaltyProgramCurrency.Name = :LOYALTY_PROGRAM_CURRENCY_NAME
+        LIMIT 1
+      ];
+      if (!lmcList.isEmpty()) {
+        LoyaltyMemberCurrency lmc = lmcList[0];
+        lmc.TotalPointsRedeemed = (lmc.TotalPointsRedeemed == null ? 0 : lmc.TotalPointsRedeemed) + totalDebitPoints;
+        update lmc;
+      }
+
+      tj.TransactionAmount = totalDebitPoints;
+      tj.Status = 'Processed';
+      update tj;
+
+      // List<LoyaltyLedgerTraceability> lltList = [
+      //   SELECT
+      //     LoyaltyPgmCurrencySubtype.Name,
+      //     Points,
+      //     CreditLoyaltyLedger.ExpiryDate,
+      //     LoyaltyProgramMember.Contact.MemberNo__c,
+      //     LastModifiedDate,
+      //     DebitLoyaltyLedgerId,
+      //     LoyaltyPgmCurrencySubtype.PointTypeCode__c,
+      //     CreditLoyaltyLedgerId,
+      //     DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
+      //     DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c
+      //   FROM LoyaltyLedgerTraceability
+      //   WHERE LoyaltyProgramMemberId = :tj.MemberId AND DebitLoyaltyLedger.TransactionJournalId = :tj.Id
+      //   LIMIT 100
+      // ];
+      // if (lltList.isEmpty()) {
+      //   throw new CustomException(400, '포인트 사용 추적 내용이 존재하지 않습니다. ' + tj.Id);
+      // }
+
+      List<PointDebitDTO> pdDtoList = new List<PointDebitDTO>();
+      // for (LoyaltyLedgerTraceability llt : lltList) {
+      //   PointDebitDTO pcDto = new PointDebitDTO();
+      //   pcDto.CD_LEDGER = llt.DebitLoyaltyLedgerId;
+      //   pcDto.CD_JOURNAL = llt.CreditLoyaltyLedgerId;
+      //   pcDto.CD_TYPE_POINT = llt.LoyaltyPgmCurrencySubtype.PointTypeCode__c;
+      //   pcDto.CD_RESON = tj.JournalReason__c;
+      //   pcDto.NO_MBR = llt.LoyaltyProgramMember.Contact.MemberNo__c;
+      //   if (llt.DebitLoyaltyLedger != null &&
+      //       llt.DebitLoyaltyLedger.TransactionJournal != null &&
+      //       llt.DebitLoyaltyLedger.TransactionJournal.Order != null &&
+      //       String.isNotBlank(llt.DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c)) {
+      //     pcDto.NO_SAL = llt.DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c;
+      //   } else if (llt.DebitLoyaltyLedger != null &&
+      //       llt.DebitLoyaltyLedger.TransactionJournal != null &&
+      //       llt.DebitLoyaltyLedger.TransactionJournal.Order != null &&
+      //       String.isNotBlank(llt.DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c)) {
+      //     pcDto.NO_SAL = llt.DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c;
+      //   }
+      //   pcDto.PT_USE = llt.Points;
+      //   pcDto.DTS_INSERT = String.valueOf(llt.LastModifiedDate);
+      //   pdDtoList.add(pcDto);
+      // }
+      return pdDtoList;
+    } catch (ValidationException ve) {
+      throw new CustomException(ve.code, ve.detail);
+    } catch (Exception e) {
+      throw e;
+    }
+  }
+
+  /**
    * 구매 시 포인트 지급
    */
   public List<PointCreditDTO> creditPointsOnPurchase(List<TransactionJournal> data) {
     try {
       if (data.isEmpty()) {
+        return null;
+      }
+
+      // [Zero Accrual Skip Fix 2026-05-07] 적립 대상 금액이 0 이하면 TJ insert 전 early return.
+      //   배경: 호출자가 PaymentMethod=20/81/90/93 이거나 Amt=0 인 TJ 만 넘기는 케이스 존재.
+      //         예: deleteReturnDeposit 의 Sale Deposit Reversal (PaymentMethod=93) 환불 입금 삭제 시
+      //         linkedAccrualReversalTjList 빈 분기에서 호출됨 (GdReturnDepositServiceImpl.cls:965).
+      //   기존 동작: TJ insert + LMS API 호출 → 0P Purchase Accrual TJ + 0P LL 발급
+      //         → 회원도움창 적립 내역에 0/0/0 행 노출 (회원 193001000334 케이스).
+      //   수정 후: 사전 계산하여 eligibleAmount <= 0 이면 null 반환 → 0P TJ/LL 미발생.
+      //   안전성: 같은 클래스의 creditPointsOnPurchaseByGrade(:3117) /
+      //           cancelPointsCreditedOnPurchase(:4944) 가 이미 같은 early return 패턴 적용 → 일관성.
+      //           양수 eligibleAmount 케이스는 기존 동작 100% 유지.
+      Decimal eligibleAmount = 0;
+      for (TransactionJournal v : data) {
+        if (v == null) {
+          continue;
+        }
+        if (v.PaymentMethod == '20' || v.PaymentMethod == '81' || v.PaymentMethod == '90' || v.PaymentMethod == '93') {
+          continue;
+        }
+        if (v.TransactionAmount == null || v.TransactionAmount == 0) {
+          continue;
+        }
+        eligibleAmount += v.TransactionAmount;
+      }
+      if (eligibleAmount <= 0) {
         return null;
       }
 
@@ -2522,15 +2922,16 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         throw new CustomException(400, '해당 회원의 등급 보상이 없습니다. ' + data[0].MemberId);
       }
 
-      Datetime purchaseAccrualDatetime = resolvePurchaseAccrualDatetime(data[0].OrderId);
-      Date purchaseAccrualExpirationDate = resolvePurchaseAccrualExpirationDate(data[0].OrderId);
+      Id purchaseAccrualOrderId = resolvePurchaseAccrualOrderId(data[0]);
+      Datetime purchaseAccrualDatetime = resolvePurchaseAccrualDatetime(purchaseAccrualOrderId);
+      Date purchaseAccrualExpirationDate = resolvePurchaseAccrualExpirationDate(purchaseAccrualOrderId);
 
       TransactionJournal tj = new TransactionJournal();
       tj.ActivityDate = purchaseAccrualDatetime;
       tj.JournalDate = purchaseAccrualDatetime;
       tj.LoyaltyProgramId = data[0].LoyaltyProgramId;
       tj.MemberId = data[0].MemberId;
-      tj.OrderId = data[0].OrderId;
+      tj.OrderId = purchaseAccrualOrderId;
       if (String.isNotBlank(data[0].SaleId__c)) {
         tj.SaleId__c = data[0].SaleId__c;
       } else if (String.isNotBlank(data[0].OrderId__c)) {
@@ -2692,15 +3093,16 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         return null;
       }
 
-      Datetime purchaseAccrualDatetime = resolvePurchaseAccrualDatetime(data[0].OrderId);
-      Date purchaseAccrualExpirationDate = resolvePurchaseAccrualExpirationDate(data[0].OrderId);
+      Id purchaseAccrualOrderId = resolvePurchaseAccrualOrderId(data[0]);
+      Datetime purchaseAccrualDatetime = resolvePurchaseAccrualDatetime(purchaseAccrualOrderId);
+      Date purchaseAccrualExpirationDate = resolvePurchaseAccrualExpirationDate(purchaseAccrualOrderId);
 
       TransactionJournal tj = new TransactionJournal();
       tj.ActivityDate = purchaseAccrualDatetime;
       tj.JournalDate = purchaseAccrualDatetime;
       tj.LoyaltyProgramId = data[0].LoyaltyProgramId;
       tj.MemberId = data[0].MemberId;
-      tj.OrderId = data[0].OrderId;
+      tj.OrderId = purchaseAccrualOrderId;
       if (String.isNotBlank(data[0].SaleId__c)) {
         tj.SaleId__c = data[0].SaleId__c;
       } else if (String.isNotBlank(data[0].OrderId__c)) {
@@ -2821,6 +3223,241 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       timingCheckpoint = logTimingWithDelta('creditPointsOnPurchaseV2.updateJournal.total', totalStartMs, totalStartCpu, timingCheckpoint);
 
       logTimingWithDelta('creditPointsOnPurchaseV2.total', totalStartMs, totalStartCpu, timingCheckpoint);
+      return pcDtoList;
+    } catch (ValidationException ve) {
+      throw new CustomException(ve.code, ve.detail);
+    } catch (Exception e) {
+      throw e;
+    }
+  }
+
+  /**
+   * 26.05.08 CS - [옵션 C — 옛 일자 신규 판매 전용] 구매 시 포인트 지급 (기타포인트 redirect)
+   *
+   * 표준 creditPointsOnPurchaseV2 의 99% 동일 동작 + 단 3가지 차이:
+   *   1. 등급 보상 중 PT='01' (구매포인트) 비율만 사용 (사은포인트 등 제외)
+   *   2. 적립 SubType 을 '기타포인트' 로 강제 redirect
+   *   3. 부모 TJ.AdditionalNotes 에 옵션 C 마커 추가 (운영 추적용)
+   *
+   * 만료일 / 적립 일자 / LL/LLT 생성 / 트리거 LASEL 자동 생성 / TJ.PostPointBalance 업데이트 모두 표준 동일.
+   *
+   * 호출 조건 (호출자가 보장):
+   *   - GdMigrationUtil.shouldApplyOptionCBranchByOrderId(data[0].OrderId) == true
+   *   - 즉 IsEnabled=true + Order.EffectiveDate < OpenDate
+   *
+   * 안전성:
+   *   - DML 모두 try/catch
+   *   - 표준 메서드와 격리 (코드 복제, 표준 0줄 수정)
+   */
+  public List<PointCreditDTO> creditEtcPointsOnPurchaseForOldSale(List<TransactionJournal> data, Decimal excludeAmount) {
+    try {
+      Long totalStartMs = Datetime.now().getTime();
+      Integer totalStartCpu = Limits.getCpuTime();
+      Savepoint sp1 = Database.setSavepoint();
+
+      if (data == null || data.isEmpty()) {
+        return null;
+      }
+
+      // 1. 프로모션에서 제외할 PointTypeCode 추출 (표준과 동일)
+      Set<String> excludedPointTypeCodeSet = new Set<String>();
+      List<Promotion> pList = [SELECT Id, PointTypeCode__c FROM Promotion WHERE Id = :data[0].PromotionId LIMIT 1];
+      if (!pList.isEmpty() && String.isNotBlank(pList[0].PointTypeCode__c)) {
+        for (String code : pList[0].PointTypeCode__c.split(';')) {
+          if (String.isNotBlank(code)) {
+            excludedPointTypeCodeSet.add(code.trim());
+          }
+        }
+      }
+
+      // 2. JournalType + JournalSubType 조회 (표준과 동일 — Purchase Accrual)
+      List<JournalType> jtListByCreditPoint = [SELECT Id FROM JournalType WHERE Name = :JOURNAL_TYPE_NAME_ACCRUAL LIMIT 1];
+      if (jtListByCreditPoint.isEmpty()) {
+        throw new CustomException(400, '저널 타입(포인트 지급)이 없습니다. ' + JOURNAL_TYPE_NAME_ACCRUAL);
+      }
+      List<JournalSubType> jstListByCreditPoint = [
+        SELECT Id
+        FROM JournalSubType
+        WHERE Name = :JOURNAL_SUB_TYPE_NAME_PURCHASE_ACCRUAL AND JournalTypeId = :jtListByCreditPoint[0].Id
+        LIMIT 1
+      ];
+      if (jstListByCreditPoint.isEmpty()) {
+        throw new CustomException(400, '저널 하위 타입(포인트 지급)이 없습니다. ' + JOURNAL_SUB_TYPE_NAME_PURCHASE_ACCRUAL);
+      }
+
+      // 3. 회원 등급 LoyaltyTierBenefit 조회 (표준과 동일)
+      List<LoyaltyTierBenefit> rawLtbList = [
+        SELECT
+          Benefit.PurchasePointRate__c,
+          Benefit.LoyaltyPgmCurrencySubtypeId__r.Name,
+          Benefit.LoyaltyPgmCurrencySubtypeId__c,
+          Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c
+        FROM LoyaltyTierBenefit
+        WHERE LoyaltyTierId IN (SELECT LoyaltyTierId FROM LoyaltyMemberTier WHERE LoyaltyMemberId = :data[0].MemberId)
+      ];
+
+      // 4. ★ 차이점 1: PT='01' (구매포인트) 비율만 추출 + 프로모션 제외 PT 적용
+      List<LoyaltyTierBenefit> ltbList = new List<LoyaltyTierBenefit>();
+      for (LoyaltyTierBenefit ltb : rawLtbList) {
+        if (ltb.Benefit == null || ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r == null) {
+          continue;
+        }
+        String benefitPointTypeCode = ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c;
+        if (!'01'.equals(benefitPointTypeCode)) {
+          continue; // 구매포인트(PT=01) 외 모두 제외
+        }
+        if (String.isNotBlank(benefitPointTypeCode) && excludedPointTypeCodeSet.contains(benefitPointTypeCode.trim())) {
+          continue; // 프로모션이 PT=01 을 제외 명시한 경우
+        }
+        ltbList.add(ltb);
+      }
+
+      if (ltbList.isEmpty()) {
+        return null;
+      }
+
+      // 5. ★ 차이점 2: 기타포인트 SubType 조회 (적립 redirect 대상)
+      List<LoyaltyPgmCurrencySubtype> etcSubtypeList = [
+        SELECT Id, Name FROM LoyaltyPgmCurrencySubtype WHERE PointTypeCode__c = '04' LIMIT 1
+      ];
+      if (etcSubtypeList.isEmpty()) {
+        throw new CustomException(400, '기타포인트 SubType (PT=04) 이 존재하지 않습니다.');
+      }
+      String etcSubtypeName = etcSubtypeList[0].Name;
+      Id etcSubtypeId = etcSubtypeList[0].Id;
+
+      // 6. 적립 일자 + 만료일 결정 (표준과 동일)
+      Id purchaseAccrualOrderId = resolvePurchaseAccrualOrderId(data[0]);
+      Datetime purchaseAccrualDatetime = resolvePurchaseAccrualDatetime(purchaseAccrualOrderId);
+      Date purchaseAccrualExpirationDate = resolvePurchaseAccrualExpirationDate(purchaseAccrualOrderId);
+
+      // 7. 부모 TJ insert (표준과 동일 + ★ 차이점 3: AdditionalNotes 마커)
+      TransactionJournal tj = new TransactionJournal();
+      tj.ActivityDate = purchaseAccrualDatetime;
+      tj.JournalDate = purchaseAccrualDatetime;
+      tj.LoyaltyProgramId = data[0].LoyaltyProgramId;
+      tj.MemberId = data[0].MemberId;
+      tj.OrderId = purchaseAccrualOrderId;
+      if (String.isNotBlank(data[0].SaleId__c)) {
+        tj.SaleId__c = data[0].SaleId__c;
+      } else if (String.isNotBlank(data[0].OrderId__c)) {
+        tj.OrderId__c = data[0].OrderId__c;
+      }
+      tj.JournalTypeId = jtListByCreditPoint[0].Id;
+      tj.JournalSubTypeId = jstListByCreditPoint[0].Id;
+      tj.AdditionalNotes__c = 'OPTC_OLD_SALE_ETC_ACCRUAL';
+      if (data[0].PromotionId != null && String.isNotBlank(data[0].PromotionId)) {
+        tj.PromotionId = data[0].PromotionId;
+      }
+
+      insert tj;
+
+      // 8. 적립 가능 금액 계산 (표준과 동일)
+      Decimal totalAmount = calculateEligibleAccrualAmount(data, excludeAmount);
+      if (totalAmount <= 0) {
+        Database.rollback(sp1);
+        return null;
+      }
+
+      // 9. reqList 구성 — ★ 차이점 2 적용: SubtypeName='기타포인트' 강제
+      List<Map<String, Object>> reqList = new List<Map<String, Object>>();
+      for (LoyaltyTierBenefit ltb : ltbList) {
+        Decimal points = (totalAmount * (ltb.Benefit.PurchasePointRate__c / 100)).setScale(0, RoundingMode.HALF_UP);
+        if (points <= 0) {
+          continue;
+        }
+        Map<String, Object> req = new Map<String, Object>();
+        req.put('loyaltyProgramMemberId', data[0].MemberId);
+        req.put('journalId', tj.Id);
+        req.put('loyaltyProgramCurrencySubtypeName', etcSubtypeName); // ← '기타포인트' redirect
+        req.put('points', points);
+        req.put('pointsExpirationDate', String.valueOf(purchaseAccrualExpirationDate));
+        // audit: 원본 LTB 정보 보존 (어떤 등급 PT='01' 비율을 썼는지 추적)
+        req.put(
+          'additionalNotes',
+          'OPTC_OLD_SALE|origin=' + ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r.Name +
+            '|originSubtypeId=' + String.valueOf(ltb.Benefit.LoyaltyPgmCurrencySubtypeId__c) +
+            '|rate=' + String.valueOf(ltb.Benefit.PurchasePointRate__c) +
+            '|redirectTo=' + etcSubtypeName
+        );
+        reqList.add(req);
+      }
+
+      if (reqList.isEmpty()) {
+        Database.rollback(sp1);
+        return null;
+      }
+
+      // 10. LoyaltyPointService.creditPoints (표준과 동일 — LL/LLT 자동 생성, 트리거가 LASEL 처리)
+      LoyaltyPointService.creditPoints(reqList);
+
+      // 11. 생성된 LL 조회 (표준과 동일)
+      List<LoyaltyLedger> llList = [
+        SELECT
+          Id,
+          TransactionJournalId,
+          LoyaltyPgmCrcySubtype.Name,
+          Points,
+          ExpiryDate,
+          EscrowPointsCreditDate,
+          ActivityDate,
+          CreatedDate,
+          EventType,
+          AdditionalNotes
+        FROM LoyaltyLedger
+        WHERE TransactionJournalId = :tj.Id
+        LIMIT 100
+      ];
+
+      // 12. 회원 정보 (PointCreditDTO 빌드용)
+      List<LoyaltyProgramMember> lpmList = [
+        SELECT Id, Contact.MemberNo__c
+        FROM LoyaltyProgramMember
+        WHERE Id = :tj.MemberId
+        LIMIT 1
+      ];
+      if (lpmList.isEmpty() || lpmList[0].Contact.MemberNo__c == null) {
+        throw new CustomException(500, 'member contact is null');
+      }
+      String memberNo = lpmList[0].Contact.MemberNo__c;
+
+      // 13. PointCreditDTO 빌드 (표준과 동일)
+      Decimal totalPoints = 0;
+      List<PointCreditDTO> pcDtoList = new List<PointCreditDTO>();
+      for (LoyaltyLedger ll : llList) {
+        PointCreditDTO pcDto = new PointCreditDTO();
+        pcDto.CD_JOURNAL = ll.Id;
+        pcDto.CD_TYPE_POINT = '04'; // 기타포인트
+        pcDto.NO_MBR = memberNo;
+        pcDto.PT_TARGET = ll.Points;
+        pcDto.DT_SAVE_PLAN = String.valueOf(ll.EscrowPointsCreditDate);
+        pcDto.DT_LIMIT_START = String.valueOf(ll.ActivityDate);
+        pcDto.DT_LIMIT_END = String.valueOf(ll.ExpiryDate);
+        pcDto.DT_DESTROY_PLAN = ll.ExpiryDate == null ? null : String.valueOf(ll.ExpiryDate.addDays(1));
+        pcDto.DTS_INSERT = String.valueOf(ll.CreatedDate);
+        pcDto.CD_TYPE_SAVE = ll.EventType;
+        pcDto.TX_REMARK = ll.AdditionalNotes;
+        pcDtoList.add(pcDto);
+
+        if (ll.Points != null && ll.Points > 0) {
+          totalPoints += ll.Points;
+        }
+      }
+
+      // 14. TJ.PostPointBalance 업데이트 (표준과 동일)
+      tj.TransactionAmount = totalPoints;
+      List<LoyaltyMemberCurrency> lmcList = [
+        SELECT LoyaltyMemberId, PointsBalance, LoyaltyProgramCurrency.Name
+        FROM LoyaltyMemberCurrency
+        WHERE LoyaltyMemberId = :tj.MemberId AND LoyaltyProgramCurrency.Name = :LOYALTY_PROGRAM_CURRENCY_NAME
+        LIMIT 1
+      ];
+      if (!lmcList.isEmpty()) {
+        tj.PostPointBalance__c = lmcList[0].PointsBalance;
+      }
+      update tj;
+
+      logTiming('creditEtcPointsOnPurchaseForOldSale.total', totalStartMs, totalStartCpu);
       return pcDtoList;
     } catch (ValidationException ve) {
       throw new CustomException(ve.code, ve.detail);
@@ -2972,15 +3609,16 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         return null;
       }
 
-      Datetime purchaseAccrualDatetime = resolvePurchaseAccrualDatetime(data[0].OrderId);
-      Date purchaseAccrualExpirationDate = resolvePurchaseAccrualExpirationDate(data[0].OrderId);
+      Id purchaseAccrualOrderId = resolvePurchaseAccrualOrderId(data[0]);
+      Datetime purchaseAccrualDatetime = resolvePurchaseAccrualDatetime(purchaseAccrualOrderId);
+      Date purchaseAccrualExpirationDate = resolvePurchaseAccrualExpirationDate(purchaseAccrualOrderId);
 
       TransactionJournal tj = new TransactionJournal();
       tj.ActivityDate = purchaseAccrualDatetime;
       tj.JournalDate = purchaseAccrualDatetime;
       tj.LoyaltyProgramId = data[0].LoyaltyProgramId;
       tj.MemberId = data[0].MemberId;
-      tj.OrderId = data[0].OrderId;
+      tj.OrderId = purchaseAccrualOrderId;
       tj.PromotionId = data[0].PromotionId;
       if (String.isNotBlank(data[0].SaleId__c)) {
         tj.SaleId__c = data[0].SaleId__c;
@@ -3427,7 +4065,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         req.put('journalId', tj.Id);
         req.put('loyaltyProgramCurrencySubtypeName', llt.LoyaltyPgmCurrencySubtype.Name);
         req.put('points', llt.Points);
-        req.put('additionalNotes', llt.DebitLoyaltyLedger.AdditionalNotes);
+        req.put('additionalNotes', resolveRestoreCreditAdditionalNotes(llt));
         req.put('pointsExpirationDate', String.valueOf(llt.CreditLoyaltyLedger.ExpiryDate));
         reqList.add(req);
       }
@@ -3448,7 +4086,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         req.put('journalId', tj.Id);
         req.put('loyaltyProgramCurrencySubtypeName', llt.LoyaltyPgmCurrencySubtype.Name);
         req.put('points', llt.Points);
-        req.put('additionalNotes', llt.DebitLoyaltyLedger.AdditionalNotes);
+        req.put('additionalNotes', resolveRestoreCreditAdditionalNotes(llt));
         req.put('pointsExpirationDate', String.valueOf(llt.CreditLoyaltyLedger.ExpiryDate));
         reqList.add(req);
       }
@@ -3477,7 +4115,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         req.put('journalId', tj.Id);
         req.put('loyaltyProgramCurrencySubtypeName', llt.LoyaltyPgmCurrencySubtype.Name);
         req.put('points', llt.Points);
-        req.put('additionalNotes', llt.DebitLoyaltyLedger.AdditionalNotes);
+        req.put('additionalNotes', resolveRestoreCreditAdditionalNotes(llt));
         req.put('pointsExpirationDate', String.valueOf(llt.CreditLoyaltyLedger.ExpiryDate));
         reqList.add(req);
       }
@@ -3562,6 +4200,19 @@ public with sharing class GdPointServiceImpl implements GdPointService {
   /**
    * 포인트 사용 취소
    */
+  private static String resolveRestoreCreditAdditionalNotes(LoyaltyLedgerTraceability llt) {
+    if (llt == null) {
+      return null;
+    }
+    if (llt.CreditLoyaltyLedger != null && String.isNotBlank(llt.CreditLoyaltyLedger.AdditionalNotes)) {
+      return llt.CreditLoyaltyLedger.AdditionalNotes;
+    }
+    if (llt.DebitLoyaltyLedger != null && String.isNotBlank(llt.DebitLoyaltyLedger.AdditionalNotes)) {
+      return llt.DebitLoyaltyLedger.AdditionalNotes;
+    }
+    return null;
+  }
+
   public Map<String, Object> cancelPointRedemption(TransactionJournal tj) {
     // === v3 Phase 2 신규 추가: Feature Flag 최우선 분기 (2026-04-24) ===
     // v3 Flag ON -> Trace 보존 모델. Bug 2, Bug 3 근본 해결.
@@ -4401,6 +5052,8 @@ public with sharing class GdPointServiceImpl implements GdPointService {
   }
 
   /**
+   * * 사용 중
+   * * 포인트 사용 취소 V3
    * [v3 Phase 2 신규] cancelPointRedemption_v3
    *
    * 목적:
@@ -4633,9 +5286,39 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         response.put('RecreditPointList', recreditPointList);
     System.debug('// 취소 → 재지급 (v2 동일) 진입1');
 
+        // [Origin ActivityDate via TJ Fix 2026-05-06] Flag ON 시 LMS API 호출 전 tj.ActivityDate 를 origin Credit ActivityDate 로 변경.
+        //   배경: 표준 LoyaltyPointService.creditPoints() 가 LL.ActivityDate 를 today 로 자동 설정.
+        //         tj.ActivityDate 를 미리 변경하면 LMS 가 발행하는 Cancel Credit LL 의 ActivityDate 도 그 값을 사용 (예상).
+        //   안전: LMS 표준 API 흐름 그대로 → Aggregate / Trace 자동 발행 정합 보장.
+        //   다중 SubType / 다중 origin: 가장 빠른 origin ActivityDate 채택 (보수적 기본값).
+        if (GdFeatureFlag.isEnabled('CancelCredit_PreserveOriginActivityDate')) {
+          Set<Id> originCreditIds = new Set<Id>();
+          for (CancelPortionV2 cp : unexpiredCancelList) {
+            if (String.isNotBlank(cp.creditLoyaltyLedgerId)) {
+              originCreditIds.add(cp.creditLoyaltyLedgerId);
+            }
+          }
+          Datetime earliestOriginDate = null;
+          if (!originCreditIds.isEmpty()) {
+            for (LoyaltyLedger origLL : [
+              SELECT ActivityDate FROM LoyaltyLedger WHERE Id IN :originCreditIds AND ActivityDate != NULL
+            ]) {
+              if (earliestOriginDate == null || origLL.ActivityDate < earliestOriginDate) {
+                earliestOriginDate = origLL.ActivityDate;
+              }
+            }
+          }
+          if (earliestOriginDate != null) {
+            tj.ActivityDate = earliestOriginDate;
+            update tj;
+            System.debug('[Origin ActivityDate via TJ] tj.ActivityDate set to ' + earliestOriginDate);
+          }
+        }
+
         // 포인트 재지급 (재적립 Credit LL 생성)
         List<LoyaltyManagement.CreditPointsOutput> creditPointsOutputs = LoyaltyPointService.creditPoints(reqList);
     System.debug('// 취소 → 재지급 (v2 동일) 진입2');
+
       } else {
     System.debug('// 취소 → 재지급 (v2 동일) 진입3');
         tj.Status = 'Processed';
@@ -4959,6 +5642,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     // 신규 경로는 표준 LoyaltyPointService.debitPoints() 의 FIFO 분배 결함을 우회하고
     // 원본 적립 LL의 ExpiryDate / SubType 을 직접 가리키는 LL/Trace 를 수동 생성
     // Flag OFF 시 기존 로직 그대로 실행 (회귀 영향 없음)
+    // * 현재 Flag On 상태
     if (GdFeatureFlag.isEnabled('AccrualReversal_UseSpecificLedger')) {
       return cancelAccrualPointsBySubtype_v2(data, totalCancelAmount, accrualSubTypeName, reversalSubTypeName);
     }
@@ -5336,6 +6020,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
   }
 
   /**
+   * * 현재 Flag On 상태
    * cancelAccrualPointsBySubtype_v2 — Feature Flag 'AccrualReversal_UseSpecificLedger' ON 시 사용
    *
    * 표준 LoyaltyPointService.debitPoints() 의 FIFO 분배 결함을 우회하기 위해
@@ -5371,7 +6056,14 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       Id reversalJstId = SObjectUtil.findIdByName(JournalSubType.SObjectType, reversalSubTypeName, true);
       Id loyaltyProgramCurrencyId = SObjectUtil.findIdByName(LoyaltyProgramCurrency.SObjectType, LOYALTY_PROGRAM_CURRENCY_NAME, true);
 
-      // [Step 1] netPointMap 빌드용 LoyaltyLedger 조회 (기존 로직과 동일)
+      // [Step 1] netPointMap 빌드용 Credit LoyaltyLedger 조회 (Accrual 만)
+      //   [NetMap Trace Correction Fix 2026-05-08]
+      //   기존: Accrual + Accrual Reversal LL 모두 조회 후 EventType 별 +/- 합산.
+      //   문제: Reversal LL 의 AdditionalNotes 가 null 이라 빌드 루프에서 건너뛰어 → net 에서 차감 안 됨.
+      //         이전 부분 반품으로 회수된 양이 net 에 누락 → 회수 요청 양 부풀려져 분배 실패.
+      //   해결: Accrual Credit LL 만 조회하여 합산 + 별도 LLT (CreditCancellation) 조회로 차감.
+      //         가드: DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+      //         → 살아있는 reversal 만 net 차감 → 반품 삭제/재반품 시나리오 안전.
       List<LoyaltyLedger> llList;
       if (data[0].OrderId__c != null) {
         llList = [
@@ -5379,10 +6071,9 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           FROM LoyaltyLedger
           WHERE
             TransactionJournal.SaleId__c = :data[0].SaleId__c
-            AND (TransactionJournal.JournalTypeId = :accrualJtId
-            OR TransactionJournal.JournalTypeId = :accrualReversalJtId)
-            AND (TransactionJournal.JournalSubTypeId = :accrualJstId
-            OR TransactionJournal.JournalSubTypeId = :reversalJstId)
+            AND TransactionJournal.JournalTypeId = :accrualJtId
+            AND TransactionJournal.JournalSubTypeId = :accrualJstId
+            AND EventType = 'Credit'
           ORDER BY CreatedDate ASC
           LIMIT 1000
         ];
@@ -5392,10 +6083,9 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           FROM LoyaltyLedger
           WHERE
             TransactionJournal.OrderId = :data[0].OrderId
-            AND (TransactionJournal.JournalTypeId = :accrualJtId
-            OR TransactionJournal.JournalTypeId = :accrualReversalJtId)
-            AND (TransactionJournal.JournalSubTypeId = :accrualJstId
-            OR TransactionJournal.JournalSubTypeId = :reversalJstId)
+            AND TransactionJournal.JournalTypeId = :accrualJtId
+            AND TransactionJournal.JournalSubTypeId = :accrualJstId
+            AND EventType = 'Credit'
           ORDER BY CreatedDate ASC
           LIMIT 1000
         ];
@@ -5405,19 +6095,59 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         return null;
       }
 
-      // [Step 2] AdditionalNotes 기반 netPointMap 빌드 (기존 로직과 동일)
+      // [Step 2] AdditionalNotes 기반 netPointMap 빌드 — Credit 합산
+      Boolean usePurchaseFallbackNotes = JOURNAL_SUB_TYPE_NAME_PURCHASE_ACCRUAL.equals(accrualSubTypeName);
+      Decimal fallbackPurchaseAccrualBaseAmount = usePurchaseFallbackNotes
+        ? calculateOriginalPurchaseAccrualBaseAmount(data[0])
+        : 0;
       Map<String, Decimal> netPointMap = new Map<String, Decimal>();
+      Map<Id, String> additionalNotesByCreditLedgerId = new Map<Id, String>();
+      Set<Id> creditLedgerIdsForLlt = new Set<Id>();
       for (LoyaltyLedger ll : llList) {
-        if (String.isBlank(ll.AdditionalNotes)) {
+        String cancelBucketKey = ll.AdditionalNotes;
+        if (String.isBlank(cancelBucketKey) && usePurchaseFallbackNotes) {
+          cancelBucketKey = buildFallbackPurchaseCancelBucketKey(ll, fallbackPurchaseAccrualBaseAmount);
+        }
+        if (String.isBlank(cancelBucketKey)) {
           continue;
         }
-        if (!netPointMap.containsKey(ll.AdditionalNotes)) {
-          netPointMap.put(ll.AdditionalNotes, 0);
+        if (!netPointMap.containsKey(cancelBucketKey)) {
+          netPointMap.put(cancelBucketKey, 0);
         }
-        if (ll.EventType == 'Credit') {
-          netPointMap.put(ll.AdditionalNotes, netPointMap.get(ll.AdditionalNotes) + ll.Points);
-        } else if (ll.EventType == 'Debit') {
-          netPointMap.put(ll.AdditionalNotes, netPointMap.get(ll.AdditionalNotes) - ll.Points);
+        netPointMap.put(cancelBucketKey, netPointMap.get(cancelBucketKey) + ll.Points);
+        additionalNotesByCreditLedgerId.put(ll.Id, cancelBucketKey);
+        creditLedgerIdsForLlt.add(ll.Id);
+      }
+
+      // [Step 2.5] LLT 기반 차감 — 살아있는 Reversal 만 net 에서 차감
+      //   가드: DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+      //   → 반품 삭제된 reversal 의 LLT 는 무시 → 잔여 회복 → 재반품 안전.
+      //   주의: LL.IsDeleted 는 운영 데이터상 동기화 안 됨 (TJ.IsDeleted__c 만 마킹) →
+      //         TJ.IsDeleted__c 만 가드로 사용.
+      if (!creditLedgerIdsForLlt.isEmpty()) {
+        for (AggregateResult ar : [
+          SELECT CreditLoyaltyLedgerId creditId, SUM(Points) totalPts
+          FROM LoyaltyLedgerTraceability
+          WHERE CreditLoyaltyLedgerId IN :creditLedgerIdsForLlt
+            AND ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION
+            AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+            AND (DebitLoyaltyLedger.TransactionJournal.SaleId__c = NULL
+              OR DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsDeleted__c = FALSE)
+          GROUP BY CreditLoyaltyLedgerId
+        ]) {
+          Id creditId = (Id) ar.get('creditId');
+          String additionalNotes = additionalNotesByCreditLedgerId.get(creditId);
+          if (String.isBlank(additionalNotes)) {
+            continue;
+          }
+          if (!netPointMap.containsKey(additionalNotes)) {
+            continue;
+          }
+          Decimal sub = (Decimal) ar.get('totalPts');
+          if (sub == null) {
+            continue;
+          }
+          netPointMap.put(additionalNotes, netPointMap.get(additionalNotes) - sub.abs());
         }
       }
 
@@ -5472,6 +6202,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         : buildCancelRequestList(data[0].MemberId, totalCancelAmount, cppList, tj.Id);
 
       if (reqList.isEmpty()) {
+        Database.rollback(sp);
         return null;
       }
 
@@ -5507,6 +6238,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       }
 
       if (originalAccrualLedgerList.isEmpty()) {
+        Database.rollback(sp);
         return null;
       }
 
@@ -5529,10 +6261,16 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       }
 
       // 이미 차감된 분량 반영 (기존 CreditCancellation Trace 합계)
+      //   [NetMap Trace Correction Fix 2026-05-08] Step 2.5 와 동일 가드 적용 — 살아있는 reversal 만 차감.
+      //   → netPointMap 의 net 과 bucket.remainingPoints 잔여가 같은 기준으로 정합.
       for (AggregateResult ar : [
         SELECT CreditLoyaltyLedgerId creditLedgerId, SUM(Points) totalPoints
         FROM LoyaltyLedgerTraceability
-        WHERE CreditLoyaltyLedgerId IN :originalBucketByLedgerId.keySet() AND ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION
+        WHERE CreditLoyaltyLedgerId IN :originalBucketByLedgerId.keySet()
+          AND ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION
+          AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+          AND (DebitLoyaltyLedger.TransactionJournal.SaleId__c = NULL
+            OR DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsDeleted__c = FALSE)
         GROUP BY CreditLoyaltyLedgerId
       ]) {
         Id creditLedgerId = (Id) ar.get('creditLedgerId');
@@ -5621,6 +6359,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       }
 
       if (newDebitLedgerList.isEmpty()) {
+        Database.rollback(sp);
         return null;
       }
 
@@ -6395,6 +7134,65 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       }
     }
     return false;
+  }
+
+  @TestVisible
+  private static Decimal calculateOriginalPurchaseAccrualBaseAmount(TransactionJournal sourceTj) {
+    if (sourceTj == null) {
+      return 0;
+    }
+
+    Id targetOrderId = sourceTj.OrderId;
+    if (sourceTj.OrderId__c != null && String.isNotBlank(sourceTj.SaleId__c)) {
+      try {
+        targetOrderId = (Id) sourceTj.SaleId__c;
+      } catch (Exception e) {
+        targetOrderId = sourceTj.OrderId;
+      }
+    }
+    if (targetOrderId == null) {
+      return 0;
+    }
+
+    Id saleDepositJstId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_SALE_DEPOSIT, true);
+    Decimal totalAmount = 0;
+    for (TransactionJournal tj : [
+      SELECT PaymentMethod, TransactionAmount
+      FROM TransactionJournal
+      WHERE OrderId = :targetOrderId
+        AND JournalSubTypeId = :saleDepositJstId
+        AND IsDeleted__c = FALSE
+    ]) {
+      if (tj.PaymentMethod == '20' || tj.PaymentMethod == '81' || tj.PaymentMethod == '90' || tj.PaymentMethod == '93') {
+        continue;
+      }
+      if (tj.TransactionAmount == null || tj.TransactionAmount == 0) {
+        continue;
+      }
+      totalAmount += tj.TransactionAmount;
+    }
+
+    return totalAmount;
+  }
+
+  @TestVisible
+  private static String buildFallbackPurchaseCancelBucketKey(LoyaltyLedger ll, Decimal baseAmount) {
+    if (ll == null
+        || ll.Points == null
+        || ll.Points <= 0
+        || baseAmount == null
+        || baseAmount <= 0
+        || ll.LoyaltyPgmCrcySubtypeId == null
+        || ll.LoyaltyPgmCrcySubtype == null
+        || String.isBlank(ll.LoyaltyPgmCrcySubtype.Name)) {
+      return null;
+    }
+
+    Decimal rate = ((ll.Points.abs() / baseAmount) * 100).setScale(6, RoundingMode.HALF_UP);
+    if (rate <= 0) {
+      return null;
+    }
+    return ll.LoyaltyPgmCrcySubtype.Name + '|' + String.valueOf(ll.LoyaltyPgmCrcySubtypeId) + '|' + String.valueOf(rate);
   }
 
   @TestVisible

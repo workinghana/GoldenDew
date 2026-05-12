@@ -1,7 +1,24 @@
 @isTest
 private class MonthlyCouponIssueBatchTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"success":true,"message":"ok","data":{}}');
+      return res;
+    }
+  }
+
+  private static void setMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
+
   @testSetup
   static void setup() {
+    setMock();
+
     // 1. 기초 데이터 (Contact)
     Contact c1 = new Contact(LastName = 'TierUser1', MemberNo__c = 'MT-001', MobilePhone = '01012345671');
     Contact c2 = new Contact(LastName = 'TierUser2', MemberNo__c = 'MT-002', MobilePhone = '01012345672');
@@ -95,6 +112,8 @@ private class MonthlyCouponIssueBatchTest {
 
   @isTest
   static void testMonthlyBatchSuccess() {
+    setMock();
+
     // 배치 실행
     Test.startTest();
     MonthlyCouponIssueBatch batch = new MonthlyCouponIssueBatch();
@@ -111,6 +130,8 @@ private class MonthlyCouponIssueBatchTest {
 
   @isTest
   static void testBatchPartialFailure_NoMemberNo() {
+    setMock();
+
     // 일부 데이터의 필수 필드 제거 (MemberNo__c)
     Contact con = [SELECT Id FROM Contact WHERE MemberNo__c = 'MT-001' LIMIT 1];
     con.MemberNo__c = null;
@@ -127,6 +148,8 @@ private class MonthlyCouponIssueBatchTest {
 
   @isTest
   static void testBatchError_NoVoucherCategory() {
+    setMock();
+
     // 카테고리를 삭제하여 에러 처리 로직(NOT_FOUND) 커버
     delete [SELECT Id FROM VoucherCategory__c];
 
@@ -141,6 +164,8 @@ private class MonthlyCouponIssueBatchTest {
   }
   @isTest
   static void testMonthlyBatchUpgradeCoupon_setsFaceValueZero() {
+    setMock();
+
     LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
     Id categoryId = [SELECT Id FROM VoucherCategory__c WHERE Code__c = 'MonthlyCoupon' LIMIT 1].Id;
     Id accountId = [SELECT Id FROM Account WHERE CompanyCode__c = '1000' LIMIT 1].Id;

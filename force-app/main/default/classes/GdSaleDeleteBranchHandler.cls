@@ -82,6 +82,31 @@ public with sharing class GdSaleDeleteBranchHandler {
       standardResult.data.put('usage_restore_note', '이 판매에서 포인트로 결제한 금액이 있음 — 사용 환원은 운영자 수동 처리 필요');
     }
 
+    // === Phase 6.5 보강 — PM=81 사용 환원 자동화 시도 (26.05.06 CS) ===
+    // 안전 매칭(TJ.Id 직접) 으로 옵션 C force-debit 흔적과 격리.
+    // 실패 시 기존 usage_restore_required 시그널 그대로 → fallback.
+    if (outcome.usageRestoreRequired) {
+      List<Map<String, Object>> usageRestoreResults = tryAutoRestorePointUsage(saleNo);
+      if (!usageRestoreResults.isEmpty()) {
+        standardResult.data.put('option_c_usage_restore_results', usageRestoreResults);
+        // 모두 성공이면 시그널을 false 로 되돌리고 point_processing 갱신
+        Boolean allSuccess = true;
+        Decimal totalRestored = 0;
+        for (Map<String, Object> r : usageRestoreResults) {
+          if (!Boolean.valueOf(r.get('success'))) { allSuccess = false; }
+          Object actObj = r.get('actual');
+          if (actObj != null) totalRestored += (Decimal) actObj;
+        }
+        standardResult.data.put('option_c_usage_restore_total_actual', totalRestored);
+        if (allSuccess) {
+          // 사용 환원 자동 처리 완료 — 시그널 해제
+          standardResult.data.put('usage_restore_required', false);
+          standardResult.data.put('usage_restore_auto_completed', true);
+          standardResult.data.remove('usage_restore_note');
+        }
+      }
+    }
+
     // 로거 PARTIAL 상태 (audit trail)
     if (logger != null) {
       logger.setStatus('PARTIAL');
@@ -230,17 +255,17 @@ public with sharing class GdSaleDeleteBranchHandler {
         return out;
       }
 
-      // 7. 강제 차감
-      GdMigrationUtil.ForceDebitResult fd = GdMigrationUtil.forceDebitPointsSafe(
-        out.memberId, programId, orderId, totalRequested,
-        'OPTC_SALE_DELETE_FORCE_DEBIT: saleNo=' + saleNo +
+      // 7. Option C old sale accrual cancel
+      GdOptionCPointAdjustmentUtil.AccrualCancelResult fd = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
+        out.memberId, programId, orderId, null, totalRequested,
+        'OPTC_SALE_DELETE_ETC_ACCRUAL_CANCEL: saleNo=' + saleNo +
         ', remainingAmount=' + remainingAmount.toPlainString() +
         ', breakdown=' + breakdown
       );
       out.actual = fd.actualPoints;
       out.loss = fd.loss;
       out.success = fd.success;
-      out.debitTjId = fd.debitTjId;
+      out.debitTjId = fd.reversalTjId;
       out.error = fd.error;
 
       // 8. 사용 환원 필요 여부 (포인트 결제 TJ 존재 여부)
@@ -297,5 +322,64 @@ public with sharing class GdSaleDeleteBranchHandler {
       System.debug('checkUsageRestoreRequired exception: ' + e.getMessage());
       return false;
     }
+  }
+
+  /**
+   * 26.05.06 CS — Phase 6.5 보강
+   * 옛 판매의 PM=81 TJ 들을 찾아 사용 환원 자동화 시도.
+   *
+   * 안전 매칭: GdMigrationUtil.cancelOldSalePointUsageSafe 가 TJ.Id 직접 매칭으로
+   *           옵션 C force-debit 흔적과 자동 격리.
+   *
+   * 반환 형식: PM=81 TJ 1건당 1개의 결과 Map.
+   *   - tjId, depositNo, amount, success, requested, actual, unprocessed, error, lltMissing
+   *
+   * 실패/누락 시 호출자가 시그널 fallback.
+   */
+  @TestVisible
+  private static List<Map<String, Object>> tryAutoRestorePointUsage(String saleNo) {
+    List<Map<String, Object>> results = new List<Map<String, Object>>();
+    if (String.isBlank(saleNo)) {
+      return results;
+    }
+    try {
+      List<Order> orders = [SELECT Id FROM Order WHERE SaleNo__c = :saleNo LIMIT 1];
+      if (orders.isEmpty()) {
+        return results;
+      }
+      Id orderId = orders[0].Id;
+
+      List<TransactionJournal> pm81Tjs = [
+        SELECT Id, DepositNo__c, MemberId, OrderId, LoyaltyProgramId,
+               PaymentMethod, TransactionAmount, IsDeleted__c
+        FROM TransactionJournal
+        WHERE OrderId = :orderId
+          AND PaymentMethod = '81'
+          AND IsDeleted__c = FALSE
+      ];
+
+      for (TransactionJournal pm81Tj : pm81Tjs) {
+        GdMigrationUtil.CancelOldSalePointUsageResult r =
+          GdMigrationUtil.cancelOldSalePointUsageSafe(pm81Tj);
+
+        Map<String, Object> entry = new Map<String, Object>{
+          'tjId' => pm81Tj.Id,
+          'depositNo' => pm81Tj.DepositNo__c,
+          'amount' => pm81Tj.TransactionAmount,
+          'success' => r.success,
+          'requested' => r.requestedPoints,
+          'actual' => r.actualPoints,
+          'unprocessed' => r.unprocessed,
+          'creditTjId' => r.creditTjId,
+          'matchedLLTCount' => r.matchedLLTCount,
+          'lltMissing' => r.lltMissing,
+          'error' => r.error
+        };
+        results.add(entry);
+      }
+    } catch (Exception e) {
+      System.debug('tryAutoRestorePointUsage exception: ' + e.getMessage());
+    }
+    return results;
   }
 }

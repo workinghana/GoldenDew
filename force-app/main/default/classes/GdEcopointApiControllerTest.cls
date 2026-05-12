@@ -72,6 +72,12 @@ private class GdEcopointApiControllerTest {
     public List<PointCreditDTO> creditPointsOnPurchaseV2(List<TransactionJournal> journals, Decimal amount) {
       return new List<PointCreditDTO>();
     }
+    public List<PointCreditDTO> creditEtcPointsOnPurchaseForOldSale(List<TransactionJournal> journals, Decimal amount) {
+      return new List<PointCreditDTO>();
+    }
+    public List<GdSaleApiController.PointDebitDTO> debitPointForSaleUpdate(TransactionJournal tj) {
+      return null;
+    }
   }
 
   /* =====================================================
@@ -145,6 +151,12 @@ private class GdEcopointApiControllerTest {
     }
     public List<PointCreditDTO> creditPointsOnPurchaseV2(List<TransactionJournal> journals, Decimal amount) {
       return new List<PointCreditDTO>();
+    }
+    public List<PointCreditDTO> creditEtcPointsOnPurchaseForOldSale(List<TransactionJournal> journals, Decimal amount) {
+      return new List<PointCreditDTO>();
+    }
+    public List<GdSaleApiController.PointDebitDTO> debitPointForSaleUpdate(TransactionJournal tj) {
+      return null;
     }
   }
 

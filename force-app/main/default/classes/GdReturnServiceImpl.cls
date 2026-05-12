@@ -60,43 +60,12 @@ public with sharing class GdReturnServiceImpl implements GdReturnService {
       o.IsReductionOrder__c = true;
       o.OriginalOrderId__c = originalOrderList[0].Id;
 
-      // 다른 주문/판매 건에서 포인트 사용했는지 확인
-      List<LoyaltyLedgerTraceability> lltList = [
-        SELECT
-          Id,
-          DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
-          DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
-          DebitLoyaltyLedger.TransactionJournal.DepositNo__c,
-          DebitLoyaltyLedger.TransactionJournal.IsDeleted__c,
-          DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c
-        FROM LoyaltyLedgerTraceability
-        WHERE
-          CreditLoyaltyLedger.TransactionJournal.OrderId = :originalOrderList[0].Id
-          AND ActionType = 'Debit'
-          AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
-          AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
-          OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
-        LIMIT 1
-      ];
-      if (!lltList.isEmpty()) {
-        if (lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c != null) {
-          throw new CustomException(
-            400,
-            '해당 입금 건은 삭제할 수 없습니다. 이미 사용한 판매 건이 존재합니다. 판매번호: ' +
-              lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c +
-              '/ 입금번호: ' +
-              lltList[0].DebitLoyaltyLedger.TransactionJournal.DepositNo__c
-          );
-        } else if (lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c != null) {
-          throw new CustomException(
-            400,
-            '해당 입금 건은 삭제할 수 없습니다. 이미 사용한 주문 건이 존재합니다. 주문번호: ' +
-              lltList[0].DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c +
-              '/ 입금번호: ' +
-              lltList[0].DebitLoyaltyLedger.TransactionJournal.DepositNo__c
-          );
-        }
-      }
+      // [Return Register Validation Removed 2026-05-08]
+      //   기존: A판매 OrderId 의 모든 적립 LL 의 사용 LLT 가 있으면 차단.
+      //   문제: A판매 입금 중 적립 대상 아닌 입금 (쿠폰/포인트/상품권 등) 만 환불하려는 부분 반품도 부당 차단.
+      //         예: A판매 = 현금 + 포인트 + 쿠폰 결제 → 쿠폰만 환불 시 적립 영향 없으나 차단됨.
+      //   해결: createReturn 단계 검증 제거. 검증을 insertSaleDepositHistoryByUpdate (반품 입금 등록) 단계로 이전.
+      //         그 단계에서 sourceTj.PaymentMethod 가 적립 대상인 경우만 검증 → 입금별 차별 가능.
 
       Database.SaveResult insertResult = Database.insert(o);
       logTiming('GdReturnServiceImpl.createReturn.insertOrder', totalStartMs, totalStartCpu);

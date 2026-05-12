@@ -13,6 +13,16 @@
  */
 @IsTest
 private class GdMigrationUtilTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
 
   // 테스트 상수
   private static final Date OPEN_DATE = Date.newInstance(2026, 5, 15);
@@ -24,6 +34,7 @@ private class GdMigrationUtilTest {
   // ============================================================
   @TestSetup
   static void setupData() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
     // Standard Pricebook 활성화
     Id stdPbId = Test.getStandardPricebookId();
 
@@ -119,7 +130,7 @@ private class GdMigrationUtilTest {
       DeposiSeqNo__c = '01',
       DepositType__c = '01',
       TransactionAmount = 10000,
-      ActivityDate = POST_OPEN_DATE,  // 마커 우선 → 일자 무시
+      ActivityDate = POST_OPEN_DATE, // 마커 우선 → 일자 무시
       Status = 'Processed',
       InsertId__c = 'MIG_OPTC_CREDIT'
     );
@@ -406,21 +417,28 @@ private class GdMigrationUtilTest {
 
   @IsTest
   static void recordLog_validInputs_createsRecord() {
-    LoyaltyProgramMember lpm = [SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber='M-OPTC-TEST' LIMIT 1];
+    LoyaltyProgramMember lpm = [SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
 
     Test.startTest();
     Id logId = GdMigrationUtil.recordAdjustmentLog(
-      lpm.Id, 'M-OPTC-TEST', 'ACCRUAL_REVERSAL', 'POST /gd/v1/return',
-      'SALE-OPTC-OLD', 1000, 200, 'Test reason'
+      lpm.Id,
+      'M-OPTC-TEST',
+      'ACCRUAL_REVERSAL',
+      'POST /gd/v1/return',
+      'SALE-OPTC-OLD',
+      1000,
+      200,
+      'Test reason'
     );
     Test.stopTest();
 
     System.assertNotEquals(null, logId, '로그 Id 반환');
 
     MigrationAdjustmentLog__c log = [
-      SELECT MemberId__c, MemberNo__c, AdjustType__c, SourceApi__c, OriginalSaleNo__c,
-             RequestedPoints__c, ActualPoints__c, CustomerLoss__c, Reason__c
-      FROM MigrationAdjustmentLog__c WHERE Id = :logId LIMIT 1
+      SELECT MemberId__c, MemberNo__c, AdjustType__c, SourceApi__c, OriginalSaleNo__c, RequestedPoints__c, ActualPoints__c, CustomerLoss__c, Reason__c
+      FROM MigrationAdjustmentLog__c
+      WHERE Id = :logId
+      LIMIT 1
     ];
     System.assertEquals(String.valueOf(lpm.Id), log.MemberId__c);
     System.assertEquals('M-OPTC-TEST', log.MemberNo__c);
@@ -436,9 +454,7 @@ private class GdMigrationUtilTest {
   @IsTest
   static void recordLog_blankAdjustType_returnsNull() {
     Test.startTest();
-    Id logId = GdMigrationUtil.recordAdjustmentLog(
-      null, null, '', null, null, 100, 50, null
-    );
+    Id logId = GdMigrationUtil.recordAdjustmentLog(null, null, '', null, null, 100, 50, null);
     Test.stopTest();
 
     System.assertEquals(null, logId, 'adjustType blank → null 반환');
@@ -447,15 +463,16 @@ private class GdMigrationUtilTest {
   @IsTest
   static void recordLog_nullArgs_handlesSafely() {
     Test.startTest();
-    Id logId = GdMigrationUtil.recordAdjustmentLog(
-      null, null, 'TEST_TYPE', null, null, null, null, null
-    );
+    Id logId = GdMigrationUtil.recordAdjustmentLog(null, null, 'TEST_TYPE', null, null, null, null, null);
     Test.stopTest();
 
     System.assertNotEquals(null, logId, 'adjustType 만 있으면 insert 됨');
 
     MigrationAdjustmentLog__c log = [
-      SELECT RequestedPoints__c, ActualPoints__c, CustomerLoss__c FROM MigrationAdjustmentLog__c WHERE Id = :logId LIMIT 1
+      SELECT RequestedPoints__c, ActualPoints__c, CustomerLoss__c
+      FROM MigrationAdjustmentLog__c
+      WHERE Id = :logId
+      LIMIT 1
     ];
     System.assertEquals(0, log.RequestedPoints__c, 'null requested → 0 처리');
     System.assertEquals(0, log.ActualPoints__c, 'null actual → 0 처리');
@@ -465,14 +482,10 @@ private class GdMigrationUtilTest {
   @IsTest
   static void recordLog_noLoss_customerLossZero() {
     Test.startTest();
-    Id logId = GdMigrationUtil.recordAdjustmentLog(
-      null, 'M-X', 'TEST', 'API-X', 'SALE-X', 500, 500, 'no loss'
-    );
+    Id logId = GdMigrationUtil.recordAdjustmentLog(null, 'M-X', 'TEST', 'API-X', 'SALE-X', 500, 500, 'no loss');
     Test.stopTest();
 
-    MigrationAdjustmentLog__c log = [
-      SELECT CustomerLoss__c FROM MigrationAdjustmentLog__c WHERE Id = :logId LIMIT 1
-    ];
+    MigrationAdjustmentLog__c log = [SELECT CustomerLoss__c FROM MigrationAdjustmentLog__c WHERE Id = :logId LIMIT 1];
     System.assertEquals(0, log.CustomerLoss__c, 'requested == actual → loss 0');
   }
 
@@ -480,14 +493,10 @@ private class GdMigrationUtilTest {
   static void recordLog_actualGreaterThanRequested_lossClampedZero() {
     // 비정상 케이스: actual > requested (이상 데이터)
     Test.startTest();
-    Id logId = GdMigrationUtil.recordAdjustmentLog(
-      null, 'M-X', 'TEST', 'API-X', 'SALE-X', 100, 200, 'actual > requested'
-    );
+    Id logId = GdMigrationUtil.recordAdjustmentLog(null, 'M-X', 'TEST', 'API-X', 'SALE-X', 100, 200, 'actual > requested');
     Test.stopTest();
 
-    MigrationAdjustmentLog__c log = [
-      SELECT CustomerLoss__c FROM MigrationAdjustmentLog__c WHERE Id = :logId LIMIT 1
-    ];
+    MigrationAdjustmentLog__c log = [SELECT CustomerLoss__c FROM MigrationAdjustmentLog__c WHERE Id = :logId LIMIT 1];
     System.assertEquals(0, log.CustomerLoss__c, '음수 손실은 0 으로 clamp');
   }
 
@@ -520,11 +529,11 @@ private class GdMigrationUtilTest {
   @IsTest
   static void calculateEligibleAmount_excludesNonAccrualPaymentMethods() {
     List<TransactionJournal> tjs = new List<TransactionJournal>{
-      new TransactionJournal(TransactionAmount = 50000, PaymentMethod = '01'),  // 적립 가능
-      new TransactionJournal(TransactionAmount = 30000, PaymentMethod = '20'),  // 제외
-      new TransactionJournal(TransactionAmount = 20000, PaymentMethod = '81'),  // 제외
-      new TransactionJournal(TransactionAmount = 10000, PaymentMethod = '90'),  // 제외
-      new TransactionJournal(TransactionAmount = 5000, PaymentMethod = '93')    // 제외
+      new TransactionJournal(TransactionAmount = 50000, PaymentMethod = '01'), // 적립 가능
+      new TransactionJournal(TransactionAmount = 30000, PaymentMethod = '20'), // 제외
+      new TransactionJournal(TransactionAmount = 20000, PaymentMethod = '81'), // 제외
+      new TransactionJournal(TransactionAmount = 10000, PaymentMethod = '90'), // 제외
+      new TransactionJournal(TransactionAmount = 5000, PaymentMethod = '93') // 제외
     };
 
     Test.startTest();
@@ -536,9 +545,7 @@ private class GdMigrationUtilTest {
 
   @IsTest
   static void calculateEligibleAmount_subtractsExcludeAmount() {
-    List<TransactionJournal> tjs = new List<TransactionJournal>{
-      new TransactionJournal(TransactionAmount = 100000, PaymentMethod = '01')
-    };
+    List<TransactionJournal> tjs = new List<TransactionJournal>{ new TransactionJournal(TransactionAmount = 100000, PaymentMethod = '01') };
 
     Test.startTest();
     Decimal result = GdMigrationUtil.calculateEligibleAccrualAmount(tjs, 20000);
@@ -551,9 +558,9 @@ private class GdMigrationUtilTest {
   static void calculateEligibleAmount_zeroAndNullAmounts_skipped() {
     List<TransactionJournal> tjs = new List<TransactionJournal>{
       new TransactionJournal(TransactionAmount = 50000, PaymentMethod = '01'),
-      new TransactionJournal(TransactionAmount = 0, PaymentMethod = '01'),     // 0 → 스킵
-      new TransactionJournal(TransactionAmount = null, PaymentMethod = '01'),   // null → 스킵
-      null                                                                      // null TJ → 스킵
+      new TransactionJournal(TransactionAmount = 0, PaymentMethod = '01'), // 0 → 스킵
+      new TransactionJournal(TransactionAmount = null, PaymentMethod = '01'), // null → 스킵
+      null // null TJ → 스킵
     };
 
     Test.startTest();
@@ -584,12 +591,11 @@ private class GdMigrationUtilTest {
 
   @IsTest
   static void calculateAccrual_memberWithoutTier_returnsEmpty() {
-    LoyaltyProgramMember lpm = [SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber='M-OPTC-TEST' LIMIT 1];
+    LoyaltyProgramMember lpm = [SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
 
     // 이 LPM 은 LoyaltyMemberTier 가 없을 수 있음 (test setup 에서 안 만듦)
     Test.startTest();
-    List<GdMigrationUtil.AccrualEstimate> result =
-      GdMigrationUtil.calculateAccrualForOldOrder(lpm.Id, 100000, null);
+    List<GdMigrationUtil.AccrualEstimate> result = GdMigrationUtil.calculateAccrualForOldOrder(lpm.Id, 100000, null);
     Test.stopTest();
 
     // Tier 없으면 LoyaltyTierBenefit 도 없으므로 빈 list
@@ -602,8 +608,7 @@ private class GdMigrationUtilTest {
     // null promotionId 안전 처리 검증은 위 테스트에서 이미 cover.
     // 추가로 Promotion 미존재 ID 도 안전한지 확인.
     Test.startTest();
-    List<GdMigrationUtil.AccrualEstimate> result =
-      GdMigrationUtil.calculateAccrualForOldOrder('0lMJO0000002sKa2AI', 100000, null);
+    List<GdMigrationUtil.AccrualEstimate> result = GdMigrationUtil.calculateAccrualForOldOrder('0lMJO0000002sKa2AI', 100000, null);
     Test.stopTest();
     System.assert(true, 'null promotionId 안전 처리');
   }
@@ -628,9 +633,7 @@ private class GdMigrationUtilTest {
   static void shouldApplyByDepositNo_migrationCancelMarker_returnsTrue() {
     setBranchEnabled(true, OPEN_DATE);
 
-    LoyaltyProgramMember lpm = [
-      SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1
-    ];
+    LoyaltyProgramMember lpm = [SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
 
     // 추가 데이터: MIG_OPTC_CANCEL 마커 TJ
     TransactionJournal cancelTj = new TransactionJournal(
@@ -661,8 +664,7 @@ private class GdMigrationUtilTest {
   @IsTest
   static void forceDebitPointsSafe_nullMember_returnsInvalidInput() {
     Test.startTest();
-    GdMigrationUtil.ForceDebitResult result =
-      GdMigrationUtil.forceDebitPointsSafe(null, null, null, 1000, 'test');
+    GdMigrationUtil.ForceDebitResult result = GdMigrationUtil.forceDebitPointsSafe(null, null, null, 1000, 'test');
     Test.stopTest();
 
     System.assertEquals(false, result.success, 'memberId null → success=false');
@@ -673,17 +675,12 @@ private class GdMigrationUtilTest {
 
   @IsTest
   static void forceDebitPointsSafe_zeroRequest_returnsInvalidInput() {
-    LoyaltyProgramMember lpm = [
-      SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1
-    ];
+    LoyaltyProgramMember lpm = [SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
 
     Test.startTest();
-    GdMigrationUtil.ForceDebitResult r1 =
-      GdMigrationUtil.forceDebitPointsSafe(lpm.Id, null, null, 0, 'zero');
-    GdMigrationUtil.ForceDebitResult r2 =
-      GdMigrationUtil.forceDebitPointsSafe(lpm.Id, null, null, -100, 'negative');
-    GdMigrationUtil.ForceDebitResult r3 =
-      GdMigrationUtil.forceDebitPointsSafe(lpm.Id, null, null, null, 'null');
+    GdMigrationUtil.ForceDebitResult r1 = GdMigrationUtil.forceDebitPointsSafe(lpm.Id, null, null, 0, 'zero');
+    GdMigrationUtil.ForceDebitResult r2 = GdMigrationUtil.forceDebitPointsSafe(lpm.Id, null, null, -100, 'negative');
+    GdMigrationUtil.ForceDebitResult r3 = GdMigrationUtil.forceDebitPointsSafe(lpm.Id, null, null, null, 'null');
     Test.stopTest();
 
     System.assertEquals(false, r1.success);
@@ -697,13 +694,10 @@ private class GdMigrationUtilTest {
   @IsTest
   static void forceDebitPointsSafe_noBalance_returnsZeroAndAllLoss() {
     // 신규 회원 — LASEL 잔액 없음 → 0 차감 + 전액 손실 + success=false
-    LoyaltyProgramMember lpm = [
-      SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1
-    ];
+    LoyaltyProgramMember lpm = [SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
 
     Test.startTest();
-    GdMigrationUtil.ForceDebitResult result =
-      GdMigrationUtil.forceDebitPointsSafe(lpm.Id, null, null, 5000, 'no balance');
+    GdMigrationUtil.ForceDebitResult result = GdMigrationUtil.forceDebitPointsSafe(lpm.Id, null, null, 5000, 'no balance');
     Test.stopTest();
 
     System.assertEquals(false, result.success, '잔액 없음 → success=false');
@@ -722,9 +716,7 @@ private class GdMigrationUtilTest {
 
   @IsTest
   static void getAvailableBalance_noLedger_returnsZero() {
-    LoyaltyProgramMember lpm = [
-      SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1
-    ];
+    LoyaltyProgramMember lpm = [SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
 
     Test.startTest();
     Decimal bal = GdMigrationUtil.getAvailableBalance(lpm.Id);
@@ -737,35 +729,27 @@ private class GdMigrationUtilTest {
   // ============================================================
 
   /** JSON 으로 LASEL 객체 (lookup 포함) stub 생성. */
-  private static LoyaltyAggrSubPointExprLedger__c stubAggr(
-    Decimal availablePoints, String subtypeName, Integer priority
-  ) {
-    String jsonStr = JSON.serialize(new Map<String, Object>{
-      'AvailablePoints__c' => availablePoints,
-      'CurrencySubTypeId__r' => new Map<String, Object>{
-        'Name' => subtypeName,
-        'UsagePriorityNumber' => priority
+  private static LoyaltyAggrSubPointExprLedger__c stubAggr(Decimal availablePoints, String subtypeName, Integer priority) {
+    String jsonStr = JSON.serialize(
+      new Map<String, Object>{
+        'AvailablePoints__c' => availablePoints,
+        'CurrencySubTypeId__r' => new Map<String, Object>{ 'Name' => subtypeName, 'UsagePriorityNumber' => priority }
       }
-    });
-    return (LoyaltyAggrSubPointExprLedger__c) JSON.deserialize(
-      jsonStr, LoyaltyAggrSubPointExprLedger__c.class
     );
+    return (LoyaltyAggrSubPointExprLedger__c) JSON.deserialize(jsonStr, LoyaltyAggrSubPointExprLedger__c.class);
   }
 
   @IsTest
   static void distributeDebit_emptyOrNullList_returnsEmpty() {
     Map<String, Decimal> r1 = GdMigrationUtil.distributeDebitBySubtype(null, 1000);
-    Map<String, Decimal> r2 = GdMigrationUtil.distributeDebitBySubtype(
-      new List<LoyaltyAggrSubPointExprLedger__c>(), 1000
-    );
+    Map<String, Decimal> r2 = GdMigrationUtil.distributeDebitBySubtype(new List<LoyaltyAggrSubPointExprLedger__c>(), 1000);
     System.assertEquals(0, r1.size());
     System.assertEquals(0, r2.size());
   }
 
   @IsTest
   static void distributeDebit_zeroOrNegativeRequest_returnsEmpty() {
-    List<LoyaltyAggrSubPointExprLedger__c> aggrList =
-      new List<LoyaltyAggrSubPointExprLedger__c>{ stubAggr(1000, '구매적립', 1) };
+    List<LoyaltyAggrSubPointExprLedger__c> aggrList = new List<LoyaltyAggrSubPointExprLedger__c>{ stubAggr(1000, '구매적립', 1) };
 
     Map<String, Decimal> r1 = GdMigrationUtil.distributeDebitBySubtype(aggrList, 0);
     Map<String, Decimal> r2 = GdMigrationUtil.distributeDebitBySubtype(aggrList, -100);
@@ -777,8 +761,7 @@ private class GdMigrationUtilTest {
 
   @IsTest
   static void distributeDebit_singleSubtype_sufficientBalance() {
-    List<LoyaltyAggrSubPointExprLedger__c> aggrList =
-      new List<LoyaltyAggrSubPointExprLedger__c>{ stubAggr(1000, '구매적립', 1) };
+    List<LoyaltyAggrSubPointExprLedger__c> aggrList = new List<LoyaltyAggrSubPointExprLedger__c>{ stubAggr(1000, '구매적립', 1) };
 
     Map<String, Decimal> result = GdMigrationUtil.distributeDebitBySubtype(aggrList, 300);
 
@@ -788,8 +771,7 @@ private class GdMigrationUtilTest {
 
   @IsTest
   static void distributeDebit_singleSubtype_insufficientBalance_clamps() {
-    List<LoyaltyAggrSubPointExprLedger__c> aggrList =
-      new List<LoyaltyAggrSubPointExprLedger__c>{ stubAggr(500, '구매적립', 1) };
+    List<LoyaltyAggrSubPointExprLedger__c> aggrList = new List<LoyaltyAggrSubPointExprLedger__c>{ stubAggr(500, '구매적립', 1) };
 
     // 요청 1000, 가용 500 → 500 만 분배
     Map<String, Decimal> result = GdMigrationUtil.distributeDebitBySubtype(aggrList, 1000);
@@ -848,18 +830,14 @@ private class GdMigrationUtilTest {
 
   @IsTest
   static void buildForceDebitTJ_setsAllRequiredFields() {
-    LoyaltyProgramMember lpm = [
-      SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1
-    ];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
     Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SALE-OPTC-OLD' LIMIT 1];
 
     Id fakeJtId = Id.valueOf(JournalType.SObjectType.getDescribe().getKeyPrefix() + '000000000001');
     Id fakeJstId = Id.valueOf(JournalSubType.SObjectType.getDescribe().getKeyPrefix() + '000000000001');
 
     Test.startTest();
-    TransactionJournal tj = GdMigrationUtil.buildForceDebitTJ(
-      lpm.Id, lpm.ProgramId, o.Id, 1500, 'B-1-3 test', fakeJtId, fakeJstId
-    );
+    TransactionJournal tj = GdMigrationUtil.buildForceDebitTJ(lpm.Id, lpm.ProgramId, o.Id, 1500, 'B-1-3 test', fakeJtId, fakeJstId);
     Test.stopTest();
 
     System.assertEquals(lpm.Id, tj.MemberId);
@@ -876,19 +854,13 @@ private class GdMigrationUtilTest {
 
   @IsTest
   static void buildForceDebitTJ_blankReason_safeNotes() {
-    LoyaltyProgramMember lpm = [
-      SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1
-    ];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
     Id fakeJtId = Id.valueOf(JournalType.SObjectType.getDescribe().getKeyPrefix() + '000000000001');
     Id fakeJstId = Id.valueOf(JournalSubType.SObjectType.getDescribe().getKeyPrefix() + '000000000001');
 
     Test.startTest();
-    TransactionJournal tj1 = GdMigrationUtil.buildForceDebitTJ(
-      lpm.Id, lpm.ProgramId, null, 100, null, fakeJtId, fakeJstId
-    );
-    TransactionJournal tj2 = GdMigrationUtil.buildForceDebitTJ(
-      lpm.Id, lpm.ProgramId, null, 100, '', fakeJtId, fakeJstId
-    );
+    TransactionJournal tj1 = GdMigrationUtil.buildForceDebitTJ(lpm.Id, lpm.ProgramId, null, 100, null, fakeJtId, fakeJstId);
+    TransactionJournal tj2 = GdMigrationUtil.buildForceDebitTJ(lpm.Id, lpm.ProgramId, null, 100, '', fakeJtId, fakeJstId);
     Test.stopTest();
 
     System.assertEquals('OPTC_FORCE_DEBIT: ', tj1.AdditionalNotes__c);
@@ -903,8 +875,7 @@ private class GdMigrationUtilTest {
   @IsTest
   static void forceCreditPointsSafe_nullMember_returnsInvalidInput() {
     Test.startTest();
-    GdMigrationUtil.ForceCreditResult result =
-      GdMigrationUtil.forceCreditPointsSafe(null, null, null, 1000, 'test');
+    GdMigrationUtil.ForceCreditResult result = GdMigrationUtil.forceCreditPointsSafe(null, null, null, 1000, 'test');
     Test.stopTest();
 
     System.assertEquals(false, result.success);
@@ -915,17 +886,12 @@ private class GdMigrationUtilTest {
 
   @IsTest
   static void forceCreditPointsSafe_zeroOrNegative_returnsInvalidInput() {
-    LoyaltyProgramMember lpm = [
-      SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1
-    ];
+    LoyaltyProgramMember lpm = [SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
 
     Test.startTest();
-    GdMigrationUtil.ForceCreditResult r1 =
-      GdMigrationUtil.forceCreditPointsSafe(lpm.Id, null, null, 0, 'zero');
-    GdMigrationUtil.ForceCreditResult r2 =
-      GdMigrationUtil.forceCreditPointsSafe(lpm.Id, null, null, -100, 'negative');
-    GdMigrationUtil.ForceCreditResult r3 =
-      GdMigrationUtil.forceCreditPointsSafe(lpm.Id, null, null, null, 'null');
+    GdMigrationUtil.ForceCreditResult r1 = GdMigrationUtil.forceCreditPointsSafe(lpm.Id, null, null, 0, 'zero');
+    GdMigrationUtil.ForceCreditResult r2 = GdMigrationUtil.forceCreditPointsSafe(lpm.Id, null, null, -100, 'negative');
+    GdMigrationUtil.ForceCreditResult r3 = GdMigrationUtil.forceCreditPointsSafe(lpm.Id, null, null, null, 'null');
     Test.stopTest();
 
     System.assertEquals(false, r1.success);
@@ -939,13 +905,10 @@ private class GdMigrationUtilTest {
   @IsTest
   static void forceCreditPointsSafe_noLumpBalance_returnsErrorAndUnprocessed() {
     // 신규 회원 — 묶음 잔액 없음 → 적립 안 함, 전액 미처리
-    LoyaltyProgramMember lpm = [
-      SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1
-    ];
+    LoyaltyProgramMember lpm = [SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
 
     Test.startTest();
-    GdMigrationUtil.ForceCreditResult result =
-      GdMigrationUtil.forceCreditPointsSafe(lpm.Id, null, null, 5000, 'no lump');
+    GdMigrationUtil.ForceCreditResult result = GdMigrationUtil.forceCreditPointsSafe(lpm.Id, null, null, 5000, 'no lump');
     Test.stopTest();
 
     System.assertEquals(false, result.success);
@@ -956,18 +919,14 @@ private class GdMigrationUtilTest {
 
   @IsTest
   static void buildForceCreditTJ_setsAllRequiredFields() {
-    LoyaltyProgramMember lpm = [
-      SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1
-    ];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
     Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SALE-OPTC-OLD' LIMIT 1];
 
     Id fakeJtId = Id.valueOf(JournalType.SObjectType.getDescribe().getKeyPrefix() + '000000000001');
     Id fakeJstId = Id.valueOf(JournalSubType.SObjectType.getDescribe().getKeyPrefix() + '000000000001');
 
     Test.startTest();
-    TransactionJournal tj = GdMigrationUtil.buildForceCreditTJ(
-      lpm.Id, lpm.ProgramId, o.Id, 2500, 'Phase 6.6 test', fakeJtId, fakeJstId
-    );
+    TransactionJournal tj = GdMigrationUtil.buildForceCreditTJ(lpm.Id, lpm.ProgramId, o.Id, 2500, 'Phase 6.6 test', fakeJtId, fakeJstId);
     Test.stopTest();
 
     System.assertEquals(lpm.Id, tj.MemberId);
@@ -981,16 +940,12 @@ private class GdMigrationUtilTest {
 
   @IsTest
   static void buildForceCreditTJ_blankReason_safeNotes() {
-    LoyaltyProgramMember lpm = [
-      SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1
-    ];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
     Id fakeJtId = Id.valueOf(JournalType.SObjectType.getDescribe().getKeyPrefix() + '000000000001');
     Id fakeJstId = Id.valueOf(JournalSubType.SObjectType.getDescribe().getKeyPrefix() + '000000000001');
 
     Test.startTest();
-    TransactionJournal tj = GdMigrationUtil.buildForceCreditTJ(
-      lpm.Id, lpm.ProgramId, null, 100, null, fakeJtId, fakeJstId
-    );
+    TransactionJournal tj = GdMigrationUtil.buildForceCreditTJ(lpm.Id, lpm.ProgramId, null, 100, null, fakeJtId, fakeJstId);
     Test.stopTest();
 
     System.assertEquals('OPTC_FORCE_CREDIT: ', tj.AdditionalNotes__c);
@@ -999,22 +954,17 @@ private class GdMigrationUtilTest {
 
   @IsTest
   static void buildForceDebitTJ_longReason_truncated() {
-    LoyaltyProgramMember lpm = [
-      SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1
-    ];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
     Id fakeJtId = Id.valueOf(JournalType.SObjectType.getDescribe().getKeyPrefix() + '000000000001');
     Id fakeJstId = Id.valueOf(JournalSubType.SObjectType.getDescribe().getKeyPrefix() + '000000000001');
 
     String longReason = 'X'.repeat(35000);
 
     Test.startTest();
-    TransactionJournal tj = GdMigrationUtil.buildForceDebitTJ(
-      lpm.Id, lpm.ProgramId, null, 100, longReason, fakeJtId, fakeJstId
-    );
+    TransactionJournal tj = GdMigrationUtil.buildForceDebitTJ(lpm.Id, lpm.ProgramId, null, 100, longReason, fakeJtId, fakeJstId);
     Test.stopTest();
 
     // prefix 'OPTC_FORCE_DEBIT: ' (18) + reason 30000 max = 30018
-    System.assert(tj.AdditionalNotes__c.length() <= 30020,
-      'reason 30k 초과 시 절단됨 — actual length: ' + tj.AdditionalNotes__c.length());
+    System.assert(tj.AdditionalNotes__c.length() <= 30020, 'reason 30k 초과 시 절단됨 — actual length: ' + tj.AdditionalNotes__c.length());
   }
 }

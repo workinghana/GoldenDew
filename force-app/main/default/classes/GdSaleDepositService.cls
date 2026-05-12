@@ -50,4 +50,13 @@ public interface GdSaleDepositService {
    * @throws CustomException
    */
   ApiResult upsertSaleDepositV2(Map<String, Object> reqData);
+
+  /**
+   * 판매 입금 이력 수정 V3
+   *
+   * @version 3.0
+   * @return ApiResult
+   * @throws CustomException
+   */
+  ApiResult upsertSaleDepositV3(Map<String, Object> reqData);
 }

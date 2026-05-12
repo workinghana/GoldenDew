@@ -1,0 +1,4 @@
+SELECT Id, OrderId, OrderId__c, SaleId__c, DepositNo__c, DeposiSeqNo__c, JournalSubTypeName__c, TransactionAmount, CreatedDate
+FROM TransactionJournal
+WHERE OrderId = '801JO00000IAsG9YAL' OR OrderId__c = '801JO00000IAsG9YAL' OR SaleId__c = '801JO00000IAsG9YAL' OR DepositNo__c IN ('DEP04034','DEP04035')
+ORDER BY DepositNo__c, DeposiSeqNo__c

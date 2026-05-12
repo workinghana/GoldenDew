@@ -1,7 +1,24 @@
 @isTest
 private class MagazineSubscriptionInquiryControllerTes {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"success":true,"message":"ok","data":{"erpId":"OK"}}');
+      return res;
+    }
+  }
+
+  private static void setMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
+
   @testSetup
   static void setup() {
+    setMock();
+
     // Get a valid restricted picklist value at runtime
     String validStoreMana = null;
     List<Schema.PicklistEntry> entries = TransactionJournal.Magazine_StoreMana__c.getDescribe().getPicklistValues();
@@ -64,6 +81,8 @@ private class MagazineSubscriptionInquiryControllerTes {
 
   @isTest
   static void testSearchFullFilters() {
+    setMock();
+
     // 모든 필터를 사용하는 케이스 (커버리지 핵심)
     String keyword = 'TestUser';
     Date fromDate = Date.today().addDays(-10);
@@ -97,6 +116,8 @@ private class MagazineSubscriptionInquiryControllerTes {
 
   @isTest
   static void testSearchPaginationAndSort() {
+    setMock();
+
     // 페이징 경계값 및 정렬 로직 커버
     Test.startTest();
     // pageSize를 0이나 null로 보냈을 때 기본값(20) 처리 확인
@@ -119,6 +140,8 @@ private class MagazineSubscriptionInquiryControllerTes {
 
   @isTest
   static void testSearchKeywordVariations() {
+    setMock();
+
     // 키워드 검색 분기 커버 (MobilePhone, UUID 등)
     Test.startTest();
     // 휴대폰 번호 일부로 검색
@@ -140,6 +163,8 @@ private class MagazineSubscriptionInquiryControllerTes {
 
   @isTest
   static void testSearchEmptyResult() {
+    setMock();
+
     // 결과가 없는 경우 커버
     Test.startTest();
     MagazineSubscriptionInquiryController.SearchResult result = MagazineSubscriptionInquiryController.search(

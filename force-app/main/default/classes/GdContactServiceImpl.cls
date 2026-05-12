@@ -26,13 +26,15 @@ public with sharing class GdContactServiceImpl implements GdContactService {
       String email = ValidationUtil.stringValidation(reqData.get('Email'), 'Email', false);
       String grade = ValidationUtil.stringValidation(reqData.get('Grade__c'), 'Grade__c', true);
       Boolean isMarried = ValidationUtil.booleanValidation(reqData.get('IsMarried__c'), 'IsMarried__c', false);
-      Date weddingAnniversaryDate = ValidationUtil.dateValidation(reqData.get('WeddingAnniversaryDate__c'), 'WeddingAnniversaryDate__c', false);
-      Boolean isEmailAgreed = ValidationUtil.booleanValidation(reqData.get('IsEmailAgreed__c'), 'IsEmailAgreed__c', false);
-      Boolean isSMSAgreed = ValidationUtil.booleanValidation(reqData.get('IsSMSAgreed__c'), 'IsSMSAgreed__c', false);
-      Boolean isMagazineSubscribed = ValidationUtil.booleanValidation(reqData.get('IsMagazineSubscribed__c'), 'IsMagazineSubscribed__c', false);
+      Date weddingAnniversaryDate = ValidationUtil.dateValidation(reqData.get('WeddingAnniversaryDate__c'), 'WeddingAnniversaryDate__c', false); // 결혼기념일자
+      Boolean isEmailAgreed = ValidationUtil.booleanValidation(reqData.get('IsEmailAgreed__c'), 'IsEmailAgreed__c', false); // Email 수신여부 
+      Boolean isSMSAgreed = ValidationUtil.booleanValidation(reqData.get('IsSMSAgreed__c'), 'IsSMSAgreed__c', false); // SMS 수신여부
+      Boolean isMagazineSubscribed = ValidationUtil.booleanValidation(reqData.get('IsMagazineSubscribed__c'), 'IsMagazineSubscribed__c', false);  // 매거진 구독 여부
       Boolean isMagazineCatalog = ValidationUtil.booleanValidation(reqData.get('IsMagazineCatalog__c'), 'IsMagazineCatalog__c', false); // DM(매거진) == 카탈로그 - 26.05.01 GD 추가
-      String mailingStreet = ValidationUtil.stringValidation(reqData.get('MailingStreet'), 'MailingStreet', false);
-      String mailingPostalCode = ValidationUtil.stringValidation(reqData.get('MailingPostalCode'), 'MailingPostalCode', false);
+      String magazineSubscriptionSeason = ValidationUtil.stringValidation(reqData.get('MagazineSubscriptionSeason__c'), 'MagazineSubscriptionSeason__c', false); // 매거진 구독 시즌
+      Date magazineSubscriptionDate = ValidationUtil.dateValidation(reqData.get('MagazineSubscriptionDate__c'), 'MagazineSubscriptionDate__c', false); // 매거진 구독 일자
+      String mailingStreet = ValidationUtil.stringValidation(reqData.get('MailingStreet'), 'MailingStreet', false); // 주소
+      String mailingPostalCode = ValidationUtil.stringValidation(reqData.get('MailingPostalCode'), 'MailingPostalCode', false); // 우편번호
       Boolean isMobileVerified = ValidationUtil.booleanValidation(reqData.get('IsMobileVerified__c'), 'IsMobileVerified__c', false); // 휴대폰 인증 여부
 
       // 회원번호 중복 체크
@@ -68,6 +70,14 @@ public with sharing class GdContactServiceImpl implements GdContactService {
         if (isMagazineSubscribed) {
           c.MagazineSubscriptionDate__c = Date.today();
         }
+      }
+      // 26.05.04 CS : 매거진 구독 시즌 필드 추가
+      if (magazineSubscriptionSeason != null) {
+        c.MagazineSubscriptionSeason__c = magazineSubscriptionSeason;
+      }
+      // 26.05.04 CS : 매거진 구독 일자 필드 추가
+      if (magazineSubscriptionDate != null) {
+        c.MagazineSubscriptionDate__c = magazineSubscriptionDate;
       }
       // 26.05.01 GD - DM(매거진) 카탈로그 추가
       if (isMagazineCatalog != null) {
@@ -174,6 +184,8 @@ public with sharing class GdContactServiceImpl implements GdContactService {
       Boolean isSMSAgreed = ValidationUtil.booleanValidation(reqData.get('IsSMSAgreed__c'), 'IsSMSAgreed__c', false);
       Boolean isMagazineSubscribed = ValidationUtil.booleanValidation(reqData.get('IsMagazineSubscribed__c'), 'IsMagazineSubscribed__c', false);
       Boolean isMagazineCatalog = ValidationUtil.booleanValidation(reqData.get('IsMagazineCatalog__c'), 'IsMagazineCatalog__c', false); // DM(매거진) == 카탈로그 - 26.05.01 GD 추가
+      String magazineSubscriptionSeason = ValidationUtil.stringValidation(reqData.get('MagazineSubscriptionSeason__c'), 'MagazineSubscriptionSeason__c', false); // 매거진 구독 시즌
+      Date magazineSubscriptionDate = ValidationUtil.dateValidation(reqData.get('MagazineSubscriptionDate__c'), 'MagazineSubscriptionDate__c', false); // 매거진 구독 일자
       String mailingStreet = ValidationUtil.stringValidation(reqData.get('MailingStreet'), 'MailingStreet', false);
       String mailingPostalCode = ValidationUtil.stringValidation(reqData.get('MailingPostalCode'), 'MailingPostalCode', false);
       Boolean isMobileVerified = ValidationUtil.booleanValidation(reqData.get('IsMobileVerified__c'), 'IsMobileVerified__c', false); // 휴대폰 인증 여부
@@ -247,6 +259,14 @@ public with sharing class GdContactServiceImpl implements GdContactService {
       }
       if (isSMSAgreed != null) {
         cList[0].IsSMSAgreed__c = isSMSAgreed;
+      }
+      // 26.05.04 CS : 매거진 구독 시즌 필드 추가
+      if (magazineSubscriptionSeason != null) {
+        cList[0].MagazineSubscriptionSeason__c = magazineSubscriptionSeason;
+      }
+      // 26.05.04 CS : 매거진 구독 일자 필드 추가
+      if (magazineSubscriptionDate != null) {
+        cList[0].MagazineSubscriptionDate__c = magazineSubscriptionDate;
       }
       if (isMagazineSubscribed != null) {
         if (cList[0].IsMagazineSubscribed__c != isMagazineSubscribed) {

@@ -209,7 +209,21 @@ export default class ProgramMemberField extends LightningElement {
   }
 
   get birthdateText() {
-    return this.formatDate(this.member?.birthdate);
+    const raw = this.member?.legalBirthdate;
+    if (!raw || typeof raw !== "string" || raw.length !== 6) {
+      return "정보 없음";
+    }
+
+    const yy = raw.substring(0, 2);
+    const mm = raw.substring(2, 4);
+    const dd = raw.substring(4, 6);
+    const yyNum = parseInt(yy, 10);
+    if (Number.isNaN(yyNum)) {
+      return "정보 없음";
+    }
+
+    const fullYear = yyNum <= 29 ? 2000 + yyNum : 1900 + yyNum;
+    return `${fullYear}.${mm}.${dd}`;
   }
 
   get weddingDateText() {

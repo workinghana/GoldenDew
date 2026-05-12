@@ -12,9 +12,24 @@
  */
 @IsTest
 private class GdReturnDepositBranchHandlerTest {
+  // TransactionJournal Create 시 발화하는 RTF_Purchase_Point_Award 플로우가
+  // Salesforce Loyalty creditPoints invocable action 을 호출하면서 콜아웃을 발생시키므로
+  // @TestSetup 에서 HttpCalloutMock 을 세팅한다.
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
 
   @TestSetup
   static void setupData() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+
     Account company = new Account(Name = 'Co_RDB', CompanyCode__c = 'CMP-RDB');
     insert company;
 
@@ -85,10 +100,7 @@ private class GdReturnDepositBranchHandlerTest {
     ];
     System.assertEquals(true, tj.IsDeleted__c, 'TJ.IsDeleted__c=true');
     System.assertNotEquals(null, tj.DeleteDateTime__c, 'TJ.DeleteDateTime__c 설정됨');
-    System.assert(
-      tj.AdditionalNotes__c.contains(GdReturnDepositBranchHandler.MARKER),
-      'AdditionalNotes 에 MARKER 포함'
-    );
+    System.assert(tj.AdditionalNotes__c.contains(GdReturnDepositBranchHandler.MARKER), 'AdditionalNotes 에 MARKER 포함');
   }
 
   // ============================================================
@@ -144,21 +156,10 @@ private class GdReturnDepositBranchHandlerTest {
     GdReturnDepositBranchHandler.handle('DEP-RDB-OLD-02', null);
     Test.stopTest();
 
-    TransactionJournal tj = [
-      SELECT AdditionalNotes__c FROM TransactionJournal WHERE DepositNo__c = 'DEP-RDB-OLD-02' LIMIT 1
-    ];
-    System.assert(
-      tj.AdditionalNotes__c.contains('EXISTING_NOTE_FROM_MIGRATION'),
-      '기존 노트 보존'
-    );
-    System.assert(
-      tj.AdditionalNotes__c.contains(GdReturnDepositBranchHandler.MARKER),
-      '새 마커 추가'
-    );
-    System.assert(
-      tj.AdditionalNotes__c.contains(' | '),
-      '구분자 ( | ) 사이에 둠'
-    );
+    TransactionJournal tj = [SELECT AdditionalNotes__c FROM TransactionJournal WHERE DepositNo__c = 'DEP-RDB-OLD-02' LIMIT 1];
+    System.assert(tj.AdditionalNotes__c.contains('EXISTING_NOTE_FROM_MIGRATION'), '기존 노트 보존');
+    System.assert(tj.AdditionalNotes__c.contains(GdReturnDepositBranchHandler.MARKER), '새 마커 추가');
+    System.assert(tj.AdditionalNotes__c.contains(' | '), '구분자 ( | ) 사이에 둠');
   }
 
   // ============================================================
@@ -212,9 +213,7 @@ private class GdReturnDepositBranchHandlerTest {
   @IsTest
   static void handle_alreadyDeleted_throws400() {
     // 사전: TJ 미리 IsDeleted=true 로 표시
-    TransactionJournal tj = [
-      SELECT Id FROM TransactionJournal WHERE DepositNo__c = 'DEP-RDB-OLD-01' LIMIT 1
-    ];
+    TransactionJournal tj = [SELECT Id FROM TransactionJournal WHERE DepositNo__c = 'DEP-RDB-OLD-01' LIMIT 1];
     tj.IsDeleted__c = true;
     update tj;
 

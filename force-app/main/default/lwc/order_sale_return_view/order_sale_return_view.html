@@ -1,0 +1,1839 @@
+<template>
+  <lightning-card title="주문 등록 (ERP 테스트 화면)" icon-name="standard:orders">
+    <lightning-button slot="actions" variant="brand" label="회원 등록" icon-name="utility:adduser" onclick={openMemberModal}></lightning-button>
+
+    <div class="page-body">
+      <!-- 안내 배너 -->
+      <div class="hint-banner">
+        <lightning-icon icon-name="utility:info" size="x-small" alternative-text="안내"></lightning-icon>
+        <span>「입력」 항목만 직접 작성하시면 됩니다. 「지정」 항목은 사전 지정값으로 자동 적용됩니다.</span>
+      </div>
+
+      <!-- ============================ 주문 헤더 ============================ -->
+      <div class="section-card section-header">
+        <div class="section-title">
+          <lightning-icon icon-name="standard:order" size="small"></lightning-icon>
+          <span>주문 헤더</span>
+        </div>
+
+        <div class="subsection-title input"><span class="dot"></span>사용자 입력 항목</div>
+        <div class="input-grid">
+          <lightning-input
+            type="text"
+            label="회원 번호"
+            field-level-help="필수 입력"
+            data-section="header"
+            data-field="MemberNo__c"
+            value={header.MemberNo__c}
+            onchange={handleHeaderChange}
+            required
+            placeholder="예: CAR20260319087"
+            class="clean-input"
+          ></lightning-input>
+          <div class="input-with-action wide">
+            <lightning-input
+              type="text"
+              label="주문 번호"
+              field-level-help="prefix 버튼(01~04) 클릭 → 뒤 3자리 시퀀스 직접 입력"
+              data-section="header"
+              data-field="OrderNo__c"
+              value={header.OrderNo__c}
+              onchange={handleHeaderChange}
+              required
+              placeholder={orderNoPlaceholder}
+              class="clean-input"
+            ></lightning-input>
+            <lightning-button
+              variant="brand-outline"
+              label="01"
+              data-prefix="01"
+              onclick={handlePrefixOrderNo}
+              title="SOR01 (1번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="02"
+              data-prefix="02"
+              onclick={handlePrefixOrderNo}
+              title="SOR02 (2번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="03"
+              data-prefix="03"
+              onclick={handlePrefixOrderNo}
+              title="SOR03 (3번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="04"
+              data-prefix="04"
+              onclick={handlePrefixOrderNo}
+              title="SOR04 (4번 담당자)"
+            ></lightning-button>
+          </div>
+          <lightning-combobox
+            label="주문 상태 코드"
+            data-section="header"
+            data-field="OrderStatus__c"
+            value={header.OrderStatus__c}
+            options={orderStatusOptions}
+            onchange={handleHeaderChange}
+            placeholder="상태 선택"
+            class="clean-input"
+          ></lightning-combobox>
+          <lightning-combobox
+            label="주문 구분 코드"
+            data-section="header"
+            data-field="Type"
+            value={header.Type}
+            options={orderTypeOptions}
+            onchange={handleHeaderChange}
+            placeholder="구분 선택"
+            class="clean-input"
+          ></lightning-combobox>
+          <lightning-input
+            type="text"
+            label="프로모션 번호"
+            field-level-help="선택 입력"
+            data-section="header"
+            data-field="PromotionNo__c"
+            value={header.PromotionNo__c}
+            onchange={handleHeaderChange}
+            placeholder="비워둘 수 있음"
+            class="clean-input"
+          ></lightning-input>
+          <lightning-combobox
+            label="매장 코드"
+            data-section="header"
+            data-field="StoreCode__c"
+            value={header.StoreCode__c}
+            options={storeCodeOptions}
+            onchange={handleHeaderChange}
+            placeholder="매장 선택"
+            class="clean-input"
+          ></lightning-combobox>
+          <div class="input-with-action">
+            <lightning-input
+              type="number"
+              label="판매금액"
+              field-level-help="실결제 금액"
+              data-section="header"
+              data-field="ActualPaymentAmount__c"
+              value={header.ActualPaymentAmount__c}
+              onchange={handleHeaderChange}
+              step="0.01"
+              placeholder="예: 2000000"
+              class="clean-input"
+            ></lightning-input>
+            <lightning-button
+              variant="neutral"
+              label="합계 적용"
+              icon-name="utility:summary"
+              onclick={handleApplyOrderTotal}
+              title="주문 상세 합계로 판매금액 채우기"
+            ></lightning-button>
+          </div>
+        </div>
+        <div class="payment-hint">
+          <lightning-icon icon-name="utility:info" size="x-small"></lightning-icon>
+          참고: 주문 상세 합계 = <strong>{actualPaymentLabel}</strong>
+        </div>
+
+        <div class="subsection-title fixed"><span class="dot"></span>자동 적용 (지정)</div>
+        <div class="fixed-info-grid">
+          <div class="fixed-info-item">
+            <span class="fixed-info-label">회사 코드</span>
+            <span class="fixed-info-value">{header.AccountId}</span>
+          </div>
+          <div class="fixed-info-item">
+            <span class="fixed-info-label">등록자</span>
+            <span class="fixed-info-value muted">{insertIdLabel}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================ 주문 상세 (OrderItem) ============================ -->
+      <div class="section-card section-items">
+        <div class="section-title-row">
+          <div class="section-title">
+            <lightning-icon icon-name="standard:product" size="small"></lightning-icon>
+            <span>주문 상세 ({itemsCount})</span>
+          </div>
+          <lightning-button variant="brand-outline" label="행 추가" icon-name="utility:add" onclick={addItem}></lightning-button>
+        </div>
+
+        <template for:each={items} for:item="item" for:index="i">
+          <div key={item._key} class="row-card row-card-item">
+            <div class="row-card-header">
+              <span class="row-card-title">상세 #{item._idxLabel}</span>
+              <lightning-button-icon
+                icon-name="utility:close"
+                variant="bare"
+                alternative-text="삭제"
+                title="삭제"
+                size="small"
+                data-index={i}
+                onclick={removeItem}
+              ></lightning-button-icon>
+            </div>
+
+            <div class="input-grid">
+              <lightning-input
+                type="text"
+                label="주문 일련 번호"
+                data-section="item"
+                data-index={i}
+                data-field="OrderSeqNo__c"
+                value={item.OrderSeqNo__c}
+                onchange={handleItemChange}
+                required
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="text"
+                label="상품 코드"
+                data-section="item"
+                data-index={i}
+                data-field="ProductCode"
+                value={item.ProductCode}
+                onchange={handleItemChange}
+                placeholder="예: TEST-001"
+                class="clean-input"
+              ></lightning-input>
+              <lightning-combobox
+                label="주문 상세 상태"
+                data-section="item"
+                data-index={i}
+                data-field="Status__c"
+                value={item.Status__c}
+                options={orderStatusOptions}
+                onchange={handleItemChange}
+                placeholder="상태 선택"
+                class="clean-input"
+              ></lightning-combobox>
+              <lightning-input
+                type="number"
+                label="수량"
+                data-section="item"
+                data-index={i}
+                data-field="Quantity"
+                value={item.Quantity}
+                onchange={handleItemChange}
+                min="1"
+                step="1"
+                required
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="number"
+                label="판매단가"
+                data-section="item"
+                data-index={i}
+                data-field="NetSalesUnitPrice__c"
+                value={item.NetSalesUnitPrice__c}
+                onchange={handleItemChange}
+                step="0.01"
+                placeholder="예: 2000000"
+                class="clean-input"
+              ></lightning-input>
+              <div class="checkbox-cell">
+                <lightning-input
+                  type="checkbox"
+                  label="포인트 적립 제외"
+                  data-section="item"
+                  data-index={i}
+                  data-field="isExclude"
+                  checked={item.isExclude}
+                  onchange={handleItemChange}
+                ></lightning-input>
+              </div>
+            </div>
+
+            <div class="fixed-chip-row">
+              <span class="fixed-chip"><span class="chip-key">할인율</span><span class="chip-val">{item.discountLabel}</span></span>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ============================ 입금 내역 (TransactionJournal) ============================ -->
+      <div class="section-card section-journals">
+        <div class="section-title-row">
+          <div class="section-title">
+            <lightning-icon icon-name="standard:cash_payment" size="small"></lightning-icon>
+            <span>입금 내역 ({journalsCount})</span>
+          </div>
+          <div>
+            <lightning-button
+              variant="brand-outline"
+              label="DEP01"
+              data-prefix="01"
+              onclick={handlePrefixOrderDepositNo}
+              class="slds-m-right_xx-small"
+              title="DEP01 (1번 담당자) — 모든 입금 행에 적용"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="DEP02"
+              data-prefix="02"
+              onclick={handlePrefixOrderDepositNo}
+              class="slds-m-right_xx-small"
+              title="DEP02 (2번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="DEP03"
+              data-prefix="03"
+              onclick={handlePrefixOrderDepositNo}
+              class="slds-m-right_xx-small"
+              title="DEP03 (3번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="DEP04"
+              data-prefix="04"
+              onclick={handlePrefixOrderDepositNo}
+              class="slds-m-right_x-small"
+              title="DEP04 (4번 담당자)"
+            ></lightning-button>
+            <lightning-button variant="brand-outline" label="행 추가" icon-name="utility:add" onclick={addJournal}></lightning-button>
+          </div>
+        </div>
+
+        <template for:each={journals} for:item="j" for:index="i">
+          <div key={j._key} class="row-card row-card-journal">
+            <div class="row-card-header">
+              <span class="row-card-title">입금 #{j._idxLabel}</span>
+              <lightning-button-icon
+                icon-name="utility:close"
+                variant="bare"
+                alternative-text="삭제"
+                title="삭제"
+                size="small"
+                data-index={i}
+                onclick={removeJournal}
+              ></lightning-button-icon>
+            </div>
+
+            <div class="input-grid">
+              <lightning-input
+                type="text"
+                label="입금 번호"
+                data-section="journal"
+                data-index={i}
+                data-field="DepositNo__c"
+                value={j.DepositNo__c}
+                onchange={handleJournalChange}
+                placeholder={orderDepNoPlaceholder}
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="text"
+                label="입금 일련 번호"
+                data-section="journal"
+                data-index={i}
+                data-field="DeposiSeqNo__c"
+                value={j.DeposiSeqNo__c}
+                onchange={handleJournalChange}
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="text"
+                label="입금일"
+                data-section="journal"
+                data-index={i}
+                data-field="ActivityDate"
+                value={j.ActivityDate}
+                onchange={handleJournalChange}
+                placeholder="YYYYMMDD"
+                class="clean-input"
+              ></lightning-input>
+              <lightning-combobox
+                label="결제 수단"
+                data-section="journal"
+                data-index={i}
+                data-field="PaymentMethod"
+                value={j.PaymentMethod}
+                options={paymentMethodOptions}
+                onchange={handleJournalChange}
+                placeholder="결제 수단 선택"
+                class="clean-input"
+              ></lightning-combobox>
+              <lightning-combobox
+                label="입금 구분"
+                data-section="journal"
+                data-index={i}
+                data-field="DepositType__c"
+                value={j.DepositType__c}
+                options={depositTypeOptions}
+                onchange={handleJournalChange}
+                placeholder="입금 구분 선택"
+                class="clean-input"
+              ></lightning-combobox>
+              <lightning-input
+                type="number"
+                label="거래 금액"
+                data-section="journal"
+                data-index={i}
+                data-field="TransactionAmount"
+                value={j.TransactionAmount}
+                onchange={handleJournalChange}
+                step="0.01"
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="text"
+                label="쿠폰 번호"
+                field-level-help="선택 입력"
+                data-section="journal"
+                data-index={i}
+                data-field="CouponNo"
+                value={j.CouponNo}
+                onchange={handleJournalChange}
+                placeholder="비워둘 수 있음"
+                class="clean-input"
+              ></lightning-input>
+            </div>
+
+            <div class="fixed-chip-row">
+              <span class="fixed-chip"><span class="chip-key">주문 번호</span><span class="chip-val muted">null</span></span>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ============================ 제출 ============================ -->
+      <div class="submit-bar">
+        <div>
+          <lightning-button
+            variant="brand"
+            label="주문 등록"
+            icon-name="utility:save"
+            onclick={handleSubmit}
+            disabled={isSubmitting}
+            class="slds-m-right_x-small"
+          ></lightning-button>
+          <lightning-button
+            variant="brand-outline"
+            label="주문 수정"
+            icon-name="utility:edit"
+            onclick={openModifyModal}
+            class="slds-m-right_x-small"
+          ></lightning-button>
+          <lightning-button variant="neutral" label="JSON 미리보기" onclick={togglePreview} icon-name="utility:preview"></lightning-button>
+        </div>
+        <template if:true={isSubmitting}>
+          <div class="slds-is-relative" style="min-height: 32px; min-width: 80px">
+            <lightning-spinner alternative-text="등록 중" size="small"></lightning-spinner>
+          </div>
+        </template>
+      </div>
+
+      <template if:true={showPreview}>
+        <div class="json-preview-box">
+          <div class="json-preview-label">실제 전송될 JSON 본문</div>
+          <pre class="json-preview">{previewJson}</pre>
+        </div>
+      </template>
+
+      <template if:true={result}>
+        <div class={resultClass}>{resultText}</div>
+      </template>
+
+      <!-- =========================================================== -->
+      <!-- ====================== 판매 등록 영역 ====================== -->
+      <!-- =========================================================== -->
+      <div class="section-divider">판매 등록</div>
+
+      <!-- ============================ 판매 헤더 ============================ -->
+      <div class="section-card section-sale">
+        <div class="section-title-row">
+          <div class="section-title">
+            <lightning-icon icon-name="standard:opportunity" size="small"></lightning-icon>
+            <span>판매 헤더</span>
+          </div>
+          <lightning-button variant="success" label="회원 등록" icon-name="utility:adduser" onclick={openMemberModal}></lightning-button>
+        </div>
+
+        <div class="subsection-title input"><span class="dot"></span>사용자 입력 항목</div>
+        <div class="input-grid">
+          <lightning-input
+            type="text"
+            label="회원 번호"
+            field-level-help="필수 입력"
+            data-field="MemberNo__c"
+            value={saleHeader.MemberNo__c}
+            onchange={handleSaleHeaderChange}
+            required
+            placeholder="예: CAR20250501025"
+            class="clean-input"
+          ></lightning-input>
+          <div class="input-with-action wide">
+            <lightning-input
+              type="text"
+              label="판매 번호"
+              field-level-help="prefix 버튼(01~04) 클릭 → 뒤 3자리 시퀀스 직접 입력"
+              data-field="SaleNo__c"
+              value={saleHeader.SaleNo__c}
+              onchange={handleSaleHeaderChange}
+              required
+              placeholder={saleNoPlaceholder}
+              class="clean-input"
+            ></lightning-input>
+            <lightning-button
+              variant="brand-outline"
+              label="01"
+              data-prefix="01"
+              onclick={handlePrefixSaleNo}
+              title="SAL01 (1번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="02"
+              data-prefix="02"
+              onclick={handlePrefixSaleNo}
+              title="SAL02 (2번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="03"
+              data-prefix="03"
+              onclick={handlePrefixSaleNo}
+              title="SAL03 (3번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="04"
+              data-prefix="04"
+              onclick={handlePrefixSaleNo}
+              title="SAL04 (4번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="destructive-text"
+              label="판매 삭제"
+              icon-name="utility:delete"
+              onclick={handleDeleteSale}
+              title="입력한 판매 번호의 판매 전체 삭제"
+            ></lightning-button>
+          </div>
+          <lightning-input
+            type="text"
+            label="판매 일자"
+            data-field="EndDate"
+            value={saleHeader.EndDate}
+            onchange={handleSaleHeaderChange}
+            placeholder="YYYYMMDD (예: 20260503)"
+            class="clean-input"
+          ></lightning-input>
+          <lightning-combobox
+            label="판매 구분 코드"
+            data-field="SaleStatus__c"
+            value={saleHeader.SaleStatus__c}
+            options={saleStatusOptions}
+            onchange={handleSaleHeaderChange}
+            placeholder="구분 선택"
+            class="clean-input"
+          ></lightning-combobox>
+          <lightning-input
+            type="text"
+            label="프로모션 번호"
+            field-level-help="선택 입력"
+            data-field="PromotionNo__c"
+            value={saleHeader.PromotionNo__c}
+            onchange={handleSaleHeaderChange}
+            placeholder="비워둘 수 있음"
+            class="clean-input"
+          ></lightning-input>
+          <lightning-combobox
+            label="매장 코드"
+            data-field="StoreCode__c"
+            value={saleHeader.StoreCode__c}
+            options={storeCodeOptions}
+            onchange={handleSaleHeaderChange}
+            placeholder="매장 선택"
+            class="clean-input"
+          ></lightning-combobox>
+          <div class="input-with-action">
+            <lightning-input
+              type="number"
+              label="판매금액"
+              field-level-help="실결제 금액"
+              data-field="ActualPaymentAmount__c"
+              value={saleHeader.ActualPaymentAmount__c}
+              onchange={handleSaleHeaderChange}
+              step="0.01"
+              placeholder="예: 20000"
+              class="clean-input"
+            ></lightning-input>
+            <lightning-button
+              variant="neutral"
+              label="합계 적용"
+              icon-name="utility:summary"
+              onclick={handleApplySaleTotal}
+              title="판매 상세 합계로 판매금액 채우기"
+            ></lightning-button>
+          </div>
+          <lightning-input
+            type="text"
+            label="등록자"
+            data-field="InsertId__c"
+            value={saleHeader.InsertId__c}
+            onchange={handleSaleHeaderChange}
+            placeholder="예: 골든듀"
+            class="clean-input"
+          ></lightning-input>
+        </div>
+        <div class="payment-hint">
+          <lightning-icon icon-name="utility:info" size="x-small"></lightning-icon>
+          참고: 판매 상세 합계 = <strong>{saleActualPaymentLabel}</strong>
+        </div>
+
+        <div class="subsection-title fixed"><span class="dot"></span>자동 적용 (지정)</div>
+        <div class="fixed-info-grid">
+          <div class="fixed-info-item">
+            <span class="fixed-info-label">회사 코드</span>
+            <span class="fixed-info-value">{saleHeader.AccountId}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================ 판매 상세 ============================ -->
+      <div class="section-card section-items">
+        <div class="section-title-row">
+          <div class="section-title">
+            <lightning-icon icon-name="standard:product" size="small"></lightning-icon>
+            <span>판매 상세 ({saleItemsCount})</span>
+          </div>
+          <lightning-button variant="brand-outline" label="행 추가" icon-name="utility:add" onclick={addSaleItem}></lightning-button>
+        </div>
+
+        <template for:each={saleItems} for:item="item" for:index="i">
+          <div key={item._key} class="row-card row-card-item">
+            <div class="row-card-header">
+              <span class="row-card-title">상세 #{item._idxLabel}</span>
+              <lightning-button-icon
+                icon-name="utility:close"
+                variant="bare"
+                alternative-text="삭제"
+                title="삭제"
+                size="small"
+                data-index={i}
+                onclick={removeSaleItem}
+              ></lightning-button-icon>
+            </div>
+            <div class="input-grid">
+              <lightning-input
+                type="text"
+                label="판매 일련 번호"
+                data-index={i}
+                data-field="SaleSeqNo__c"
+                value={item.SaleSeqNo__c}
+                onchange={handleSaleItemChange}
+                required
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="text"
+                label="상품 코드"
+                data-index={i}
+                data-field="ProductCode"
+                value={item.ProductCode}
+                onchange={handleSaleItemChange}
+                placeholder="예: TEST-001"
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="number"
+                label="수량"
+                data-index={i}
+                data-field="Quantity"
+                value={item.Quantity}
+                onchange={handleSaleItemChange}
+                min="1"
+                step="1"
+                required
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="number"
+                label="판매단가"
+                data-index={i}
+                data-field="NetSalesUnitPrice__c"
+                value={item.NetSalesUnitPrice__c}
+                onchange={handleSaleItemChange}
+                step="0.01"
+                placeholder="예: 10000"
+                class="clean-input"
+              ></lightning-input>
+              <div class="checkbox-cell">
+                <lightning-input
+                  type="checkbox"
+                  label="포인트 적립 제외"
+                  data-index={i}
+                  data-field="isExclude"
+                  checked={item.isExclude}
+                  onchange={handleSaleItemChange}
+                ></lightning-input>
+              </div>
+            </div>
+            <div class="fixed-chip-row">
+              <span class="fixed-chip"><span class="chip-key">할인율</span><span class="chip-val">{item.discountLabel}</span></span>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ============================ 입금 내역 ============================ -->
+      <div class="section-card section-journals">
+        <div class="section-title-row">
+          <div class="section-title">
+            <lightning-icon icon-name="standard:cash_payment" size="small"></lightning-icon>
+            <span>입금 내역 ({saleJournalsCount})</span>
+          </div>
+          <div>
+            <lightning-button
+              variant="brand-outline"
+              label="DEP01"
+              data-prefix="01"
+              onclick={handlePrefixSaleDepositNo}
+              class="slds-m-right_xx-small"
+              title="DEP01 (1번 담당자) — 모든 입금 행에 적용"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="DEP02"
+              data-prefix="02"
+              onclick={handlePrefixSaleDepositNo}
+              class="slds-m-right_xx-small"
+              title="DEP02 (2번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="DEP03"
+              data-prefix="03"
+              onclick={handlePrefixSaleDepositNo}
+              class="slds-m-right_xx-small"
+              title="DEP03 (3번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="DEP04"
+              data-prefix="04"
+              onclick={handlePrefixSaleDepositNo}
+              class="slds-m-right_x-small"
+              title="DEP04 (4번 담당자)"
+            ></lightning-button>
+            <lightning-button variant="brand-outline" label="행 추가" icon-name="utility:add" onclick={addSaleJournal}></lightning-button>
+          </div>
+        </div>
+
+        <template for:each={saleJournals} for:item="j" for:index="i">
+          <div key={j._key} class="row-card row-card-journal">
+            <div class="row-card-header">
+              <span class="row-card-title">입금 #{j._idxLabel}</span>
+              <lightning-button-icon
+                icon-name="utility:close"
+                variant="bare"
+                alternative-text="삭제"
+                title="삭제"
+                size="small"
+                data-index={i}
+                onclick={removeSaleJournal}
+              ></lightning-button-icon>
+            </div>
+            <div class="input-grid">
+              <div class="input-with-action wide">
+                <lightning-input
+                  type="text"
+                  label="입금 번호"
+                  data-index={i}
+                  data-field="DepositNo__c"
+                  value={j.DepositNo__c}
+                  onchange={handleSaleJournalChange}
+                  placeholder={saleDepNoPlaceholder}
+                  class="clean-input"
+                ></lightning-input>
+                <lightning-button
+                  variant="destructive-text"
+                  label="판매 입금 삭제"
+                  icon-name="utility:delete"
+                  data-index={i}
+                  onclick={handleDeleteSaleDeposit}
+                  title="입금 번호 + 입금 일련 번호 조합으로 단건 삭제"
+                ></lightning-button>
+              </div>
+              <lightning-input
+                type="text"
+                label="입금 일련 번호"
+                data-index={i}
+                data-field="DeposiSeqNo__c"
+                value={j.DeposiSeqNo__c}
+                onchange={handleSaleJournalChange}
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="text"
+                label="입금일"
+                data-index={i}
+                data-field="ActivityDate"
+                value={j.ActivityDate}
+                onchange={handleSaleJournalChange}
+                placeholder="YYYYMMDD"
+                class="clean-input"
+              ></lightning-input>
+              <lightning-combobox
+                label="결제 수단"
+                data-index={i}
+                data-field="PaymentMethod"
+                value={j.PaymentMethod}
+                options={paymentMethodOptions}
+                onchange={handleSaleJournalChange}
+                placeholder="결제 수단 선택"
+                class="clean-input"
+              ></lightning-combobox>
+              <lightning-combobox
+                label="입금 구분"
+                data-index={i}
+                data-field="DepositType__c"
+                value={j.DepositType__c}
+                options={depositTypeOptions}
+                onchange={handleSaleJournalChange}
+                placeholder="입금 구분 선택"
+                class="clean-input"
+              ></lightning-combobox>
+              <lightning-input
+                type="number"
+                label="거래 금액"
+                data-index={i}
+                data-field="TransactionAmount"
+                value={j.TransactionAmount}
+                onchange={handleSaleJournalChange}
+                step="0.01"
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="text"
+                label="쿠폰 번호"
+                data-index={i}
+                data-field="CouponNo"
+                value={j.CouponNo}
+                onchange={handleSaleJournalChange}
+                placeholder="비워둘 수 있음"
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="text"
+                label="주문 번호"
+                data-index={i}
+                data-field="OrderNo__c"
+                value={j.OrderNo__c}
+                onchange={handleSaleJournalChange}
+                placeholder="원주문 번호 또는 빈값"
+                class="clean-input"
+              ></lightning-input>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ============================ 판매 제출 ============================ -->
+      <div class="submit-bar">
+        <div>
+          <lightning-button
+            variant="brand"
+            label="판매 등록"
+            icon-name="utility:save"
+            onclick={handleSaleSubmit}
+            disabled={isSaleSubmitting}
+            class="slds-m-right_x-small"
+          ></lightning-button>
+          <lightning-button
+            variant="brand-outline"
+            label="판매 수정"
+            icon-name="utility:edit"
+            onclick={openSaleModifyModal}
+            class="slds-m-right_x-small"
+          ></lightning-button>
+          <lightning-button variant="neutral" label="JSON 미리보기" onclick={toggleSalePreview} icon-name="utility:preview"></lightning-button>
+        </div>
+        <template if:true={isSaleSubmitting}>
+          <div class="slds-is-relative" style="min-height: 32px; min-width: 80px">
+            <lightning-spinner alternative-text="등록 중" size="small"></lightning-spinner>
+          </div>
+        </template>
+      </div>
+
+      <template if:true={showSalePreview}>
+        <div class="json-preview-box">
+          <div class="json-preview-label">실제 전송될 JSON 본문</div>
+          <pre class="json-preview">{salePreviewJson}</pre>
+        </div>
+      </template>
+
+      <template if:true={saleResult}>
+        <div class={saleResultClass}>{saleResultText}</div>
+      </template>
+
+      <!-- =========================================================== -->
+      <!-- ====================== 반품 등록 영역 ====================== -->
+      <!-- =========================================================== -->
+      <div class="section-divider section-divider-return">반품 등록</div>
+
+      <!-- ============================ 반품 헤더 ============================ -->
+      <div class="section-card section-return">
+        <div class="section-title">
+          <lightning-icon icon-name="standard:return_order" size="small"></lightning-icon>
+          <span>반품 헤더</span>
+        </div>
+
+        <div class="subsection-title input"><span class="dot"></span>사용자 입력 항목</div>
+        <div class="input-grid">
+          <div class="input-with-action wide">
+            <lightning-input
+              type="text"
+              label="반품 번호"
+              field-level-help="prefix 버튼(01~04) 클릭 → 뒤 3자리 시퀀스 직접 입력"
+              data-field="SaleNo__c"
+              value={returnHeader.SaleNo__c}
+              onchange={handleReturnHeaderChange}
+              required
+              placeholder={returnNoPlaceholder}
+              class="clean-input"
+            ></lightning-input>
+            <lightning-button
+              variant="brand-outline"
+              label="01"
+              data-prefix="01"
+              onclick={handlePrefixReturnNo}
+              title="SAL01 (1번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="02"
+              data-prefix="02"
+              onclick={handlePrefixReturnNo}
+              title="SAL02 (2번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="03"
+              data-prefix="03"
+              onclick={handlePrefixReturnNo}
+              title="SAL03 (3번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="04"
+              data-prefix="04"
+              onclick={handlePrefixReturnNo}
+              title="SAL04 (4번 담당자)"
+            ></lightning-button>
+          </div>
+          <lightning-input
+            type="text"
+            label="원판매 번호"
+            field-level-help="필수 입력 — 반품 대상 원판매"
+            data-field="OriginalOrderId"
+            value={returnHeader.OriginalOrderId}
+            onchange={handleReturnHeaderChange}
+            required
+            placeholder="예: SAL_0501_020"
+            class="clean-input"
+          ></lightning-input>
+          <lightning-input
+            type="number"
+            label="반품 금액"
+            data-field="ActualPaymentAmount__c"
+            value={returnHeader.ActualPaymentAmount__c}
+            onchange={handleReturnHeaderChange}
+            step="0.01"
+            placeholder="예: 10000"
+            class="clean-input"
+          ></lightning-input>
+          <lightning-input
+            type="text"
+            label="등록자"
+            data-field="InsertId__c"
+            value={returnHeader.InsertId__c}
+            onchange={handleReturnHeaderChange}
+            placeholder="예: 골든듀"
+            class="clean-input"
+          ></lightning-input>
+        </div>
+      </div>
+
+      <!-- ============================ 반품 상세 ============================ -->
+      <div class="section-card section-items">
+        <div class="section-title-row">
+          <div class="section-title">
+            <lightning-icon icon-name="standard:product" size="small"></lightning-icon>
+            <span>반품 상세 ({returnItemsCount})</span>
+          </div>
+          <lightning-button variant="brand-outline" label="행 추가" icon-name="utility:add" onclick={addReturnItem}></lightning-button>
+        </div>
+
+        <template for:each={returnItems} for:item="item" for:index="i">
+          <div key={item._key} class="row-card row-card-item">
+            <div class="row-card-header">
+              <span class="row-card-title">상세 #{item._idxLabel}</span>
+              <lightning-button-icon
+                icon-name="utility:close"
+                variant="bare"
+                alternative-text="삭제"
+                title="삭제"
+                size="small"
+                data-index={i}
+                onclick={removeReturnItem}
+              ></lightning-button-icon>
+            </div>
+            <div class="input-grid">
+              <lightning-input
+                type="text"
+                label="판매 일련 번호"
+                data-index={i}
+                data-field="SaleSeqNo__c"
+                value={item.SaleSeqNo__c}
+                onchange={handleReturnItemChange}
+                required
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="text"
+                label="상품 코드"
+                data-index={i}
+                data-field="ProductCode"
+                value={item.ProductCode}
+                onchange={handleReturnItemChange}
+                placeholder="예: TEST-001"
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="number"
+                label="수량 (반품은 음수)"
+                data-index={i}
+                data-field="Quantity"
+                value={item.Quantity}
+                onchange={handleReturnItemChange}
+                step="1"
+                required
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="number"
+                label="판매단가"
+                data-index={i}
+                data-field="NetSalesUnitPrice__c"
+                value={item.NetSalesUnitPrice__c}
+                onchange={handleReturnItemChange}
+                step="0.01"
+                placeholder="예: 10000"
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="number"
+                label="할인율"
+                data-index={i}
+                data-field="DiscountRate__c"
+                value={item.DiscountRate__c}
+                onchange={handleReturnItemChange}
+                step="0.01"
+                placeholder="0"
+                class="clean-input"
+              ></lightning-input>
+              <div class="checkbox-cell">
+                <lightning-input
+                  type="checkbox"
+                  label="포인트 적립 제외"
+                  data-index={i}
+                  data-field="isExclude"
+                  checked={item.isExclude}
+                  onchange={handleReturnItemChange}
+                ></lightning-input>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ============================ 입금 내역 ============================ -->
+      <div class="section-card section-journals">
+        <div class="section-title-row">
+          <div class="section-title">
+            <lightning-icon icon-name="standard:cash_payment" size="small"></lightning-icon>
+            <span>입금 내역 ({returnJournalsCount})</span>
+          </div>
+          <div>
+            <lightning-button
+              variant="brand-outline"
+              label="DEP01"
+              data-prefix="01"
+              onclick={handlePrefixReturnDepositNo}
+              class="slds-m-right_xx-small"
+              title="DEP01 (1번 담당자) — 모든 입금 행에 적용"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="DEP02"
+              data-prefix="02"
+              onclick={handlePrefixReturnDepositNo}
+              class="slds-m-right_xx-small"
+              title="DEP02 (2번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="DEP03"
+              data-prefix="03"
+              onclick={handlePrefixReturnDepositNo}
+              class="slds-m-right_xx-small"
+              title="DEP03 (3번 담당자)"
+            ></lightning-button>
+            <lightning-button
+              variant="brand-outline"
+              label="DEP04"
+              data-prefix="04"
+              onclick={handlePrefixReturnDepositNo}
+              class="slds-m-right_x-small"
+              title="DEP04 (4번 담당자)"
+            ></lightning-button>
+            <lightning-button variant="brand-outline" label="행 추가" icon-name="utility:add" onclick={addReturnJournal}></lightning-button>
+          </div>
+        </div>
+
+        <template for:each={returnJournals} for:item="j" for:index="i">
+          <div key={j._key} class="row-card row-card-journal">
+            <div class="row-card-header">
+              <span class="row-card-title">입금 #{j._idxLabel}</span>
+              <lightning-button-icon
+                icon-name="utility:close"
+                variant="bare"
+                alternative-text="삭제"
+                title="삭제"
+                size="small"
+                data-index={i}
+                onclick={removeReturnJournal}
+              ></lightning-button-icon>
+            </div>
+            <div class="input-grid">
+              <lightning-input
+                type="text"
+                label="입금 번호"
+                data-index={i}
+                data-field="DepositNo__c"
+                value={j.DepositNo__c}
+                onchange={handleReturnJournalChange}
+                placeholder={returnDepNoPlaceholder}
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="text"
+                label="입금 일련 번호"
+                data-index={i}
+                data-field="DeposiSeqNo__c"
+                value={j.DeposiSeqNo__c}
+                onchange={handleReturnJournalChange}
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="text"
+                label="입금일"
+                data-index={i}
+                data-field="ActivityDate"
+                value={j.ActivityDate}
+                onchange={handleReturnJournalChange}
+                placeholder="YYYYMMDD"
+                class="clean-input"
+              ></lightning-input>
+              <lightning-combobox
+                label="결제 수단"
+                field-level-help="포인트=81 / 쿠폰=90"
+                data-index={i}
+                data-field="PaymentMethod"
+                value={j.PaymentMethod}
+                options={paymentMethodOptions}
+                onchange={handleReturnJournalChange}
+                placeholder="결제 수단 선택"
+                class="clean-input"
+              ></lightning-combobox>
+              <lightning-combobox
+                label="입금 구분"
+                data-index={i}
+                data-field="DepositType__c"
+                value={j.DepositType__c}
+                options={depositTypeOptions}
+                onchange={handleReturnJournalChange}
+                placeholder="입금 구분 선택"
+                class="clean-input"
+              ></lightning-combobox>
+              <lightning-input
+                type="number"
+                label="거래 금액"
+                data-index={i}
+                data-field="TransactionAmount"
+                value={j.TransactionAmount}
+                onchange={handleReturnJournalChange}
+                step="0.01"
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="text"
+                label="쿠폰 번호"
+                data-index={i}
+                data-field="CouponNo"
+                value={j.CouponNo}
+                onchange={handleReturnJournalChange}
+                placeholder="비워둘 수 있음"
+                class="clean-input"
+              ></lightning-input>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- ============================ 반품 제출 ============================ -->
+      <div class="submit-bar">
+        <div>
+          <lightning-button
+            variant="destructive"
+            label="반품 등록"
+            icon-name="utility:save"
+            onclick={handleReturnSubmit}
+            disabled={isReturnSubmitting}
+            class="slds-m-right_x-small"
+          ></lightning-button>
+          <lightning-button variant="neutral" label="JSON 미리보기" onclick={toggleReturnPreview} icon-name="utility:preview"></lightning-button>
+        </div>
+        <template if:true={isReturnSubmitting}>
+          <div class="slds-is-relative" style="min-height: 32px; min-width: 80px">
+            <lightning-spinner alternative-text="등록 중" size="small"></lightning-spinner>
+          </div>
+        </template>
+      </div>
+
+      <template if:true={showReturnPreview}>
+        <div class="json-preview-box">
+          <div class="json-preview-label">실제 전송될 JSON 본문</div>
+          <pre class="json-preview">{returnPreviewJson}</pre>
+        </div>
+      </template>
+
+      <template if:true={returnResult}>
+        <div class={returnResultClass}>{returnResultText}</div>
+      </template>
+    </div>
+
+    <!-- ============================ 판매 수정 모달 ============================ -->
+    <template if:true={showSaleModifyModal}>
+      <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="sale-modify-modal-heading" class="slds-modal slds-fade-in-open">
+        <div class="slds-modal__container modal-clean modal-wide">
+          <header class="slds-modal__header">
+            <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse" title="닫기" onclick={closeSaleModifyModal}>
+              <lightning-icon icon-name="utility:close" alternative-text="닫기" size="small" variant="inverse"></lightning-icon>
+            </button>
+            <h2 id="sale-modify-modal-heading" class="slds-modal__title slds-hyphenate">판매 수정</h2>
+          </header>
+          <div class="slds-modal__content slds-p-around_large">
+            <p class="modal-hint">
+              <lightning-icon icon-name="utility:info" size="x-small"></lightning-icon>
+              원판매 번호로 해당 판매를 찾아 수정합니다. 수정할 항목만 채워주세요.
+            </p>
+
+            <div class="modify-section">
+              <div class="modify-section-title">판매 정보</div>
+              <div class="input-grid">
+                <lightning-input
+                  type="text"
+                  label="판매 번호 (원판매)"
+                  field-level-help="필수 입력 — 수정 대상"
+                  data-field="SaleNo__c"
+                  value={saleModifyForm.SaleNo__c}
+                  onchange={handleSaleModifyFormChange}
+                  required
+                  placeholder="예: CAR20260319080"
+                  class="clean-input"
+                ></lightning-input>
+                <lightning-input
+                  type="number"
+                  label="판매금액"
+                  data-field="ActualPaymentAmount__c"
+                  value={saleModifyForm.ActualPaymentAmount__c}
+                  onchange={handleSaleModifyFormChange}
+                  step="0.01"
+                  class="clean-input"
+                ></lightning-input>
+                <lightning-combobox
+                  label="판매 구분 코드"
+                  data-field="SaleStatus__c"
+                  value={saleModifyForm.SaleStatus__c}
+                  options={saleStatusOptions}
+                  onchange={handleSaleModifyFormChange}
+                  placeholder="구분 선택"
+                  class="clean-input"
+                ></lightning-combobox>
+              </div>
+            </div>
+
+            <div class="modify-section">
+              <div class="modify-section-title-row">
+                <div class="modify-section-title">입금 내역 ({saleModifyJournalsCount})</div>
+                <lightning-button variant="brand-outline" label="행 추가" icon-name="utility:add" onclick={addSaleModifyJournal}></lightning-button>
+              </div>
+              <template for:each={saleModifyJournals} for:item="j" for:index="i">
+                <div key={j._key} class="row-card row-card-journal">
+                  <div class="row-card-header">
+                    <span class="row-card-title">입금 #{j._idxLabel}</span>
+                    <lightning-button-icon
+                      icon-name="utility:close"
+                      variant="bare"
+                      alternative-text="삭제"
+                      title="삭제"
+                      size="small"
+                      data-index={i}
+                      onclick={removeSaleModifyJournal}
+                    ></lightning-button-icon>
+                  </div>
+                  <div class="input-grid">
+                    <lightning-input
+                      type="text"
+                      label="입금 번호"
+                      data-index={i}
+                      data-field="DepositNo__c"
+                      value={j.DepositNo__c}
+                      onchange={handleSaleModifyJournalChange}
+                      placeholder="예: DEP202604020096"
+                      class="clean-input"
+                    ></lightning-input>
+                    <lightning-input
+                      type="text"
+                      label="입금 일련 번호"
+                      data-index={i}
+                      data-field="DeposiSeqNo__c"
+                      value={j.DeposiSeqNo__c}
+                      onchange={handleSaleModifyJournalChange}
+                      class="clean-input"
+                    ></lightning-input>
+                    <lightning-input
+                      type="text"
+                      label="입금일"
+                      data-index={i}
+                      data-field="ActivityDate"
+                      value={j.ActivityDate}
+                      onchange={handleSaleModifyJournalChange}
+                      placeholder="YYYYMMDD"
+                      class="clean-input"
+                    ></lightning-input>
+                    <lightning-combobox
+                      label="결제 수단"
+                      data-index={i}
+                      data-field="PaymentMethod"
+                      value={j.PaymentMethod}
+                      options={paymentMethodOptions}
+                      onchange={handleSaleModifyJournalChange}
+                      placeholder="결제 수단 선택"
+                      class="clean-input"
+                    ></lightning-combobox>
+                    <lightning-combobox
+                      label="입금 구분"
+                      data-index={i}
+                      data-field="DepositType__c"
+                      value={j.DepositType__c}
+                      options={depositTypeOptions}
+                      onchange={handleSaleModifyJournalChange}
+                      placeholder="입금 구분 선택"
+                      class="clean-input"
+                    ></lightning-combobox>
+                    <lightning-input
+                      type="number"
+                      label="거래 금액"
+                      data-index={i}
+                      data-field="TransactionAmount"
+                      value={j.TransactionAmount}
+                      onchange={handleSaleModifyJournalChange}
+                      step="0.01"
+                      class="clean-input"
+                    ></lightning-input>
+                    <lightning-input
+                      type="text"
+                      label="쿠폰 번호"
+                      data-index={i}
+                      data-field="CouponNo"
+                      value={j.CouponNo}
+                      onchange={handleSaleModifyJournalChange}
+                      placeholder="비워둘 수 있음"
+                      class="clean-input"
+                    ></lightning-input>
+                    <lightning-input
+                      type="text"
+                      label="주문 번호"
+                      data-index={i}
+                      data-field="OrderNo__c"
+                      value={j.OrderNo__c}
+                      onchange={handleSaleModifyJournalChange}
+                      placeholder="원주문 번호 또는 빈값"
+                      class="clean-input"
+                    ></lightning-input>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <div class="modify-section">
+              <div class="modify-section-title-row">
+                <div class="modify-section-title">
+                  <lightning-input
+                    type="checkbox"
+                    label="판매 상세도 수정 ({saleModifyItemsCount})"
+                    checked={includeSaleModifyItems}
+                    onchange={toggleSaleModifyItems}
+                    class="inline-checkbox"
+                  ></lightning-input>
+                </div>
+                <template if:true={includeSaleModifyItems}>
+                  <lightning-button variant="brand-outline" label="행 추가" icon-name="utility:add" onclick={addSaleModifyItem}></lightning-button>
+                </template>
+              </div>
+              <template if:true={includeSaleModifyItems}>
+                <template for:each={saleModifyItems} for:item="item" for:index="i">
+                  <div key={item._key} class="row-card row-card-item">
+                    <div class="row-card-header">
+                      <span class="row-card-title">상세 #{item._idxLabel}</span>
+                      <lightning-button-icon
+                        icon-name="utility:close"
+                        variant="bare"
+                        alternative-text="삭제"
+                        title="삭제"
+                        size="small"
+                        data-index={i}
+                        onclick={removeSaleModifyItem}
+                      ></lightning-button-icon>
+                    </div>
+                    <div class="input-grid">
+                      <lightning-input
+                        type="text"
+                        label="판매 일련 번호"
+                        data-index={i}
+                        data-field="SaleSeqNo__c"
+                        value={item.SaleSeqNo__c}
+                        onchange={handleSaleModifyItemChange}
+                        required
+                        class="clean-input"
+                      ></lightning-input>
+                      <lightning-input
+                        type="text"
+                        label="상품 코드"
+                        data-index={i}
+                        data-field="ProductCode"
+                        value={item.ProductCode}
+                        onchange={handleSaleModifyItemChange}
+                        placeholder="예: TEST-001"
+                        class="clean-input"
+                      ></lightning-input>
+                      <lightning-input
+                        type="number"
+                        label="수량"
+                        data-index={i}
+                        data-field="Quantity"
+                        value={item.Quantity}
+                        onchange={handleSaleModifyItemChange}
+                        step="1"
+                        class="clean-input"
+                      ></lightning-input>
+                      <lightning-input
+                        type="number"
+                        label="판매단가"
+                        data-index={i}
+                        data-field="NetSalesUnitPrice__c"
+                        value={item.NetSalesUnitPrice__c}
+                        onchange={handleSaleModifyItemChange}
+                        step="0.01"
+                        class="clean-input"
+                      ></lightning-input>
+                    </div>
+                    <div class="fixed-chip-row">
+                      <span class="fixed-chip"><span class="chip-key">할인율 (지정)</span><span class="chip-val">0</span></span>
+                    </div>
+                  </div>
+                </template>
+              </template>
+            </div>
+
+            <template if:true={saleModifyResult}>
+              <div class={saleModifyResultClass}>{saleModifyResultText}</div>
+            </template>
+          </div>
+          <footer class="slds-modal__footer">
+            <button class="slds-button slds-button_neutral" onclick={toggleSaleModifyPreview} disabled={isSaleModifying}>JSON 미리보기</button>
+            <button class="slds-button slds-button_neutral" onclick={closeSaleModifyModal} disabled={isSaleModifying}>닫기</button>
+            <button class="slds-button slds-button_brand" onclick={submitSaleModify} disabled={isSaleModifying}>
+              <template if:true={isSaleModifying}>수정 중...</template>
+              <template if:false={isSaleModifying}>판매 수정</template>
+            </button>
+          </footer>
+          <template if:true={showSaleModifyPreview}>
+            <div class="slds-p-horizontal_large slds-p-bottom_medium">
+              <div class="json-preview-box">
+                <div class="json-preview-label">실제 전송될 JSON 본문</div>
+                <pre class="json-preview">{saleModifyPreviewJson}</pre>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+      <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+
+    <!-- ============================ 주문 수정 모달 ============================ -->
+    <template if:true={showModifyModal}>
+      <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="modify-modal-heading" class="slds-modal slds-fade-in-open">
+        <div class="slds-modal__container modal-clean modal-wide">
+          <header class="slds-modal__header">
+            <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse" title="닫기" onclick={closeModifyModal}>
+              <lightning-icon icon-name="utility:close" alternative-text="닫기" size="small" variant="inverse"></lightning-icon>
+            </button>
+            <h2 id="modify-modal-heading" class="slds-modal__title slds-hyphenate">주문 수정</h2>
+          </header>
+          <div class="slds-modal__content slds-p-around_large">
+            <p class="modal-hint">
+              <lightning-icon icon-name="utility:info" size="x-small"></lightning-icon>
+              원주문 번호로 해당 주문을 찾아 수정합니다. 수정할 항목만 채워주세요.
+            </p>
+
+            <!-- 주문 정보 -->
+            <div class="modify-section">
+              <div class="modify-section-title">주문 정보</div>
+              <div class="input-grid">
+                <lightning-input
+                  type="text"
+                  label="주문 번호 (원주문)"
+                  field-level-help="필수 입력 — 수정 대상 원주문 번호"
+                  data-field="OrderNo__c"
+                  value={modifyForm.OrderNo__c}
+                  onchange={handleModifyFormChange}
+                  required
+                  placeholder="예: SOR_0324_017"
+                  class="clean-input"
+                ></lightning-input>
+                <lightning-input
+                  type="number"
+                  label="판매금액"
+                  data-field="ActualPaymentAmount__c"
+                  value={modifyForm.ActualPaymentAmount__c}
+                  onchange={handleModifyFormChange}
+                  step="0.01"
+                  class="clean-input"
+                ></lightning-input>
+                <lightning-combobox
+                  label="주문 상태 코드"
+                  data-field="OrderStatus__c"
+                  value={modifyForm.OrderStatus__c}
+                  options={orderStatusOptions}
+                  onchange={handleModifyFormChange}
+                  placeholder="상태 선택"
+                  class="clean-input"
+                ></lightning-combobox>
+              </div>
+            </div>
+
+            <!-- 입금 내역 -->
+            <div class="modify-section">
+              <div class="modify-section-title-row">
+                <div class="modify-section-title">입금 내역 ({modifyJournalsCount})</div>
+                <lightning-button variant="brand-outline" label="행 추가" icon-name="utility:add" onclick={addModifyJournal}></lightning-button>
+              </div>
+              <template for:each={modifyJournals} for:item="j" for:index="i">
+                <div key={j._key} class="row-card row-card-journal">
+                  <div class="row-card-header">
+                    <span class="row-card-title">입금 #{j._idxLabel}</span>
+                    <lightning-button-icon
+                      icon-name="utility:close"
+                      variant="bare"
+                      alternative-text="삭제"
+                      title="삭제"
+                      size="small"
+                      data-index={i}
+                      onclick={removeModifyJournal}
+                    ></lightning-button-icon>
+                  </div>
+                  <div class="input-grid">
+                    <lightning-input
+                      type="text"
+                      label="입금 번호"
+                      data-index={i}
+                      data-field="DepositNo__c"
+                      value={j.DepositNo__c}
+                      onchange={handleModifyJournalChange}
+                      placeholder="예: DEP202604010271"
+                      class="clean-input"
+                    ></lightning-input>
+                    <lightning-input
+                      type="text"
+                      label="입금 일련 번호"
+                      data-index={i}
+                      data-field="DeposiSeqNo__c"
+                      value={j.DeposiSeqNo__c}
+                      onchange={handleModifyJournalChange}
+                      class="clean-input"
+                    ></lightning-input>
+                    <lightning-input
+                      type="text"
+                      label="입금일"
+                      data-index={i}
+                      data-field="ActivityDate"
+                      value={j.ActivityDate}
+                      onchange={handleModifyJournalChange}
+                      placeholder="YYYYMMDD"
+                      class="clean-input"
+                    ></lightning-input>
+                    <lightning-combobox
+                      label="결제 수단"
+                      data-index={i}
+                      data-field="PaymentMethod"
+                      value={j.PaymentMethod}
+                      options={paymentMethodOptions}
+                      onchange={handleModifyJournalChange}
+                      placeholder="결제 수단 선택"
+                      class="clean-input"
+                    ></lightning-combobox>
+                    <lightning-combobox
+                      label="입금 구분"
+                      data-index={i}
+                      data-field="DepositType__c"
+                      value={j.DepositType__c}
+                      options={depositTypeOptions}
+                      onchange={handleModifyJournalChange}
+                      placeholder="입금 구분 선택"
+                      class="clean-input"
+                    ></lightning-combobox>
+                    <lightning-input
+                      type="number"
+                      label="거래 금액"
+                      data-index={i}
+                      data-field="TransactionAmount"
+                      value={j.TransactionAmount}
+                      onchange={handleModifyJournalChange}
+                      step="0.01"
+                      class="clean-input"
+                    ></lightning-input>
+                    <lightning-input
+                      type="text"
+                      label="쿠폰 번호"
+                      data-index={i}
+                      data-field="CouponNo"
+                      value={j.CouponNo}
+                      onchange={handleModifyJournalChange}
+                      placeholder="비워둘 수 있음"
+                      class="clean-input"
+                    ></lightning-input>
+                  </div>
+                  <div class="fixed-chip-row">
+                    <span class="fixed-chip"><span class="chip-key">주문 번호</span><span class="chip-val muted">null</span></span>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <!-- 주문 상세 (선택) -->
+            <div class="modify-section">
+              <div class="modify-section-title-row">
+                <div class="modify-section-title">
+                  <lightning-input
+                    type="checkbox"
+                    label="주문 상세도 수정 ({modifyItemsCount})"
+                    checked={includeModifyItems}
+                    onchange={toggleModifyItems}
+                    class="inline-checkbox"
+                  ></lightning-input>
+                </div>
+                <template if:true={includeModifyItems}>
+                  <lightning-button variant="brand-outline" label="행 추가" icon-name="utility:add" onclick={addModifyItem}></lightning-button>
+                </template>
+              </div>
+              <template if:true={includeModifyItems}>
+                <template for:each={modifyItems} for:item="item" for:index="i">
+                  <div key={item._key} class="row-card row-card-item">
+                    <div class="row-card-header">
+                      <span class="row-card-title">상세 #{item._idxLabel}</span>
+                      <lightning-button-icon
+                        icon-name="utility:close"
+                        variant="bare"
+                        alternative-text="삭제"
+                        title="삭제"
+                        size="small"
+                        data-index={i}
+                        onclick={removeModifyItem}
+                      ></lightning-button-icon>
+                    </div>
+                    <div class="input-grid">
+                      <lightning-input
+                        type="text"
+                        label="주문 일련 번호"
+                        data-index={i}
+                        data-field="OrderSeqNo__c"
+                        value={item.OrderSeqNo__c}
+                        onchange={handleModifyItemChange}
+                        required
+                        class="clean-input"
+                      ></lightning-input>
+                      <lightning-input
+                        type="text"
+                        label="상품 코드"
+                        data-index={i}
+                        data-field="ProductCode"
+                        value={item.ProductCode}
+                        onchange={handleModifyItemChange}
+                        placeholder="예: TEST-001"
+                        class="clean-input"
+                      ></lightning-input>
+                      <lightning-combobox
+                        label="주문 상세 상태"
+                        data-index={i}
+                        data-field="Status__c"
+                        value={item.Status__c}
+                        options={orderStatusOptions}
+                        onchange={handleModifyItemChange}
+                        placeholder="상태 선택"
+                        class="clean-input"
+                      ></lightning-combobox>
+                      <lightning-input
+                        type="number"
+                        label="수량"
+                        data-index={i}
+                        data-field="Quantity"
+                        value={item.Quantity}
+                        onchange={handleModifyItemChange}
+                        step="1"
+                        class="clean-input"
+                      ></lightning-input>
+                      <lightning-input
+                        type="number"
+                        label="판매단가"
+                        data-index={i}
+                        data-field="NetSalesUnitPrice__c"
+                        value={item.NetSalesUnitPrice__c}
+                        onchange={handleModifyItemChange}
+                        step="0.01"
+                        class="clean-input"
+                      ></lightning-input>
+                      <lightning-input
+                        type="number"
+                        label="할인율"
+                        data-index={i}
+                        data-field="DiscountRate__c"
+                        value={item.DiscountRate__c}
+                        onchange={handleModifyItemChange}
+                        step="0.01"
+                        class="clean-input"
+                      ></lightning-input>
+                    </div>
+                  </div>
+                </template>
+              </template>
+            </div>
+
+            <template if:true={modifyResult}>
+              <div class={modifyResultClass}>{modifyResultText}</div>
+            </template>
+          </div>
+          <footer class="slds-modal__footer">
+            <button class="slds-button slds-button_neutral" onclick={toggleModifyPreview} disabled={isModifying}>JSON 미리보기</button>
+            <button class="slds-button slds-button_neutral" onclick={closeModifyModal} disabled={isModifying}>닫기</button>
+            <button class="slds-button slds-button_brand" onclick={submitModify} disabled={isModifying}>
+              <template if:true={isModifying}>수정 중...</template>
+              <template if:false={isModifying}>주문 수정</template>
+            </button>
+          </footer>
+          <template if:true={showModifyPreview}>
+            <div class="slds-p-horizontal_large slds-p-bottom_medium">
+              <div class="json-preview-box">
+                <div class="json-preview-label">실제 전송될 JSON 본문</div>
+                <pre class="json-preview">{modifyPreviewJson}</pre>
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
+      <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+
+    <!-- ============================ 회원 등록 모달 ============================ -->
+    <template if:true={showMemberModal}>
+      <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="member-modal-heading" class="slds-modal slds-fade-in-open">
+        <div class="slds-modal__container modal-clean">
+          <header class="slds-modal__header">
+            <button class="slds-button slds-button_icon slds-modal__close slds-button_icon-inverse" title="닫기" onclick={closeMemberModal}>
+              <lightning-icon icon-name="utility:close" alternative-text="닫기" size="small" variant="inverse"></lightning-icon>
+            </button>
+            <h2 id="member-modal-heading" class="slds-modal__title slds-hyphenate">회원 등록</h2>
+          </header>
+          <div class="slds-modal__content slds-p-around_large">
+            <p class="modal-hint">
+              <lightning-icon icon-name="utility:info" size="x-small"></lightning-icon>
+              아래 5개 항목을 입력하여 회원을 등록합니다.
+            </p>
+            <div class="input-grid modal-grid">
+              <lightning-combobox
+                label="등록 매장 코드"
+                data-field="StoreRegi__c"
+                value={memberForm.StoreRegi__c}
+                options={storeCodeOptions}
+                onchange={handleMemberFieldChange}
+                placeholder="매장을 선택하세요"
+                class="clean-input"
+              ></lightning-combobox>
+              <lightning-combobox
+                label="관리 매장 코드"
+                data-field="StoreMana__c"
+                value={memberForm.StoreMana__c}
+                options={storeCodeOptions}
+                onchange={handleMemberFieldChange}
+                placeholder="매장을 선택하세요"
+                class="clean-input"
+              ></lightning-combobox>
+              <lightning-input
+                type="text"
+                label="회원 번호"
+                field-level-help="필수 입력"
+                data-field="MemberNo__c"
+                value={memberForm.MemberNo__c}
+                onchange={handleMemberFieldChange}
+                required
+                placeholder="예: CAR20260504001"
+                class="clean-input"
+              ></lightning-input>
+              <lightning-input
+                type="text"
+                label="등급"
+                data-field="Grade__c"
+                value={memberForm.Grade__c}
+                onchange={handleMemberFieldChange}
+                placeholder="예: 01"
+                class="clean-input"
+              ></lightning-input>
+              <div class="checkbox-cell modal-checkbox">
+                <lightning-input
+                  type="checkbox"
+                  label="SMS 수신 동의"
+                  data-field="IsSMSAgreed__c"
+                  checked={memberForm.IsSMSAgreed__c}
+                  onchange={handleMemberFieldChange}
+                ></lightning-input>
+              </div>
+            </div>
+
+            <template if:true={memberResult}>
+              <div class={memberResultClass}>{memberResultText}</div>
+            </template>
+          </div>
+          <footer class="slds-modal__footer">
+            <button class="slds-button slds-button_neutral" onclick={closeMemberModal} disabled={isRegistering}>닫기</button>
+            <button class="slds-button slds-button_brand" onclick={submitMember} disabled={isRegistering}>
+              <template if:true={isRegistering}>등록 중...</template>
+              <template if:false={isRegistering}>회원 등록</template>
+            </button>
+          </footer>
+        </div>
+      </section>
+      <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+  </lightning-card>
+</template>

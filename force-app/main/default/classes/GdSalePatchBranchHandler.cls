@@ -254,16 +254,16 @@ public with sharing class GdSalePatchBranchHandler {
       } else {
         // 감액 → 적립 차감
         out.direction = 'debit';
-        GdMigrationUtil.ForceDebitResult fd = GdMigrationUtil.forceDebitPointsSafe(
-          out.memberId, programId, orderId, totalPoints,
-          'OPTC_SALE_PATCH_FORCE_DEBIT: saleNo=' + saleNo +
+        GdOptionCPointAdjustmentUtil.AccrualCancelResult fd = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
+          out.memberId, programId, orderId, null, totalPoints,
+          'OPTC_SALE_PATCH_ETC_ACCRUAL_CANCEL: saleNo=' + saleNo +
           ', oldAmount=' + oldAmount + ', newAmount=' + newAmount +
           ', delta=' + delta + ', breakdown=' + breakdown
         );
         out.actual = fd.actualPoints;
         out.unprocessed = fd.loss;
         out.success = fd.success;
-        out.tjId = fd.debitTjId;
+        out.tjId = fd.reversalTjId;
         out.error = fd.error;
       }
       return out;

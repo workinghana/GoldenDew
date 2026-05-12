@@ -42,6 +42,7 @@ private class MceMagazineSubscriptionFetchJobTest {
       MemberNo__c = memberNo,
       MobilePhone = '010-1111-2222',
       Birthdate = Date.newInstance(1990, 1, 2),
+      LegalBirthdate__c = '900102',
       IsMagazineSubscribed__c = false,
       IsWithdrawn__c = isWithdrawn
     );

@@ -1,0 +1,3 @@
+SELECT Id, CreditLoyaltyLedgerId, DebitLoyaltyLedgerId, Points
+FROM LoyaltyLedgerTraceability
+WHERE DebitLoyaltyLedgerId IN ('05wJO0000004KEfYAM','05wJO0000004KHtYAM','05wJO0000004KL8YAM','05wJO0000004KL9YAM','05wJO0000004KPxYAM')

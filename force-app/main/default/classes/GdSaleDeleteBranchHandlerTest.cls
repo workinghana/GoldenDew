@@ -8,12 +8,27 @@
  */
 @IsTest
 private class GdSaleDeleteBranchHandlerTest {
+  // Order Create 시 발화하는 RTF_Tier_Qualifying_Point_Award / RTF_Write_Purchase_Date 플로우가
+  // Salesforce Loyalty creditPoints invocable action 을 호출하면서 콜아웃을 발생시키므로
+  // @TestSetup 에서 HttpCalloutMock 을 세팅한다.
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
 
   // ============================================================
   // @TestSetup — 옛 판매 + 회원 + 등급 시드
   // ============================================================
   @TestSetup
   static void setupData() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+
     Id stdPbId = Test.getStandardPricebookId();
 
     Account company = new Account(Name = 'Co_SD', CompanyCode__c = 'CMP-SD');
@@ -27,48 +42,74 @@ private class GdSaleDeleteBranchHandlerTest {
     insert lp;
 
     LoyaltyProgramMember lpm = new LoyaltyProgramMember(
-      ProgramId = lp.Id, ContactId = c.Id, MemberStatus = 'Active',
-      MembershipNumber = 'M-SD-TEST', EnrollmentDate = Date.today()
+      ProgramId = lp.Id,
+      ContactId = c.Id,
+      MemberStatus = 'Active',
+      MembershipNumber = 'M-SD-TEST',
+      EnrollmentDate = Date.today()
     );
     insert lpm;
 
     // 옛 판매 (100,000원, EffectiveDate 2026-03-01)
     Order origOrder = new Order(
-      AccountId = company.Id, EffectiveDate = Date.newInstance(2026, 3, 1),
-      Status = 'saleSuccess', Pricebook2Id = stdPbId,
-      MemberNo__c = c.Id, StoreCode__c = store.Id,
-      SaleNo__c = 'SAL-SD-OLD', ActualPaymentAmount__c = 100000,
-      Type = 'Standard', SaleStatus__c = '01', InsertId__c = 'tester'
+      AccountId = company.Id,
+      EffectiveDate = Date.newInstance(2026, 3, 1),
+      Status = 'saleSuccess',
+      Pricebook2Id = stdPbId,
+      MemberNo__c = c.Id,
+      StoreCode__c = store.Id,
+      SaleNo__c = 'SAL-SD-OLD',
+      ActualPaymentAmount__c = 100000,
+      Type = 'Standard',
+      SaleStatus__c = '01',
+      InsertId__c = 'tester'
     );
     insert origOrder;
 
     // 옛 판매 — ActualPaymentAmount NULL (검증 실패 케이스)
     Order origNullAmt = new Order(
-      AccountId = company.Id, EffectiveDate = Date.newInstance(2026, 3, 1),
-      Status = 'saleSuccess', Pricebook2Id = stdPbId,
-      MemberNo__c = c.Id, StoreCode__c = store.Id,
-      SaleNo__c = 'SAL-SD-NULL', Type = 'Standard',
-      SaleStatus__c = '01', InsertId__c = 'tester'
+      AccountId = company.Id,
+      EffectiveDate = Date.newInstance(2026, 3, 1),
+      Status = 'saleSuccess',
+      Pricebook2Id = stdPbId,
+      MemberNo__c = c.Id,
+      StoreCode__c = store.Id,
+      SaleNo__c = 'SAL-SD-NULL',
+      Type = 'Standard',
+      SaleStatus__c = '01',
+      InsertId__c = 'tester'
     );
     insert origNullAmt;
 
     // 기존 부분 환불 — 전액 환불된 판매 (잔여 0 케이스)
     Order saleAlreadyRefunded = new Order(
-      AccountId = company.Id, EffectiveDate = Date.newInstance(2026, 3, 1),
-      Status = 'saleSuccess', Pricebook2Id = stdPbId,
-      MemberNo__c = c.Id, StoreCode__c = store.Id,
-      SaleNo__c = 'SAL-SD-ALL-REF', ActualPaymentAmount__c = 50000,
-      Type = 'Standard', SaleStatus__c = '01', InsertId__c = 'tester'
+      AccountId = company.Id,
+      EffectiveDate = Date.newInstance(2026, 3, 1),
+      Status = 'saleSuccess',
+      Pricebook2Id = stdPbId,
+      MemberNo__c = c.Id,
+      StoreCode__c = store.Id,
+      SaleNo__c = 'SAL-SD-ALL-REF',
+      ActualPaymentAmount__c = 50000,
+      Type = 'Standard',
+      SaleStatus__c = '01',
+      InsertId__c = 'tester'
     );
     insert saleAlreadyRefunded;
 
     Order fullReturn = new Order(
-      AccountId = company.Id, EffectiveDate = Date.newInstance(2026, 4, 1),
-      Status = 'returnSuccess', Pricebook2Id = stdPbId,
-      MemberNo__c = c.Id, StoreCode__c = store.Id,
-      SaleNo__c = 'RTN-SD-FULL', ActualPaymentAmount__c = 50000,
-      Type = 'Standard', SaleStatus__c = '03',
-      IsReductionOrder__c = true, OriginalOrderId__c = saleAlreadyRefunded.Id,
+      AccountId = company.Id,
+      EffectiveDate = Date.newInstance(2026, 4, 1),
+      Status = 'returnSuccess',
+      Pricebook2Id = stdPbId,
+      MemberNo__c = c.Id,
+      StoreCode__c = store.Id,
+      SaleNo__c = 'RTN-SD-FULL',
+      ActualPaymentAmount__c = 50000,
+      Type = 'Standard',
+      SaleStatus__c = '03',
+      IsReductionOrder__c = true,
+      OriginalOrderId__c = saleAlreadyRefunded.Id,
       InsertId__c = 'tester'
     );
     insert fullReturn;
@@ -83,17 +124,12 @@ private class GdSaleDeleteBranchHandlerTest {
     ApiResult standardResult = ApiResult.ok(200, '판매 전체 삭제 완료', standardData);
 
     Test.startTest();
-    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-OLD-TEST', null
-    );
+    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-OLD-TEST', null);
     Test.stopTest();
 
     System.assertEquals(true, result.success);
     System.assertEquals(200, result.code);
-    System.assert(
-      result.message.contains(GdSaleDeleteBranchHandler.WRAP_MESSAGE_SUFFIX),
-      'message 에 옵션 C 분기 표기 추가됨'
-    );
+    System.assert(result.message.contains(GdSaleDeleteBranchHandler.WRAP_MESSAGE_SUFFIX), 'message 에 옵션 C 분기 표기 추가됨');
     System.assertEquals(true, result.data.get('option_c_branch'));
     System.assertEquals('skipped_due_to_migration', result.data.get('point_processing'));
     System.assertEquals(GdSaleDeleteBranchHandler.WRAP_REASON, result.data.get('reason'));
@@ -118,9 +154,7 @@ private class GdSaleDeleteBranchHandlerTest {
     ApiResult standardResult = new ApiResult(true, 200, '판매 전체 삭제 완료', null);
 
     Test.startTest();
-    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-X', null
-    );
+    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-X', null);
     Test.stopTest();
 
     System.assertNotEquals(null, result.data, 'data 가 새로 만들어짐');
@@ -133,9 +167,7 @@ private class GdSaleDeleteBranchHandlerTest {
     ApiResult standardResult = ApiResult.ok(200, 'msg', standardData);
 
     Test.startTest();
-    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-X', null
-    );
+    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-X', null);
     Test.stopTest();
 
     System.assertEquals(true, result.data.get('option_c_branch'), 'logger null 안전');
@@ -153,9 +185,7 @@ private class GdSaleDeleteBranchHandlerTest {
     logger.logging('GdSaleDeleteBranchHandlerTest');
 
     Test.startTest();
-    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-X', logger
-    );
+    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-X', logger);
     Test.stopTest();
 
     System.assertEquals(true, result.data.get('option_c_branch'), 'logger 제공 시 정상 동작');
@@ -171,16 +201,11 @@ private class GdSaleDeleteBranchHandlerTest {
     ApiResult standardResult = ApiResult.ok(200, origMessage, standardData);
 
     Test.startTest();
-    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-X', null
-    );
+    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-X', null);
     Test.stopTest();
 
     System.assert(result.message.startsWith(origMessage), '원본 message 보존');
-    System.assert(
-      result.message.contains(GdSaleDeleteBranchHandler.WRAP_MESSAGE_SUFFIX.trim()),
-      'suffix 추가됨'
-    );
+    System.assert(result.message.contains(GdSaleDeleteBranchHandler.WRAP_MESSAGE_SUFFIX.trim()), 'suffix 추가됨');
   }
 
   // ============================================================
@@ -194,9 +219,7 @@ private class GdSaleDeleteBranchHandlerTest {
     ApiResult standardResult = ApiResult.ok(200, '판매 전체 삭제 완료', standardData);
 
     Test.startTest();
-    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-SD-OLD', null
-    );
+    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-SD-OLD', null);
     Test.stopTest();
 
     System.assertEquals(true, result.data.get('option_c_branch'));
@@ -212,9 +235,7 @@ private class GdSaleDeleteBranchHandlerTest {
     ApiResult standardResult = ApiResult.ok(200, '판매 전체 삭제 완료', standardData);
 
     Test.startTest();
-    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-SD-ALL-REF', null
-    );
+    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-SD-ALL-REF', null);
     Test.stopTest();
 
     System.assertEquals(true, result.data.get('option_c_branch'));
@@ -229,9 +250,7 @@ private class GdSaleDeleteBranchHandlerTest {
     ApiResult standardResult = ApiResult.ok(200, '판매 전체 삭제 완료', standardData);
 
     Test.startTest();
-    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-SD-NOT-EXIST', null
-    );
+    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-SD-NOT-EXIST', null);
     Test.stopTest();
 
     System.assertEquals(true, result.data.get('option_c_branch'));
@@ -244,9 +263,7 @@ private class GdSaleDeleteBranchHandlerTest {
     ApiResult standardResult = ApiResult.ok(200, '판매 전체 삭제 완료', standardData);
 
     Test.startTest();
-    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-SD-NULL', null
-    );
+    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-SD-NULL', null);
     Test.stopTest();
 
     System.assertEquals(0, result.data.get('option_c_force_debit_requested'));

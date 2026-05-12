@@ -218,6 +218,8 @@ private class GdSaleDepositServiceImplTest {
     Boolean isDebitJournalDeleted,
     String debitAdditionalNotes
   ) {
+    // [SubType Filter Fix 2026-05-08] 검증 SOQL 이 SubType (Purchase Accrual) 매칭하므로
+    //   테스트 헬퍼도 SubType 박아야 차단 시뮬레이션 가능.
     TransactionJournal originalCreditTj = new TransactionJournal(
       DepositNo__c = 'SALE-CREDIT-' + suffix,
       DeposiSeqNo__c = '1',
@@ -227,7 +229,8 @@ private class GdSaleDepositServiceImplTest {
       MemberId = lpm.Id,
       OrderId = creditOrderId,
       TransactionAmount = 100,
-      Status = 'Processed'
+      Status = 'Processed',
+      JournalSubTypeId = getJournalSubTypeId('Purchase Accrual')
     );
     insert originalCreditTj;
 

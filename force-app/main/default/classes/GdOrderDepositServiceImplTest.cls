@@ -1,5 +1,16 @@
 @IsTest
 private class GdOrderDepositServiceImplTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
+
   private static final String TEST_MEMBER_NO_1 = 'MT-001';
   private static final String TEST_MEMBER_NO_2 = 'MT-002';
   private static final String TEST_MEMBER_NO_3 = 'MT-003';
@@ -51,6 +62,8 @@ private class GdOrderDepositServiceImplTest {
 
   @TestSetup
   static void setupData() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+
     Contact cWithPrev = new Contact(LastName = 'TierUser1', Grade__c = '02', PreviousGrade__c = '01', MemberNo__c = TEST_MEMBER_NO_1);
     Contact cWithoutPrev = new Contact(LastName = 'TierUser2', Grade__c = '02', MemberNo__c = TEST_MEMBER_NO_2);
     Contact cNoTier = new Contact(LastName = 'TierUser3', Grade__c = '02', PreviousGrade__c = '02', MemberNo__c = TEST_MEMBER_NO_3);

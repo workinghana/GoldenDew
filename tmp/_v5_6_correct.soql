@@ -1,0 +1,5 @@
+SELECT Id, CreatedDate, ApexClass__c, RequestUrl__c, RequestBody__c, ResponseBody__c
+FROM ApexAuditTrail__c
+WHERE CreatedDate >= 2026-05-09T00:00:00Z AND CreatedDate <= 2026-05-09T23:59:00Z
+  AND (RequestBody__c LIKE '%SOR04010%' OR RequestBody__c LIKE '%SAL04043%' OR RequestBody__c LIKE '%SAL04114%' OR RequestBody__c LIKE '%SAL04115%' OR RequestUrl__c LIKE '%SAL04043%' OR RequestUrl__c LIKE '%SAL04114%' OR RequestUrl__c LIKE '%SAL04115%')
+ORDER BY CreatedDate ASC

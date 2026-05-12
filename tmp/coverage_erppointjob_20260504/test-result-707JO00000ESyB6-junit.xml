@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+    <testsuite name="force.apex" timestamp="2026-05-04T07:21:56.000Z" hostname="https://goldendewcoltd--devorg.sandbox.my.salesforce.com" tests="4" failures="0"  errors="0"  time="1.07">
+        <properties>
+            <property name="outcome" value="Successful"/>
+            <property name="testsRan" value="4"/>
+            <property name="passing" value="4"/>
+            <property name="failing" value="0"/>
+            <property name="skipped" value="0"/>
+            <property name="passRate" value="100%"/>
+            <property name="failRate" value="0%"/>
+            <property name="testStartTime" value="Mon May 04 2026 오후 4:21:56"/>
+            <property name="testSetupTimeInMs" value="0"/>
+            <property name="testExecutionTime" value="1.07 s"/>
+            <property name="testTotalTime" value="1.07 s"/>
+            <property name="commandTime" value="0.07 s"/>
+            <property name="hostname" value="https://goldendewcoltd--devorg.sandbox.my.salesforce.com"/>
+            <property name="orgId" value="00DJO000001ByZs2AK"/>
+            <property name="username" value="milvus@goldendew.com.devorg"/>
+            <property name="testRunId" value="707JO00000ESyB6"/>
+            <property name="userId" value="005TJ00000B2qU2YAJ"/>
+            <property name="coveredLines" value="798"/>
+            <property name="testRunCoverage" value="83%"/>
+            <property name="orgWideCoverage" value="51%"/>
+        </properties>
+        <testcase name="test_constructor_with_recordIds_path_runs" classname="ErpPointJobTest" time="0.42">
+        </testcase>
+        <testcase name="test_constructor_with_sobject_path_runs" classname="ErpPointJobTest" time="0.19">
+        </testcase>
+        <testcase name="test_point_credit_job_runs_recordId" classname="ErpPointJobTest" time="0.23">
+        </testcase>
+        <testcase name="test_point_expiry_job_runs_recordId" classname="ErpPointJobTest" time="0.23">
+        </testcase>
+    </testsuite>
+</testsuites>

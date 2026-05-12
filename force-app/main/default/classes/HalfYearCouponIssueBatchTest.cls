@@ -1,5 +1,16 @@
 @IsTest
 private class HalfYearCouponIssueBatchTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
+
   private class MockBatchableContext implements Database.BatchableContext {
     public Id getJobId() {
       return UserInfo.getUserId();
@@ -17,6 +28,8 @@ private class HalfYearCouponIssueBatchTest {
 
   @TestSetup
   static void setupData() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+
     JournalType jt = new JournalType(Name = 'Accrual', ProcessType = 'Loyalty');
     insert jt;
 
@@ -54,7 +67,8 @@ private class HalfYearCouponIssueBatchTest {
       IsActive = true,
       Description = 'HalfYearCouponIssueBatch test',
       ProductId = prod.Id,
-      Type = 'ProductOrService',
+      Type = 'FixedValue',
+      FaceValue = 1000,
       ExpirationType = 'FixedDate',
       EffectiveDate = Date.today(),
       ExpirationDate = Date.today().addDays(30),
@@ -64,7 +78,7 @@ private class HalfYearCouponIssueBatchTest {
       CouponTypeCode__c = '01',
       ResponsibleDepartment__c = 'Marketing',
       InsertId__c = 'TestUser',
-      ResponsiblePerson__c = 'Manager'
+      ResponsiblePerson__c = UserInfo.getUserId()
     );
     insert vd;
 
@@ -73,6 +87,8 @@ private class HalfYearCouponIssueBatchTest {
   }
 
   private static void createMember() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+
     LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
     LoyaltyTier lt = [SELECT Id FROM LoyaltyTier LIMIT 1];
 
@@ -124,6 +140,8 @@ private class HalfYearCouponIssueBatchTest {
   @IsTest
   static void test_execute_noVoucherCategory() {
     createMember();
+    delete [SELECT Id FROM VoucherLimit__c];
+    delete [SELECT Id FROM VoucherDefinition];
     delete [SELECT Id FROM VoucherCategory__c];
 
     Test.startTest();
@@ -137,6 +155,7 @@ private class HalfYearCouponIssueBatchTest {
   @IsTest
   static void test_execute_noVoucherDefinition() {
     createMember();
+    delete [SELECT Id FROM VoucherLimit__c];
     delete [SELECT Id FROM VoucherDefinition];
 
     Test.startTest();
@@ -212,7 +231,7 @@ private class HalfYearCouponIssueBatchTest {
       CouponTypeCode__c = '01',
       ResponsibleDepartment__c = 'Marketing',
       InsertId__c = 'TestUser',
-      ResponsiblePerson__c = 'Manager',
+      ResponsiblePerson__c = UserInfo.getUserId(),
       IsUpgrade__c = true
     );
     insert upgradeVd;

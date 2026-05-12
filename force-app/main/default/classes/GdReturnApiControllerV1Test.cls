@@ -200,6 +200,10 @@ private class GdReturnApiControllerV1Test {
       return new List<PointCreditDTO>();
     }
 
+    public List<PointCreditDTO> creditEtcPointsOnPurchaseForOldSale(List<TransactionJournal> data, Decimal excludeAmount) {
+      return new List<PointCreditDTO>();
+    }
+
     public List<PointCreditDTO> creditPromotionPointsOnPurchase(List<TransactionJournal> data, Decimal excludeAmount) {
       return new List<PointCreditDTO>();
     }

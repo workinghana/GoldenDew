@@ -116,13 +116,30 @@ public with sharing class PointResDto {
       this.DT_DESTROY_DEL_SALE = '';
 
       // 판매정보
-      this.NO_SAL = (ll != null &&
-        ll.TransactionJournalId != null &&
-        ll.TransactionJournal.OrderId != null &&
-        ll.TransactionJournal.Order != null &&
-        String.isNotBlank(ll.TransactionJournal.Order.SaleNo__c))
+      // 신규 로직 (26.05.08 CS)
+      String orderSaleNo = (ll != null &&
+        ll.TransactionJournal != null &&
+        ll.TransactionJournal.Order != null)
         ? ll.TransactionJournal.Order.SaleNo__c
-        : '';
+        : null;
+
+      String saleSaleNo = (ll != null &&
+        ll.TransactionJournal != null &&
+        ll.TransactionJournal.SaleId__r != null)
+        ? ll.TransactionJournal.SaleId__r.SaleNo__c
+        : null;
+
+      this.NO_SAL = String.isNotBlank(orderSaleNo)
+        ? orderSaleNo
+        : (String.isNotBlank(saleSaleNo) ? saleSaleNo : '');
+      // 기존 로직
+      // this.NO_SAL = (ll != null &&
+      //   ll.TransactionJournalId != null &&
+      //   ll.TransactionJournal.OrderId != null &&
+      //   ll.TransactionJournal.Order != null &&
+      //   String.isNotBlank(ll.TransactionJournal.Order.SaleNo__c))
+      //   ? ll.TransactionJournal.Order.SaleNo__c
+      //   : '';
 
       Decimal amt = (ll != null &&
         ll.TransactionJournal != null &&
@@ -131,7 +148,8 @@ public with sharing class PointResDto {
         : null;
       this.AM_SAL = (amt == null) ? 0 : Integer.valueOf(amt);
 
-      this.PT_TARGET = 0;
+      // this.PT_TARGET = 0;  // 기존
+      this.PT_TARGET = (ll != null && ll.Points != null) ? ll.Points.intValue() : 0;  // 신규 로직 (26.05.04 CS)
       this.PT_USE_SALE = usedSalePoints == null ? 0 : usedSalePoints;
       this.PT_USE_SALE_COUPON = usedSaleCouponAmount == null ? 0 : usedSaleCouponAmount;
 
@@ -260,7 +278,8 @@ public with sharing class PointResDto {
         llt.DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsReductionOrder__c == true;
 
       // NO_SAL: 반품 포인트면 빈값, 일반 사용이면 판매번호
-      this.NO_SAL = isReturnPoint ? '' : getSaleNoFromDebitContext(llt, debitOrder);
+      // this.NO_SAL = isReturnPoint ? '' : getSaleNoFromDebitContext(llt, debitOrder); // 기존
+      this.NO_SAL = isReturnPoint ? getSaleNoFromOrder(creditOrder) : getSaleNoFromDebitContext(llt, debitOrder);  // 신규
 
       this.AM_SAL = getSaleAmountFromOrder(debitOrder);
       this.NO_SAL_SAVE = getSaleNoFromOrder(creditOrder);

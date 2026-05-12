@@ -20,6 +20,9 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
   // Recursion Guard
   // =========================
   private static Boolean isRunning = false;
+  private static Map<String, Id> cachedSubTypeIdByName;
+  private static Id cachedPointCurrencyId;
+  private static Boolean pointCurrencyLoaded = false;
 
   // AggrKey util (inner class static method 금지 회피)
   private static final AggrKey KEY_UTIL = new AggrKey();
@@ -45,28 +48,8 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
       }
 
       // 0) 필요한 SubType Id들을 한 번에 조회해서 맵 구성
-      Set<String> subTypeNames = new Set<String>{
-        SUBTYPE_POINT_DEBIT,
-        SUBTYPE_POINT_REDEEM_CANCEL,
-        SUBTYPE_PURCHASE_ACCRUAL,
-        SUBTYPE_CANCEL_PURCHASE_ACCRUAL,
-        SUBTYPE_MANUAL_POINTS_CREDIT,
-        SUBTYPE_API_FORCED_EXPIRE,
-        SUBTYPE_API_FORCED_DEBIT,
-        SUBTYPE_API_FORCED_CREDIT,
-        SUBTYPE_AUTO_EXPIRE,
-        SUBTYPE_PROMOTION_POINT_ACCRUAL,
-        SUBTYPE_PROMOTION_POINT_ACCRUAL_REVERSAL
-      };
-
-      Map<String, Id> subTypeIdByName = new Map<String, Id>();
-      for (JournalSubType jst : [
-        SELECT Id, Name
-        FROM JournalSubType
-        WHERE Name IN :subTypeNames
-      ]) {
-        subTypeIdByName.put(jst.Name, jst.Id);
-      }
+      Set<String> subTypeNames = getAggregationSubTypeNames();
+      Map<String, Id> subTypeIdByName = getSubTypeIdByName(subTypeNames);
 
       Set<Id> allowedSubTypeIds = new Set<Id>();
       for (String nm : subTypeNames) {
@@ -81,16 +64,7 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
       }
 
       // 0-1) LoyaltyProgramCurrency(포인트) Id 조회
-      Id pointCurrencyId;
-      List<LoyaltyProgramCurrency> lpc = [
-        SELECT Id
-        FROM LoyaltyProgramCurrency
-        WHERE Name = :PROGRAM_CURRENCY_POINT_NAME
-        LIMIT 1
-      ];
-      if (!lpc.isEmpty()) {
-        pointCurrencyId = lpc[0].Id;
-      }
+      Id pointCurrencyId = getPointCurrencyId();
       if (pointCurrencyId == null) {
         System.debug('[GdTransactionJournalTriggerHandler] WARN: LoyaltyProgramCurrency not found. name=' + PROGRAM_CURRENCY_POINT_NAME);
         return;
@@ -153,7 +127,7 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
         System.debug('[GdTransactionJournalTriggerHandler] Bulk expire logging enabled. targetTJ=' + targetTjById.size());
       }
 
-      createLoyaltyAggrSubPointExprLedgerBulk(targetTjById, cfg, logger, shouldLogBulkExpire);
+      createLoyaltyAggrSubPointExprLedgerBulk(targetTjById, cfg, logger, shouldLogBulkExpire, true);
 
       if (shouldLogBulkExpire && logger != null) {
         logger.setStatus('SUCCESS');
@@ -184,6 +158,101 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
     }
   }
 
+  private static Set<String> getAggregationSubTypeNames() {
+    return new Set<String>{
+      SUBTYPE_POINT_DEBIT,
+      SUBTYPE_POINT_REDEEM_CANCEL,
+      SUBTYPE_PURCHASE_ACCRUAL,
+      SUBTYPE_CANCEL_PURCHASE_ACCRUAL,
+      SUBTYPE_MANUAL_POINTS_CREDIT,
+      SUBTYPE_API_FORCED_EXPIRE,
+      SUBTYPE_API_FORCED_DEBIT,
+      SUBTYPE_API_FORCED_CREDIT,
+      SUBTYPE_AUTO_EXPIRE,
+      SUBTYPE_PROMOTION_POINT_ACCRUAL,
+      SUBTYPE_PROMOTION_POINT_ACCRUAL_REVERSAL
+    };
+  }
+
+  private static Map<String, Id> getSubTypeIdByName(Set<String> subTypeNames) {
+    if (cachedSubTypeIdByName == null) {
+      cachedSubTypeIdByName = new Map<String, Id>();
+      for (JournalSubType jst : [
+        SELECT Id, Name
+        FROM JournalSubType
+        WHERE Name IN :subTypeNames
+      ]) {
+        cachedSubTypeIdByName.put(jst.Name, jst.Id);
+      }
+    }
+    return cachedSubTypeIdByName.clone();
+  }
+
+  private static Id getPointCurrencyId() {
+    if (!pointCurrencyLoaded) {
+      pointCurrencyLoaded = true;
+      List<LoyaltyProgramCurrency> lpc = [
+        SELECT Id
+        FROM LoyaltyProgramCurrency
+        WHERE Name = :PROGRAM_CURRENCY_POINT_NAME
+        LIMIT 1
+      ];
+      if (!lpc.isEmpty()) {
+        cachedPointCurrencyId = lpc[0].Id;
+      }
+    }
+    return cachedPointCurrencyId;
+  }
+
+  @TestVisible
+  private static void clearCacheForTest() {
+    cachedSubTypeIdByName = null;
+    cachedPointCurrencyId = null;
+    pointCurrencyLoaded = false;
+  }
+
+  public static void aggregateProcessedTransactionJournals(Set<Id> tjIds) {
+    if (tjIds == null || tjIds.isEmpty()) {
+      return;
+    }
+
+    Set<String> subTypeNames = getAggregationSubTypeNames();
+    Map<String, Id> subTypeIdByName = getSubTypeIdByName(subTypeNames);
+    Id pointCurrencyId = getPointCurrencyId();
+    if (pointCurrencyId == null) {
+      System.debug('[GdTransactionJournalTriggerHandler] WARN: LoyaltyProgramCurrency not found in retry.');
+      return;
+    }
+
+    Set<Id> allowedSubTypeIds = new Set<Id>();
+    for (String nm : subTypeNames) {
+      if (subTypeIdByName.containsKey(nm)) {
+        allowedSubTypeIds.add(subTypeIdByName.get(nm));
+      }
+    }
+
+    Map<Id, TransactionJournal> targetTjById = new Map<Id, TransactionJournal>();
+    for (TransactionJournal tj : [
+      SELECT Id, JournalSubTypeId, Status
+      FROM TransactionJournal
+      WHERE Id IN :tjIds AND Status = 'Processed' AND JournalSubTypeId IN :allowedSubTypeIds
+    ]) {
+      targetTjById.put(tj.Id, tj);
+    }
+
+    if (targetTjById.isEmpty()) {
+      return;
+    }
+
+    createLoyaltyAggrSubPointExprLedgerBulk(
+      targetTjById,
+      new AggrConfig(subTypeIdByName, pointCurrencyId),
+      null,
+      false,
+      false
+    );
+  }
+
   // =========================
   // Bulk 집계 핵심
   // =========================
@@ -191,7 +260,8 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
     Map<Id, TransactionJournal> tjById,
     AggrConfig cfg,
     ApexLogger logger,
-    Boolean shouldLogBulkExpire
+    Boolean shouldLogBulkExpire,
+    Boolean allowRetry
   ) {
     Set<Id> tjIds = tjById.keySet();
     if (tjIds.isEmpty()) {
@@ -210,8 +280,19 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
       if (shouldLogBulkExpire && logger != null) {
         logger.setDescription('No LoyaltyLedger rows found. tjCount=' + tjIds.size());
       }
+      enqueueAggregationRetry(tjIds, allowRetry);
       return;
     }
+
+    Set<Id> tjIdsWithLedger = new Set<Id>();
+    for (LoyaltyLedger ll : llList) {
+      if (ll != null && ll.TransactionJournalId != null) {
+        tjIdsWithLedger.add(ll.TransactionJournalId);
+      }
+    }
+    Set<Id> missingLedgerTjIds = new Set<Id>(tjIds);
+    missingLedgerTjIds.removeAll(tjIdsWithLedger);
+    enqueueAggregationRetry(missingLedgerTjIds, allowRetry);
 
     if (shouldLogBulkExpire && logger != null) {
       logger.setDescription('Ledger fetched. ledgerRows=' + llList.size());
@@ -514,6 +595,14 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
       }
     }
     return fail;
+  }
+
+  private static void enqueueAggregationRetry(Set<Id> tjIds, Boolean allowRetry) {
+    if (!allowRetry || tjIds == null || tjIds.isEmpty()) {
+      return;
+    }
+
+    System.enqueueJob(new GdPointAggrRetryQueueable(new List<Id>(tjIds)));
   }
 
   // =========================

@@ -1,0 +1,98 @@
+.table-scroll {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 480px;
+  border: 1px solid #dddbda;
+}
+
+.grid-table {
+  min-width: 1700px;
+  table-layout: auto;
+}
+
+.grid-table thead th,
+.grid-table thead td {
+  background-color: #f3f3f3;
+  border: 1px solid #c9c7c5;
+  font-weight: 700;
+  color: #16325c;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.grid-table tbody td {
+  border: 1px solid #e5e5e5;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+.grid-table tbody tr:nth-child(even) {
+  background-color: #fafafa;
+}
+
+.grid-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.grid-table .col-idx {
+  width: 48px;
+  background-color: #eef3f8;
+}
+
+.grid-table .sum-row td {
+  background-color: #fef6e3;
+  font-weight: 700;
+  color: #5c3700;
+}
+
+.json-textarea textarea {
+  min-height: 180px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Courier New", monospace;
+  font-size: 12px;
+}
+
+.point-type-table thead th {
+  background-color: #5b8def;
+  color: #fff;
+  border: 1px solid #3c6dd0;
+  text-align: center;
+  padding: 4px 8px;
+}
+
+.point-type-table tbody td {
+  border: 1px solid #d8dde6;
+  padding: 4px 8px;
+}
+
+.point-type-table tbody tr:first-child td {
+  background-color: #fff1da;
+  font-weight: 700;
+  color: #b25400;
+}
+
+.point-type-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.point-type-table .col-idx {
+  width: 40px;
+  background-color: #eef3f8;
+  color: #16325c;
+}
+
+/* 쿠폰 도움창 — 원본 JSON 셀 */
+.raw-json {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, "Courier New", monospace;
+  font-size: 11px;
+  background: #1e1b4b;
+  color: #f5f3ff;
+  padding: 6px 8px;
+  border-radius: 4px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 160px;
+  overflow: auto;
+}

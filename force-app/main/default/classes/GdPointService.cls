@@ -48,8 +48,21 @@ public interface GdPointService {
 
   /**
    * 특정 포인트 차감 ([판매반품, 교환반품] 전체 삭제 API 에서 사용됨)
+   * @version V1
    */
   List<PointDebitDTO> debitSpecificPoints(TransactionJournal tj, List<LoyaltyLedger> llList);
+  
+  /**
+   * 특정 포인트 차감 V2
+   * @version V2
+   */
+  List<PointDebitDTO> debitSpecificPointsV2(TransactionJournal tj, List<LoyaltyLedger> llList);
+
+  /**
+   * ?뱀젙 ?ъ씤??李④컧 V3
+   * @version V3
+   */
+  List<PointDebitDTO> debitSpecificPointsV3(TransactionJournal tj, Map<Id, Decimal> requestedPointsByLedgerId);
 
   /**
    * (특정 등급의 비율에 따른) 구매 시 포인트 지급
@@ -80,6 +93,17 @@ public interface GdPointService {
    * 구매 시 포인트 지급 V2
    */
   List<PointCreditDTO> creditPointsOnPurchaseV2(List<TransactionJournal> data, Decimal excludeAmount);
+
+  /**
+   * [옵션 C — 옛 일자 신규 판매 전용] 구매 시 포인트 지급 (기타포인트 redirect)
+   *
+   * 표준 creditPointsOnPurchaseV2 와 동일 동작이되,
+   *   - 등급 보상 중 PT='01' (구매포인트) 비율만 사용
+   *   - 적립 SubType 은 '기타포인트' 로 강제 redirect
+   *
+   * 만료일 / 적립 일자 / LL/LLT/LASEL 자동 생성 / TJ.PostPointBalance 업데이트는 표준과 100% 동일.
+   */
+  List<PointCreditDTO> creditEtcPointsOnPurchaseForOldSale(List<TransactionJournal> data, Decimal excludeAmount);
 
   /**
    * 프로모션 포인트 지급

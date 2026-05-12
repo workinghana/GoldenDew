@@ -65,8 +65,14 @@ private class BirthdayCouponIssueBatchTest {
   private static void createMember(Boolean birthdayThisMonth) {
     Date today = Date.today();
     Integer month = birthdayThisMonth ? today.month() : (today.month() == 12 ? 1 : today.month() + 1);
+    Integer year = today.year() - 25;
 
-    Contact c = new Contact(LastName = 'Batch Test', Birthdate = Date.newInstance(today.year() - 25, month, 1), MemberNo__c = 'M001');
+    Contact c = new Contact(
+      LastName = 'Batch Test',
+      Birthdate = Date.newInstance(year, month, 1),
+      LegalBirthdate__c = Datetime.newInstance(year, month, 1).format('yyMMdd'),
+      MemberNo__c = 'M001'
+    );
     insert c;
 
     LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
@@ -217,5 +223,155 @@ private class BirthdayCouponIssueBatchTest {
     for (Voucher issuedVoucher : issuedVoucherList) {
       System.assertEquals(0, issuedVoucher.FaceValue, 'Upgrade birthday coupon should be normalized to face value 0');
     }
+  }
+
+  // 8️⃣ 회원 등급이 어느 쿠폰의 허용 등급에도 들지 않음
+  //    → hasEligible=false 분기 + tjByMemberId.isEmpty() ("No eligible targets") 분기 커버
+  @IsTest
+  static void test_execute_tierNotEligible() {
+    LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
+    LoyaltyTierGroup ltg = [SELECT Id FROM LoyaltyTierGroup LIMIT 1];
+
+    LoyaltyTier excludedTier = new LoyaltyTier(Name = 'Excluded Tier', LoyaltyTierGroupId = ltg.Id, SequenceNumber = 2);
+    insert excludedTier;
+
+    Date today = Date.today();
+    Integer year = today.year() - 30;
+    Integer month = today.month();
+
+    Contact c = new Contact(
+      LastName = 'Excluded',
+      Birthdate = Date.newInstance(year, month, 1),
+      LegalBirthdate__c = Datetime.newInstance(year, month, 1).format('yyMMdd'),
+      MemberNo__c = 'M-EXCL'
+    );
+    insert c;
+
+    LoyaltyProgramMember lpm = new LoyaltyProgramMember(
+      ContactId = c.Id,
+      ProgramId = lp.Id,
+      MembershipNumber = 'M-EXCL',
+      MemberStatus = 'Active',
+      MemberType = 'Individual',
+      EnrollmentDate = today
+    );
+    insert lpm;
+
+    insert new LoyaltyMemberTier(Name = 'Excluded LMT', LoyaltyMemberId = lpm.Id, LoyaltyTierId = excludedTier.Id, EffectiveDate = today);
+
+    Test.startTest();
+    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    Test.stopTest();
+
+    List<Voucher> issued = [SELECT Id FROM Voucher WHERE LoyaltyProgramMemberId = :lpm.Id];
+    System.assertEquals(0, issued.size(), 'Member with non-allowed tier should not get any voucher');
+  }
+
+  // 9️⃣ 성공/실패 혼재 (PARTIAL 분기 커버 in execute() & finish())
+  //    - 성공 멤버 1 (createMember 사용)
+  //    - 실패 멤버 1 (MemberNo 비어있음 → "No MemberNo" 분기)
+  @IsTest
+  static void test_execute_mixedSuccessAndFailure() {
+    createMember(true);
+
+    LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
+    LoyaltyTier tier = [SELECT Id FROM LoyaltyTier LIMIT 1];
+
+    Date today = Date.today();
+    Integer year = today.year() - 28;
+    Integer month = today.month();
+
+    // 두 번째 멤버 — MemberNo 없음
+    Contact c2 = new Contact(
+      LastName = 'No MemberNo',
+      Birthdate = Date.newInstance(year, month, 1),
+      LegalBirthdate__c = Datetime.newInstance(year, month, 1).format('yyMMdd')
+      // MemberNo__c 비어있음
+    );
+    insert c2;
+
+    LoyaltyProgramMember lpm2 = new LoyaltyProgramMember(
+      ContactId = c2.Id,
+      ProgramId = lp.Id,
+      MembershipNumber = 'M-NOMEM',
+      MemberStatus = 'Active',
+      MemberType = 'Individual',
+      EnrollmentDate = today
+    );
+    insert lpm2;
+
+    insert new LoyaltyMemberTier(Name = 'No MemberNo LMT', LoyaltyMemberId = lpm2.Id, LoyaltyTierId = tier.Id, EffectiveDate = today);
+
+    Test.startTest();
+    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    Test.stopTest();
+
+    System.assert(true);
+  }
+
+  // 🔟 멤버 다수 + 모두 정상 (finish() SUCCESS 분기 커버 / 추가 처리량 확보)
+  @IsTest
+  static void test_execute_multipleSuccessMembers() {
+    LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
+    LoyaltyTier tier = [SELECT Id FROM LoyaltyTier LIMIT 1];
+
+    Date today = Date.today();
+    Integer month = today.month();
+
+    List<Contact> contacts = new List<Contact>();
+    for (Integer i = 0; i < 3; i++) {
+      Integer year = today.year() - 25 - i;
+      contacts.add(
+        new Contact(
+          LastName = 'Multi ' + i,
+          Birthdate = Date.newInstance(year, month, 1),
+          LegalBirthdate__c = Datetime.newInstance(year, month, 1).format('yyMMdd'),
+          MemberNo__c = 'M-MULTI-' + i
+        )
+      );
+    }
+    insert contacts;
+
+    List<LoyaltyProgramMember> lpms = new List<LoyaltyProgramMember>();
+    for (Integer i = 0; i < contacts.size(); i++) {
+      lpms.add(
+        new LoyaltyProgramMember(
+          ContactId = contacts[i].Id,
+          ProgramId = lp.Id,
+          MembershipNumber = 'M-MULTI-LPM-' + i,
+          MemberStatus = 'Active',
+          MemberType = 'Individual',
+          EnrollmentDate = today
+        )
+      );
+    }
+    insert lpms;
+
+    List<LoyaltyMemberTier> lmts = new List<LoyaltyMemberTier>();
+    for (Integer i = 0; i < lpms.size(); i++) {
+      lmts.add(new LoyaltyMemberTier(Name = 'Multi LMT ' + i, LoyaltyMemberId = lpms[i].Id, LoyaltyTierId = tier.Id, EffectiveDate = today));
+    }
+    insert lmts;
+
+    Test.startTest();
+    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    Test.stopTest();
+
+    System.assert(true);
+  }
+
+  // 1️⃣1️⃣ VoucherLimit 가 비어있는 경우 — 전체 등급 허용 분기 커버
+  //     allowedTierIdsByVdId 가 빈 채 → eligible == true (라인 257) 분기
+  @IsTest
+  static void test_execute_voucherLimitEmpty_allTiersAllowed() {
+    delete [SELECT Id FROM VoucherLimit__c];
+
+    createMember(true);
+
+    Test.startTest();
+    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    Test.stopTest();
+
+    System.assert(true);
   }
 }

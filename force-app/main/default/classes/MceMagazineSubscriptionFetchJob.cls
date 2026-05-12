@@ -35,8 +35,13 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
   // =========================================================
   // Contact update field API Names
   // =========================================================
-  private static final String CONTACT_SUBSCRIBED_FIELD = 'IsMagazineSubscribed__c';
-  private static final String CONTACT_SUBSCRIBED_DATE_FIELD = 'MagazineSubscriptionDate__c';
+  private static final String CONTACT_SUBSCRIBED_FIELD = 'IsMagazineSubscribed__c'; // 매거진 구독 여부
+  private static final String CONTACT_SUBSCRIBED_DATE_FIELD = 'MagazineSubscriptionDate__c';  // 매거진 구독 일자
+  // 26.05.05 GD - 매거진 시즌 필드 추가
+  private static final String CONTACT_SUBSCRIPTION_SEASON_FIELD = 'MagazineSubscriptionSeason__c'; // 매거진 구독 시즌
+  //
+  private static final String CONTACT_MAILING_STREET_FIELD = 'MailingStreet'; // 주소
+  private static final String CONTACT_ADDRESS_DETAIL_FIELD = 'AddressDetail__c';  // 상세 주소
 
   // TJ 업데이트 플래그 필드
   private static final String TJ_IS_UPDATED_FIELD = 'Magazine_IsUpdated__c';
@@ -235,6 +240,9 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
               isMatched = true;
 
               Boolean subscribed = toBooleanY(values.get('ismagazinesubscribed__c'));
+              // 26.05.05 GD - 응답 시간 Datetime 추가
+              Datetime reqDateTime = parseUsDateTime(values.get('response_time'));
+              //
               Date reqDate = parseFlexibleDate(values.get('response_time'));
               String season = ValidationUtil.stringValidation(values.get('mag_season'), 'mag_season', false);
 
@@ -244,18 +252,34 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
                 contactUpdateStateById.put(c.Id, st);
               }
 
+              // 기존
+              // st.mailingStreet = trimToNull(values.get('a_address1'));
+              // st.addressDetail = trimToNull(values.get('a_address2'));
               // 여러 row가 있으면 true 우선
               st.subscribed = (st.subscribed == true) ? true : subscribed;
 
-              // 구독 true일 때 최신 날짜만
-              if (subscribed == true && reqDate != null) {
-                if (st.subscribedDate == null || reqDate > st.subscribedDate) {
+              // 26.05.05 GD - 응답 시간 Datetime 기준으로 로직 수정 - 구독 true일 때 최신 응답시각만 (같은 날짜 내에서도 시간 단위로 최신값 우선)
+              if (subscribed == true && reqDateTime != null) {
+                if (st.responseDatetime == null || reqDateTime > st.responseDatetime) {
+                  st.responseDatetime = reqDateTime;
                   st.subscribedDate = reqDate;
                   st.season = season;
+                  st.mailingStreet = trimToNull(values.get('a_address1'));
+                  st.addressDetail = trimToNull(values.get('a_address2'));
                 }
               }
+              //
             }
           }
+
+          // 26.05.05 GD - 매칭 실패 시 거래 이력 생성하지 않음
+          if (!isMatched) {
+            insNg++;
+            ngIds.add('NOT_MATCHED_' + page + '_' + i);
+            failMsgs.add('phase=' + phase + ' | Contact not matched (page=' + page + ', idx=' + i + ', memberNo=' + memberNo + ')');
+            continue;
+          }
+          //
 
           // TJ 생성
           TransactionJournal tj = mapToTransactionJournal(keys, values, lpmId);
@@ -337,9 +361,14 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
 
           Contact upd = new Contact(Id = cId);
           upd.put(CONTACT_SUBSCRIBED_FIELD, st.subscribed);
+          upd.put(CONTACT_MAILING_STREET_FIELD, st.mailingStreet);
+          upd.put(CONTACT_ADDRESS_DETAIL_FIELD, st.addressDetail);
 
           if (st.subscribed == true && st.subscribedDate != null) {
             upd.put(CONTACT_SUBSCRIBED_DATE_FIELD, st.subscribedDate);
+            // 26.05.05 GD - 매거진 시즌 필드 업데이트
+            upd.put(CONTACT_SUBSCRIPTION_SEASON_FIELD, seasonNameToCode(st.season));
+            //
           }
 
           cToUpdate.add(upd);
@@ -665,7 +694,7 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
     Date birthDate = parseUsDateTimeToDate(values.get('a_birthdate'));
     tj.put('Magazine_A_Birthdate__c', birthDate);
 
-    tj.put('Magazine_Address__c', asString(values.get('a_address')));
+    tj.put('Magazine_Address__c', combineAddress(values.get('a_address1'), values.get('a_address2')));
     tj.put('Magazine_A_ZIP_Code__c', asString(values.get('a_zip_code')));
     tj.put('Magazine_A_Sub_Reason__c', asString(values.get('a_sub_reason')));
     tj.put('Magazine_Response_Time__c', parseUsDateTime(values.get('response_time')));
@@ -680,7 +709,12 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
   private class ContactUpdateState {
     public Boolean subscribed;
     public Date subscribedDate;
-    public String season; // 시즌
+    // 26.05.05 GD - 같은 날짜 내 시간 비교용
+    public Datetime responseDatetime;
+    //
+    public String season; // 시즌 
+    public String mailingStreet;
+    public String addressDetail;
   }
 
   // =========================================================
@@ -688,6 +722,39 @@ public with sharing class MceMagazineSubscriptionFetchJob implements Queueable, 
   // =========================================================
   private static String asString(Object v) {
     return (v == null) ? null : String.valueOf(v);
+  }
+
+  private static String trimToNull(Object v) {
+    String s = asString(v);
+    return String.isBlank(s) ? null : s.trim();
+  }
+
+  // 26.05.05 GD - 매거진 시즌 한글 → 코드
+  private static String seasonNameToCode(String name) {
+    if (String.isBlank(name)) return null;
+    switch on name.trim() {
+      when '봄'   { return '01'; }
+      when '여름' { return '02'; }
+      when '가을' { return '03'; }
+      when '겨울' { return '04'; }
+      when else   { return null; }
+    }
+  }
+
+  private static String combineAddress(Object address1, Object address2) {
+    List<String> parts = new List<String>();
+
+    String addr1 = asString(address1);
+    if (String.isNotBlank(addr1)) {
+      parts.add(addr1.trim());
+    }
+
+    String addr2 = asString(address2);
+    if (String.isNotBlank(addr2)) {
+      parts.add(addr2.trim());
+    }
+
+    return parts.isEmpty() ? null : String.join(parts, ' ');
   }
 
   private static Id toId(Object v) {

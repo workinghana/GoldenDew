@@ -152,6 +152,14 @@ private class GdReturnDepositServiceImplTest {
       return new List<PointCreditDTO>();
     }
 
+    public List<PointCreditDTO> creditEtcPointsOnPurchaseForOldSale(List<TransactionJournal> data, Decimal excludeAmount) {
+      return new List<PointCreditDTO>();
+    }
+
+    public List<GdSaleApiController.PointDebitDTO> debitPointForSaleUpdate(TransactionJournal tj) {
+      return null;
+    }
+
     public List<PointCreditDTO> creditPromotionPointsOnPurchase(List<TransactionJournal> data, Decimal excludeAmount) {
       creditPromotionPointsOnPurchaseCallCount = (creditPromotionPointsOnPurchaseCallCount == null)
         ? 1

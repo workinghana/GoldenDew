@@ -54,7 +54,8 @@ private class GdPointServiceImplBug2Test {
 
     // 합계 검증
     Decimal sum = 0;
-    for (Decimal v : allocated.values()) sum += v;
+    for (Decimal v : allocated.values())
+      sum += v;
     System.assertEquals(171000, sum, '분배 합계가 cancel 금액과 일치');
   }
 
@@ -86,7 +87,8 @@ private class GdPointServiceImplBug2Test {
     System.assertEquals(14500, allocated.get(lltB), 'B 에서 남은 14,500 만 소비');
 
     Decimal sum = 0;
-    for (Decimal v : allocated.values()) sum += v;
+    for (Decimal v : allocated.values())
+      sum += v;
     System.assertEquals(100000, sum, '분배 합계 = cancel 금액');
   }
 
@@ -118,7 +120,9 @@ private class GdPointServiceImplBug2Test {
   @IsTest
   static void bug2_sanity_zeroOrNullCancel_returnsEmpty() {
     GdPointServiceImpl.UsageBucketV2 bucket = new GdPointServiceImpl.UsageBucketV2(
-      Date.today().addMonths(12), '이벤트포인트', 1,
+      Date.today().addMonths(12),
+      '이벤트포인트',
+      1,
       fakeId('11c', 4),
       String.valueOf(fakeId('05w', 7)),
       String.valueOf(fakeId('05w', 8))
@@ -135,7 +139,9 @@ private class GdPointServiceImplBug2Test {
   @IsTest
   static void bug2_sanity_cancelExceedsTotal_allocatesMax() {
     GdPointServiceImpl.UsageBucketV2 bucket = new GdPointServiceImpl.UsageBucketV2(
-      Date.today().addMonths(12), '이벤트포인트', 1,
+      Date.today().addMonths(12),
+      '이벤트포인트',
+      1,
       fakeId('11c', 5),
       String.valueOf(fakeId('05w', 9)),
       String.valueOf(fakeId('05w', 10))
@@ -146,7 +152,8 @@ private class GdPointServiceImplBug2Test {
     // cancel 100,000 요청이지만 실제로는 80,000 분배 가능
     Map<Id, Decimal> allocated = bucket.allocateCancel(100000);
     Decimal sum = 0;
-    for (Decimal v : allocated.values()) sum += v;
+    for (Decimal v : allocated.values())
+      sum += v;
     System.assertEquals(80000, sum, '최대 총합만 분배됨 (나머지는 caller 가 처리)');
   }
 
@@ -156,7 +163,9 @@ private class GdPointServiceImplBug2Test {
   @IsTest
   static void bug2_sanity_emptyBucket_returnsEmpty() {
     GdPointServiceImpl.UsageBucketV2 bucket = new GdPointServiceImpl.UsageBucketV2(
-      Date.today().addMonths(12), '이벤트포인트', 1,
+      Date.today().addMonths(12),
+      '이벤트포인트',
+      1,
       fakeId('11c', 6),
       String.valueOf(fakeId('05w', 11)),
       String.valueOf(fakeId('05w', 12))
@@ -173,7 +182,9 @@ private class GdPointServiceImplBug2Test {
   static void bug2_tc09_crossBucket_FIFO_allocation() {
     // 이벤트 bucket (priority=1)
     GdPointServiceImpl.UsageBucketV2 eventBucket = new GdPointServiceImpl.UsageBucketV2(
-      Date.today().addMonths(12), '이벤트포인트', 1,
+      Date.today().addMonths(12),
+      '이벤트포인트',
+      1,
       fakeId('11c', 7),
       String.valueOf(fakeId('05w', 20)),
       String.valueOf(fakeId('05w', 21))
@@ -185,7 +196,9 @@ private class GdPointServiceImplBug2Test {
 
     // 사은 bucket (priority=5)
     GdPointServiceImpl.UsageBucketV2 giftBucket = new GdPointServiceImpl.UsageBucketV2(
-      Date.today().addMonths(12), '사은포인트', 5,
+      Date.today().addMonths(12),
+      '사은포인트',
+      5,
       fakeId('11c', 8),
       String.valueOf(fakeId('05w', 22)),
       String.valueOf(fakeId('05w', 23))
@@ -194,7 +207,9 @@ private class GdPointServiceImplBug2Test {
 
     // 구매 bucket (priority=7)
     GdPointServiceImpl.UsageBucketV2 purchaseBucket = new GdPointServiceImpl.UsageBucketV2(
-      Date.today().addMonths(12), '구매포인트', 7,
+      Date.today().addMonths(12),
+      '구매포인트',
+      7,
       fakeId('11c', 9),
       String.valueOf(fakeId('05w', 24)),
       String.valueOf(fakeId('05w', 25))
@@ -203,9 +218,7 @@ private class GdPointServiceImplBug2Test {
 
     // 정렬 — 만료일 동일 → 우선순위 DESC (높은 숫자 먼저)
     // UsageBucketV2CancelSorter 는 만료일 DESC, 우선순위 DESC, 이름 ASC
-    List<GdPointServiceImpl.UsageBucketV2> ubList = new List<GdPointServiceImpl.UsageBucketV2>{
-      eventBucket, giftBucket, purchaseBucket
-    };
+    List<GdPointServiceImpl.UsageBucketV2> ubList = new List<GdPointServiceImpl.UsageBucketV2>{ eventBucket, giftBucket, purchaseBucket };
     ubList.sort(new GdPointServiceImpl.UsageBucketV2CancelSorter());
 
     // 정렬 후: 만료일 DESC → 모두 동일 → 우선순위 DESC → 구매(7) > 사은(5) > 이벤트(1)
@@ -227,13 +240,17 @@ private class GdPointServiceImplBug2Test {
   @IsTest
   static void bug2_sorter_expiryDateDesc() {
     GdPointServiceImpl.UsageBucketV2 earlier = new GdPointServiceImpl.UsageBucketV2(
-      Date.today().addMonths(6), '이벤트포인트', 1,
+      Date.today().addMonths(6),
+      '이벤트포인트',
+      1,
       fakeId('11c', 10),
       String.valueOf(fakeId('05w', 30)),
       String.valueOf(fakeId('05w', 31))
     );
     GdPointServiceImpl.UsageBucketV2 later = new GdPointServiceImpl.UsageBucketV2(
-      Date.today().addMonths(12), '이벤트포인트', 1,
+      Date.today().addMonths(12),
+      '이벤트포인트',
+      1,
       fakeId('11c', 11),
       String.valueOf(fakeId('05w', 32)),
       String.valueOf(fakeId('05w', 33))
@@ -265,7 +282,9 @@ private class GdPointServiceImplBug2Test {
   @IsTest
   static void bug2_cancelPortionV2_construction() {
     GdPointServiceImpl.UsageBucketV2 bucket = new GdPointServiceImpl.UsageBucketV2(
-      Date.today().addMonths(12), '이벤트포인트', 1,
+      Date.today().addMonths(12),
+      '이벤트포인트',
+      1,
       fakeId('11c', 12),
       String.valueOf(fakeId('05w', 40)),
       String.valueOf(fakeId('05w', 41))
@@ -301,5 +320,96 @@ private class GdPointServiceImplBug2Test {
     System.assertEquals(true, GdFeatureFlag.isEnabled('TestFlagName'));
     GdFeatureFlag.setForTest('TestFlagName', false);
     System.assertEquals(false, GdFeatureFlag.isEnabled('TestFlagName'));
+  }
+
+  @IsTest
+  static void bug2_allocateCancel_skipsZeroNullAndNegativeEntries() {
+    GdPointServiceImpl.UsageBucketV2 bucket = new GdPointServiceImpl.UsageBucketV2(
+      Date.today().addMonths(3),
+      'GENERAL_POINT',
+      1,
+      fakeId('11c', 50),
+      String.valueOf(fakeId('05w', 50)),
+      String.valueOf(fakeId('05w', 51))
+    );
+    Id zeroId = fakeId('1Dt', 1500);
+    Id nullId = fakeId('1Dt', 1501);
+    Id negativeId = fakeId('1Dt', 1502);
+    Id validId = fakeId('1Dt', 1503);
+
+    bucket.addEntry(zeroId, 0);
+    bucket.addEntry(nullId, null);
+    bucket.addEntry(negativeId, -10);
+    bucket.addEntry(validId, 25);
+
+    Map<Id, Decimal> allocated = bucket.allocateCancel(20);
+
+    System.assertEquals(1, allocated.size());
+    System.assertEquals(20, allocated.get(validId));
+    System.assertEquals(false, allocated.containsKey(zeroId));
+    System.assertEquals(false, allocated.containsKey(nullId));
+    System.assertEquals(false, allocated.containsKey(negativeId));
+  }
+
+  @IsTest
+  static void bug2_allocateCancel_stopsAfterRemainingIsZero() {
+    GdPointServiceImpl.UsageBucketV2 bucket = new GdPointServiceImpl.UsageBucketV2(
+      Date.today().addMonths(3),
+      'GENERAL_POINT',
+      1,
+      fakeId('11c', 51),
+      String.valueOf(fakeId('05w', 52)),
+      String.valueOf(fakeId('05w', 53))
+    );
+    Id firstId = fakeId('1Dt', 1510);
+    Id secondId = fakeId('1Dt', 1511);
+    bucket.addEntry(firstId, 100);
+    bucket.addEntry(secondId, 100);
+
+    Map<Id, Decimal> allocated = bucket.allocateCancel(25);
+
+    System.assertEquals(1, allocated.size());
+    System.assertEquals(25, allocated.get(firstId));
+    System.assertEquals(false, allocated.containsKey(secondId));
+  }
+
+  @IsTest
+  static void bug2_sorter_ordersEqualExpiryAndPriorityByNameCaseInsensitive() {
+    Id subtypeId = fakeId('11c', 52);
+    List<GdPointServiceImpl.UsageBucketV2> buckets = new List<GdPointServiceImpl.UsageBucketV2>{
+      new GdPointServiceImpl.UsageBucketV2(Date.today().addDays(10), 'beta', 1, subtypeId, 'cl1', 'dl1'),
+      new GdPointServiceImpl.UsageBucketV2(Date.today().addDays(10), 'Alpha', 1, subtypeId, 'cl2', 'dl2'),
+      new GdPointServiceImpl.UsageBucketV2(Date.today().addDays(10), 'gamma', 1, subtypeId, 'cl3', 'dl3')
+    };
+
+    buckets.sort(new GdPointServiceImpl.UsageBucketV2CancelSorter());
+
+    System.assertEquals('Alpha', buckets[0].pointSubTypeName);
+    System.assertEquals('beta', buckets[1].pointSubTypeName);
+    System.assertEquals('gamma', buckets[2].pointSubTypeName);
+  }
+
+  @IsTest
+  static void bug2_cancelPortionV2_copiesIdsAndExpiry() {
+    Date expiry = Date.today().addMonths(6);
+    Id subtypeId = fakeId('11c', 53);
+    String creditLedgerId = String.valueOf(fakeId('05w', 54));
+    String debitLedgerId = String.valueOf(fakeId('05w', 55));
+    GdPointServiceImpl.UsageBucketV2 bucket = new GdPointServiceImpl.UsageBucketV2(
+      expiry,
+      'GENERAL_POINT',
+      9,
+      subtypeId,
+      creditLedgerId,
+      debitLedgerId
+    );
+
+    GdPointServiceImpl.CancelPortionV2 portion = new GdPointServiceImpl.CancelPortionV2(bucket, 77);
+
+    System.assertEquals(expiry, portion.expiryDate);
+    System.assertEquals(subtypeId, portion.loyaltyPgmCurrencySubtypeId);
+    System.assertEquals(creditLedgerId, portion.creditLoyaltyLedgerId);
+    System.assertEquals(debitLedgerId, portion.debitLoyaltyLedgerId);
+    System.assertEquals(77, portion.cancelPoints);
   }
 }

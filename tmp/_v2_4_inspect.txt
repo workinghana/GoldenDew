@@ -1,0 +1,8 @@
+2026-05-08T04:24:54.000+0000  a12JO000000MC0xYAG  GdPointHelpApiControllerV1  /gd/v1/point/help
+  req={"StoreCode__c":"99998","MemberNo__c":"103006200153","Type":"01","PromotionNo__c":"PRO202604161046","OrderDate":"20260508","SaleNo__c":""}
+
+2026-05-08T04:25:03.000+0000  a12JO000000MBxnYAG  GdOrderApiControllerV1  /gd/v1/order
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"103006200153","OrderNo__c":"SOR202605080124","ActualPaymentAmount__c":1000000.0,"OrderStatus__c":"01","Type":"01","PromotionNo__c":"PRO2026041
+
+2026-05-08T04:31:33.000+0000  a12JO000000MCKKYA4  GdSaleApiControllerV1  /gd/v1/sale
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"103006200153","SaleNo__c":"SAL202605080117","ActualPaymentAmount__c":1000000.0,"EndDate":"20260508","SaleStatus__c":"01","PromotionNo__c":"PRO

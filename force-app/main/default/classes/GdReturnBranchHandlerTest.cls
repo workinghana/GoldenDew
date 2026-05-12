@@ -11,15 +11,30 @@
  */
 @IsTest
 private class GdReturnBranchHandlerTest {
-
   // 테스트 상수
   private static final Decimal ORIGINAL_AMOUNT = 100000;
+
+  // Order Create 시 발화하는 RTF_Tier_Qualifying_Point_Award / RTF_Write_Purchase_Date 플로우가
+  // Salesforce Loyalty creditPoints invocable action 을 호출하면서 콜아웃을 발생시키므로
+  // 모든 테스트 진입 전에 HttpCalloutMock 을 세팅한다.
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
 
   // ============================================================
   // @TestSetup
   // ============================================================
   @TestSetup
   static void setupData() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+
     Id stdPbId = Test.getStandardPricebookId();
 
     Account company = new Account(Name = 'Co_RB', CompanyCode__c = 'CMP-RB');
@@ -136,10 +151,7 @@ private class GdReturnBranchHandlerTest {
   @IsTest
   static void validate_partialReturnWithinLimit_passes() {
     // 누계 60,000 (30,000 + 30,000) + 이번 30,000 = 90,000 ≤ 100,000 → 통과
-    Map<String, Object> reqData = new Map<String, Object>{
-      'OriginalOrderId' => 'SALE-RB-ORIG',
-      'ActualPaymentAmount__c' => 30000
-    };
+    Map<String, Object> reqData = new Map<String, Object>{ 'OriginalOrderId' => 'SALE-RB-ORIG', 'ActualPaymentAmount__c' => 30000 };
 
     Test.startTest();
     GdReturnBranchHandler.validateReturnAmountWithinPolicy(reqData);
@@ -151,10 +163,7 @@ private class GdReturnBranchHandlerTest {
   @IsTest
   static void validate_exactlyAtLimit_passes() {
     // 누계 60,000 + 이번 40,000 = 100,000 = 원판매 → 통과 (≤ 비교)
-    Map<String, Object> reqData = new Map<String, Object>{
-      'OriginalOrderId' => 'SALE-RB-ORIG',
-      'ActualPaymentAmount__c' => 40000
-    };
+    Map<String, Object> reqData = new Map<String, Object>{ 'OriginalOrderId' => 'SALE-RB-ORIG', 'ActualPaymentAmount__c' => 40000 };
 
     Test.startTest();
     GdReturnBranchHandler.validateReturnAmountWithinPolicy(reqData);
@@ -167,10 +176,7 @@ private class GdReturnBranchHandlerTest {
   static void validate_returnDeletedExcludedFromTotal_passes() {
     // 누계는 60,000 만 (returnDeleted 50,000 은 제외) + 이번 35,000 = 95,000 ≤ 100,000 → 통과
     // returnDeleted 가 카운트되면 110,000 > 100,000 으로 차단되었을 것
-    Map<String, Object> reqData = new Map<String, Object>{
-      'OriginalOrderId' => 'SALE-RB-ORIG',
-      'ActualPaymentAmount__c' => 35000
-    };
+    Map<String, Object> reqData = new Map<String, Object>{ 'OriginalOrderId' => 'SALE-RB-ORIG', 'ActualPaymentAmount__c' => 35000 };
 
     Test.startTest();
     GdReturnBranchHandler.validateReturnAmountWithinPolicy(reqData);
@@ -186,10 +192,7 @@ private class GdReturnBranchHandlerTest {
   @IsTest
   static void validate_overLimit_throws400() {
     // 누계 60,000 + 이번 50,000 = 110,000 > 100,000 → 차단
-    Map<String, Object> reqData = new Map<String, Object>{
-      'OriginalOrderId' => 'SALE-RB-ORIG',
-      'ActualPaymentAmount__c' => 50000
-    };
+    Map<String, Object> reqData = new Map<String, Object>{ 'OriginalOrderId' => 'SALE-RB-ORIG', 'ActualPaymentAmount__c' => 50000 };
 
     Test.startTest();
     Boolean thrown = false;
@@ -212,10 +215,7 @@ private class GdReturnBranchHandlerTest {
 
   @IsTest
   static void validate_negativeAmount_throws400() {
-    Map<String, Object> reqData = new Map<String, Object>{
-      'OriginalOrderId' => 'SALE-RB-ORIG',
-      'ActualPaymentAmount__c' => -1000
-    };
+    Map<String, Object> reqData = new Map<String, Object>{ 'OriginalOrderId' => 'SALE-RB-ORIG', 'ActualPaymentAmount__c' => -1000 };
 
     Test.startTest();
     Boolean thrown = false;
@@ -231,10 +231,7 @@ private class GdReturnBranchHandlerTest {
 
   @IsTest
   static void validate_zeroAmount_throws400() {
-    Map<String, Object> reqData = new Map<String, Object>{
-      'OriginalOrderId' => 'SALE-RB-ORIG',
-      'ActualPaymentAmount__c' => 0
-    };
+    Map<String, Object> reqData = new Map<String, Object>{ 'OriginalOrderId' => 'SALE-RB-ORIG', 'ActualPaymentAmount__c' => 0 };
 
     Test.startTest();
     Boolean thrown = false;
@@ -250,10 +247,7 @@ private class GdReturnBranchHandlerTest {
 
   @IsTest
   static void validate_originalAmountNull_throws400() {
-    Map<String, Object> reqData = new Map<String, Object>{
-      'OriginalOrderId' => 'SALE-RB-NULLAMT',
-      'ActualPaymentAmount__c' => 50000
-    };
+    Map<String, Object> reqData = new Map<String, Object>{ 'OriginalOrderId' => 'SALE-RB-NULLAMT', 'ActualPaymentAmount__c' => 50000 };
 
     Test.startTest();
     Boolean thrown = false;
@@ -285,10 +279,7 @@ private class GdReturnBranchHandlerTest {
 
   @IsTest
   static void validate_blankOriginalSaleNo_skipsSilently() {
-    Map<String, Object> reqData = new Map<String, Object>{
-      'OriginalOrderId' => '',
-      'ActualPaymentAmount__c' => 50000
-    };
+    Map<String, Object> reqData = new Map<String, Object>{ 'OriginalOrderId' => '', 'ActualPaymentAmount__c' => 50000 };
 
     Test.startTest();
     GdReturnBranchHandler.validateReturnAmountWithinPolicy(reqData);
@@ -300,9 +291,7 @@ private class GdReturnBranchHandlerTest {
   @IsTest
   static void validate_missingAmount_skipsSilently() {
     // ActualPaymentAmount__c 누락 — 표준이 처리할 것이라 skip
-    Map<String, Object> reqData = new Map<String, Object>{
-      'OriginalOrderId' => 'SALE-RB-ORIG'
-    };
+    Map<String, Object> reqData = new Map<String, Object>{ 'OriginalOrderId' => 'SALE-RB-ORIG' };
 
     Test.startTest();
     GdReturnBranchHandler.validateReturnAmountWithinPolicy(reqData);
@@ -313,10 +302,7 @@ private class GdReturnBranchHandlerTest {
 
   @IsTest
   static void validate_originalOrderNotFound_skipsSilently() {
-    Map<String, Object> reqData = new Map<String, Object>{
-      'OriginalOrderId' => 'NON-EXISTENT-SALE',
-      'ActualPaymentAmount__c' => 50000
-    };
+    Map<String, Object> reqData = new Map<String, Object>{ 'OriginalOrderId' => 'NON-EXISTENT-SALE', 'ActualPaymentAmount__c' => 50000 };
 
     Test.startTest();
     GdReturnBranchHandler.validateReturnAmountWithinPolicy(reqData);
@@ -333,13 +319,13 @@ private class GdReturnBranchHandlerTest {
   static void wrap_silentFailDetected_enrichesResponse() {
     Map<String, Object> standardData = new Map<String, Object>{
       'orderId' => '801XXXXXXXXXXXXXXX',
-      'CancelPointsCreditedList' => null  // ← silent fail 신호
+      'CancelPointsCreditedList' => null // ← silent fail 신호
     };
     ApiResult standardResult = ApiResult.ok(200, '반품 등록 완료', standardData);
 
     Map<String, Object> reqData = new Map<String, Object>{
       'OriginalOrderId' => 'SALE-RB-ORIG',
-      'orderId' => null,  // 마커 update 는 skip 됨 (안전)
+      'orderId' => null, // 마커 update 는 skip 됨 (안전)
       'TransactionJournal' => new List<Object>{ new Map<String, Object>() }
     };
 
@@ -347,10 +333,7 @@ private class GdReturnBranchHandlerTest {
     ApiResult result = GdReturnBranchHandler.wrapResponseIfSilentFail(standardResult, reqData, null);
     Test.stopTest();
 
-    System.assert(
-      result.message.contains(GdReturnBranchHandler.WRAP_MESSAGE_SUFFIX),
-      'message 에 WRAP_MESSAGE_SUFFIX 추가'
-    );
+    System.assert(result.message.contains(GdReturnBranchHandler.WRAP_MESSAGE_SUFFIX), 'message 에 WRAP_MESSAGE_SUFFIX 추가');
     System.assertEquals(true, result.data.get('option_c_branch'), 'option_c_branch=true');
     System.assertEquals('skipped_due_to_migration', result.data.get('point_processing'));
     System.assertEquals(GdReturnBranchHandler.WRAP_REASON, result.data.get('reason'));
@@ -406,9 +389,7 @@ private class GdReturnBranchHandlerTest {
   @IsTest
   static void wrap_noTransactionJournalInRequest_doesNotWrap() {
     // 운영자가 포인트 처리 미요청 (TJ 없음) → silent fail 무관
-    Map<String, Object> standardData = new Map<String, Object>{
-      'orderId' => '801XXXXXXXXXXXXXXX'
-    };
+    Map<String, Object> standardData = new Map<String, Object>{ 'orderId' => '801XXXXXXXXXXXXXXX' };
     ApiResult standardResult = ApiResult.ok(200, '반품 등록 완료', standardData);
 
     Map<String, Object> reqData = new Map<String, Object>{
@@ -452,9 +433,7 @@ private class GdReturnBranchHandlerTest {
 
   @IsTest
   static void wrap_reqDataNull_returnsAsIs() {
-    Map<String, Object> standardData = new Map<String, Object>{
-      'CancelPointsCreditedList' => null
-    };
+    Map<String, Object> standardData = new Map<String, Object>{ 'CancelPointsCreditedList' => null };
     ApiResult standardResult = ApiResult.ok(200, 'msg', standardData);
 
     Test.startTest();
@@ -467,9 +446,7 @@ private class GdReturnBranchHandlerTest {
   @IsTest
   static void wrap_loggerNull_doesNotThrow() {
     // logger=null 이어도 NPE 안 나야 함
-    Map<String, Object> standardData = new Map<String, Object>{
-      'CancelPointsCreditedList' => null
-    };
+    Map<String, Object> standardData = new Map<String, Object>{ 'CancelPointsCreditedList' => null };
     ApiResult standardResult = ApiResult.ok(200, '반품 등록 완료', standardData);
 
     Map<String, Object> reqData = new Map<String, Object>{
@@ -496,19 +473,12 @@ private class GdReturnBranchHandlerTest {
     //   - logger.setStatus / setDescription 호출 경로 커버
     //   - TJ 미존재 시 SOQL 결과 비어 update 안 함 (정상)
 
-    Map<String, Object> standardData = new Map<String, Object>{
-      'CancelPointsCreditedList' => null
-    };
+    Map<String, Object> standardData = new Map<String, Object>{ 'CancelPointsCreditedList' => null };
     ApiResult standardResult = ApiResult.ok(200, '반품 등록 완료', standardData);
 
     Map<String, Object> reqData = new Map<String, Object>{
       'OriginalOrderId' => 'SALE-RB-ORIG',
-      'TransactionJournal' => new List<Object>{
-        new Map<String, Object>{
-          'DepositNo__c' => 'DEP-NONEXIST-RB',
-          'DeposiSeqNo__c' => '1'
-        }
-      }
+      'TransactionJournal' => new List<Object>{ new Map<String, Object>{ 'DepositNo__c' => 'DEP-NONEXIST-RB', 'DeposiSeqNo__c' => '1' } }
     };
 
     ApexLogger logger = new ApexLogger(ApexLogger.JobType.API);
@@ -519,10 +489,7 @@ private class GdReturnBranchHandlerTest {
     Test.stopTest();
 
     System.assertEquals(true, result.data.get('option_c_branch'), 'enrich 정상 동작');
-    System.assert(
-      result.message.contains(GdReturnBranchHandler.WRAP_MESSAGE_SUFFIX),
-      'message suffix 추가됨'
-    );
+    System.assert(result.message.contains(GdReturnBranchHandler.WRAP_MESSAGE_SUFFIX), 'message suffix 추가됨');
   }
 
   @IsTest
@@ -535,9 +502,7 @@ private class GdReturnBranchHandlerTest {
     System.assertEquals(0, r2.size(), 'TJ 키 없음 → empty set');
 
     // TJ 가 List 가 아닌 경우
-    Set<String> r3 = GdReturnBranchHandler.extractDepositNosFromRequest(
-      new Map<String, Object>{ 'TransactionJournal' => 'not-a-list' }
-    );
+    Set<String> r3 = GdReturnBranchHandler.extractDepositNosFromRequest(new Map<String, Object>{ 'TransactionJournal' => 'not-a-list' });
     System.assertEquals(0, r3.size(), 'TJ 가 List 아님 → empty set');
 
     // TJ 안에 Map 이 아닌 element
@@ -552,7 +517,7 @@ private class GdReturnBranchHandlerTest {
         'TransactionJournal' => new List<Object>{
           new Map<String, Object>{ 'DepositNo__c' => 'DEP-A', 'DeposiSeqNo__c' => '1' },
           new Map<String, Object>{ 'DepositNo__c' => 'DEP-B', 'DeposiSeqNo__c' => '2' },
-          new Map<String, Object>{ 'DepositNo__c' => null, 'DeposiSeqNo__c' => '3' }  // skip
+          new Map<String, Object>{ 'DepositNo__c' => null, 'DeposiSeqNo__c' => '3' } // skip
         }
       }
     );
@@ -568,10 +533,7 @@ private class GdReturnBranchHandlerTest {
   @IsTest
   static void validate_amountAsString_handlesCorrectly() {
     // ActualPaymentAmount__c 가 String 으로 전달 — 정상 변환되어 검증
-    Map<String, Object> reqData = new Map<String, Object>{
-      'OriginalOrderId' => 'SALE-RB-ORIG',
-      'ActualPaymentAmount__c' => '50000'
-    };
+    Map<String, Object> reqData = new Map<String, Object>{ 'OriginalOrderId' => 'SALE-RB-ORIG', 'ActualPaymentAmount__c' => '50000' };
 
     Test.startTest();
     Boolean thrown = false;
@@ -589,7 +551,7 @@ private class GdReturnBranchHandlerTest {
   static void validate_amountAsDouble_handlesCorrectly() {
     Map<String, Object> reqData = new Map<String, Object>{
       'OriginalOrderId' => 'SALE-RB-ORIG',
-      'ActualPaymentAmount__c' => 30000.0  // Double
+      'ActualPaymentAmount__c' => 30000.0 // Double
     };
 
     Test.startTest();
@@ -602,10 +564,7 @@ private class GdReturnBranchHandlerTest {
   @IsTest
   static void validate_amountInvalidString_skipsSilently() {
     // 파싱 불가 String 은 null 로 변환 → skip
-    Map<String, Object> reqData = new Map<String, Object>{
-      'OriginalOrderId' => 'SALE-RB-ORIG',
-      'ActualPaymentAmount__c' => 'not-a-number'
-    };
+    Map<String, Object> reqData = new Map<String, Object>{ 'OriginalOrderId' => 'SALE-RB-ORIG', 'ActualPaymentAmount__c' => 'not-a-number' };
 
     Test.startTest();
     GdReturnBranchHandler.validateReturnAmountWithinPolicy(reqData);
@@ -626,10 +585,7 @@ private class GdReturnBranchHandlerTest {
     // 환불 금액 유효 + 원판매 존재 + 회원 존재
     // → computeAndForceDebitForReturn 진입
     // → Tier benefit 없으므로 totalRequested=0 → 'no accrual estimate' 반환
-    Map<String, Object> standardData = new Map<String, Object>{
-      'orderId' => '801XXXXXXXXXXXXXXX',
-      'CancelPointsCreditedList' => null
-    };
+    Map<String, Object> standardData = new Map<String, Object>{ 'orderId' => '801XXXXXXXXXXXXXXX', 'CancelPointsCreditedList' => null };
     ApiResult standardResult = ApiResult.ok(200, '반품 등록 완료', standardData);
 
     Map<String, Object> reqData = new Map<String, Object>{
@@ -656,9 +612,7 @@ private class GdReturnBranchHandlerTest {
   @IsTest
   static void wrap_originalSaleNotFound_recordsLogWithError() {
     // SALE-RB-NOTFOUND 라는 SaleNo 는 존재하지 않음
-    Map<String, Object> standardData = new Map<String, Object>{
-      'CancelPointsCreditedList' => null
-    };
+    Map<String, Object> standardData = new Map<String, Object>{ 'CancelPointsCreditedList' => null };
     ApiResult standardResult = ApiResult.ok(200, '반품 등록 완료', standardData);
 
     Map<String, Object> reqData = new Map<String, Object>{
@@ -679,9 +633,7 @@ private class GdReturnBranchHandlerTest {
   @IsTest
   static void wrap_blankOriginalOrderId_skipsForceDebit() {
     // OriginalOrderId 비어있음 → invalid input 반환
-    Map<String, Object> standardData = new Map<String, Object>{
-      'CancelPointsCreditedList' => null
-    };
+    Map<String, Object> standardData = new Map<String, Object>{ 'CancelPointsCreditedList' => null };
     ApiResult standardResult = ApiResult.ok(200, '반품 등록 완료', standardData);
 
     Map<String, Object> reqData = new Map<String, Object>{
@@ -700,9 +652,7 @@ private class GdReturnBranchHandlerTest {
 
   @IsTest
   static void wrap_zeroRefundAmount_skipsForceDebit() {
-    Map<String, Object> standardData = new Map<String, Object>{
-      'CancelPointsCreditedList' => null
-    };
+    Map<String, Object> standardData = new Map<String, Object>{ 'CancelPointsCreditedList' => null };
     ApiResult standardResult = ApiResult.ok(200, '반품 등록 완료', standardData);
 
     Map<String, Object> reqData = new Map<String, Object>{
@@ -737,5 +687,4 @@ private class GdReturnBranchHandlerTest {
     Test.stopTest();
     System.assertEquals(null, promId);
   }
-
 }

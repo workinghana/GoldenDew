@@ -98,11 +98,13 @@ global with sharing class GdSaleApiControllerV1 {
    */
   @HttpPost
   global static void createSale() {
+    System.debug('판매 등록 입니다.');
     // 로그 객체 생성 (JobType: API)
     ApexLogger logger = new ApexLogger(ApexLogger.JobType.API);
     logger.logging(GdSaleApiControllerV1.class.getName());
 
     RestRequest req = RestContext.request;
+    logger.setMethod(String.isBlank(req.httpMethod) ? 'POST' : req.httpMethod);
     Savepoint sp = Database.setSavepoint();
     try {
       String raw = RestContext.request.requestBody == null ? null : RestContext.request.requestBody.toString();
@@ -190,11 +192,14 @@ global with sharing class GdSaleApiControllerV1 {
    */
   @HttpPatch
   global static void updateSale() {
+    System.debug('판매 수정 입니다.');
+
     // 로그 객체 생성 (JobType: API)
     ApexLogger logger = new ApexLogger(ApexLogger.JobType.API);
     logger.logging(GdSaleApiControllerV1.class.getName());
 
     RestRequest req = RestContext.request;
+    logger.setMethod(String.isBlank(req.httpMethod) ? 'PATCH' : req.httpMethod);
     Savepoint sp = Database.setSavepoint();
     try {
       String raw = RestContext.request.requestBody == null ? null : RestContext.request.requestBody.toString();
@@ -255,7 +260,8 @@ global with sharing class GdSaleApiControllerV1 {
         // TransactionJournal insert
         if (reqData.containsKey('TransactionJournal')) {
           // ApiResult saleDepositResult = getSaleDepositService().upsertSaleDeposit(reqData);
-          ApiResult saleDepositResult = getSaleDepositService().upsertSaleDepositV2(reqData);
+          // ApiResult saleDepositResult = getSaleDepositService().upsertSaleDepositV2(reqData); // 기존
+          ApiResult saleDepositResult = getSaleDepositService().upsertSaleDepositV3(reqData); // 신규 (2026-05-10 CS)
           if (saleDepositResult.data.containsKey('CancelPointList')) {
             resData.put('CancelPointList', saleDepositResult.data.get('CancelPointList'));
           }
@@ -328,6 +334,31 @@ global with sharing class GdSaleApiControllerV1 {
       */
 
       // 신규 로직 start.
+
+      // [Feature Flag 분기 — 2026-05-05] EcoPointCancel_UseSpecificLedger ON 시 신규 경로 사용
+      // 신규 경로: 자기 판매(orderId) 의 에코 적립 LL 만 직접 가리키는 Debit LL/Trace 수동 생성
+      // Flag OFF: 기존 표준 LMS debitPoints() FIFO 경로 그대로 (회귀 영향 없음)
+      // 결함: 표준 FIFO 가 다른 판매(예: 직전 판매) 의 에코 적립 LL 을 끌어다 차감 →
+      //       Credit=다른판매 / Debit=현재판매 형태의 잘못된 LLT 발생 → 다른 판매 삭제 차단
+      // * 현재 Flag On 상태
+      if (GdFeatureFlag.isEnabled('EcoPointCancel_UseSpecificLedger')) {
+        // 회원 조회 (lpm 객체 필요)
+        List<LoyaltyProgramMember> lpmList = [
+          SELECT Id, ProgramId
+          FROM LoyaltyProgramMember
+          WHERE ContactId IN (SELECT MemberNo__c FROM Order WHERE Id = :orderId)
+          LIMIT 1
+        ];
+        if (!lpmList.isEmpty()) {
+          List<PointDebitDTO> ecoCancelList = GdReturnDepositServiceImpl.cancelEcoPointsForSaleDelete(
+            orderId, lpmList[0], 'SALE_DELETE'
+          );
+          if (ecoCancelList != null && !ecoCancelList.isEmpty()) {
+            resData.put('CancelPointList', ecoCancelList);
+          }
+        }
+        // Flag ON 경로 종료 — 기존 블록 (아래) 으로 진입하지 않음
+      } else {
 
       Id accrualJtId = SObjectUtil.findIdByName(JournalType.SObjectType, 'Accrual', true);
       Id apiForcedCreditJstId = SObjectUtil.findIdByName(JournalSubType.SObjectType, 'Api Forced Credit', true);
@@ -461,6 +492,7 @@ global with sharing class GdSaleApiControllerV1 {
           resData.put('CancelPointList', pdDtoList);
         }
       }
+      } // [Feature Flag 분기 — 2026-05-05] else (Flag OFF) 블록 종료
       // 신규 로직 end.
 
       List<Order> oList = [SELECT Id, Status FROM Order WHERE Id = :orderId LIMIT 1];

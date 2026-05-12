@@ -66,6 +66,7 @@ public with sharing class ContactUiController {
         Contact.MobilePhone,
         Contact.Email,
         Contact.Birthdate,
+        Contact.LegalBirthdate__c,
         Contact.StoreMana__c,
         Contact.StoreMana__r.Name,
         Contact.StoreRegi__c,
@@ -76,6 +77,7 @@ public with sharing class ContactUiController {
         Contact.MemberNo__c,
         Contact.MailingStreet,
         Contact.MailingCity,
+        Contact.AddressDetail__c,
         Contact.Grade__c,
         Contact.MemberDropDate__c,
         Contact.IsWithdrawn__c,
@@ -102,6 +104,8 @@ public with sharing class ContactUiController {
     public String memberNumber;
     @AuraEnabled
     public Date birthdate;
+    @AuraEnabled
+    public String legalBirthdate;
 
     @AuraEnabled
     public Boolean isMarried;
@@ -117,6 +121,8 @@ public with sharing class ContactUiController {
 
     @AuraEnabled
     public String address;
+    @AuraEnabled
+    public String addressDetail;
     @AuraEnabled
     public Date enrollmentDate;
     @AuraEnabled
@@ -143,6 +149,7 @@ public with sharing class ContactUiController {
         email = lpm.Contact.Email;
 
         birthdate = lpm.Contact.Birthdate;
+        legalBirthdate = lpm.Contact.LegalBirthdate__c;
         memberNumber = lpm.Contact.MemberNo__c;
 
         isMarried = lpm.Contact.IsMarried__c;
@@ -158,6 +165,7 @@ public with sharing class ContactUiController {
         signupStore = (lpm.Contact.StoreRegi__r != null) ? lpm.Contact.StoreRegi__r.Name : null;
 
         address = ContactUiController.buildAddress(lpm.Contact);
+        addressDetail = lpm.Contact.AddressDetail__c;
         grade = ContactUiController.getGradeLabel(lpm.Contact.Grade__c);
 
         withdrawDate = lpm.Contact.MemberDropDate__c;

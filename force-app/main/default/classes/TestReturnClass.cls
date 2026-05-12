@@ -4779,21 +4779,25 @@ global with sharing class TestReturnClass {
           Id,
           VoucherDefinitionId,
           VoucherDefinition.Name,
+          VoucherDefinition.Description,
           FaceValue,
           Reason,
           EffectiveDate,
+          VoucherDefinition.EffectiveDate,
           UseDate,
           ExpirationDate,
           CreatedDate,
           VoucherDefinition.brand__c,
           VoucherDefinition.CouponManNo__c,
           VoucherCode,
+          InsertId__c,
           VoucherDefinition.CouponTypeCode__c,
           Status,
           VoucherDefinition.ExpirationType,
           VoucherDefinition.ExpirationPeriod,
           DiscountPercent,
           VoucherDefinition.ResponsibleDepartment__c,
+          VoucherDefinition.ResponsiblePerson__c,
           CreatedBy.Name,
           VoucherDefinition.InsertId__c
         FROM Voucher
@@ -4901,12 +4905,12 @@ global with sharing class TestReturnClass {
 
       String soql =
         'SELECT ' +
-        '  Id, VoucherDefinitionId, VoucherDefinition.Name, FaceValue, Reason, ' +
-        '  EffectiveDate, UseDate, ExpirationDate, CreatedDate, ' +
+        '  Id, VoucherDefinitionId, VoucherDefinition.Name, VoucherDefinition.Description, FaceValue, Reason, ' +
+        '  EffectiveDate, VoucherDefinition.EffectiveDate, UseDate, ExpirationDate, CreatedDate, ' +
         '  VoucherDefinition.brand__c, VoucherDefinition.CouponManNo__c, ' +
-        '  VoucherCode, VoucherDefinition.CouponTypeCode__c, Status, ' +
+        '  VoucherCode, InsertId__c, VoucherDefinition.CouponTypeCode__c, Status, ' +
         '  VoucherDefinition.ExpirationType, VoucherDefinition.ExpirationPeriod, ' +
-        '  DiscountPercent, VoucherDefinition.ResponsibleDepartment__c, ' +
+        '  DiscountPercent, VoucherDefinition.ResponsibleDepartment__c, VoucherDefinition.ResponsiblePerson__c, ' +
         '  CreatedBy.Name, VoucherDefinition.InsertId__c ' +
         'FROM Voucher ' +
         'WHERE LoyaltyProgramMember.Contact.MemberNo__c = :memberNo ' +

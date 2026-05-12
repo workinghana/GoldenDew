@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites>
+    <testsuite name="force.apex" timestamp="2026-05-04T07:36:48.000Z" hostname="https://goldendewcoltd--devorg.sandbox.my.salesforce.com" tests="5" failures="0"  errors="0"  time="2.76">
+        <properties>
+            <property name="outcome" value="Successful"/>
+            <property name="testsRan" value="5"/>
+            <property name="passing" value="5"/>
+            <property name="failing" value="0"/>
+            <property name="skipped" value="0"/>
+            <property name="passRate" value="100%"/>
+            <property name="failRate" value="0%"/>
+            <property name="testStartTime" value="Mon May 04 2026 오후 4:36:48"/>
+            <property name="testSetupTimeInMs" value="52"/>
+            <property name="testExecutionTime" value="2.76 s"/>
+            <property name="testTotalTime" value="2.81 s"/>
+            <property name="commandTime" value="0.09 s"/>
+            <property name="hostname" value="https://goldendewcoltd--devorg.sandbox.my.salesforce.com"/>
+            <property name="orgId" value="00DJO000001ByZs2AK"/>
+            <property name="username" value="milvus@goldendew.com.devorg"/>
+            <property name="testRunId" value="707JO00000ESwN0"/>
+            <property name="userId" value="005TJ00000B2qU2YAJ"/>
+            <property name="coveredLines" value="608"/>
+            <property name="testRunCoverage" value="49%"/>
+            <property name="orgWideCoverage" value="48%"/>
+        </properties>
+        <testcase name="test_constructor_with_sobject_overload_executes" classname="ErpPromotionJobTest" time="1.68">
+        </testcase>
+        <testcase name="test_execute_createMaster_success" classname="ErpPromotionJobTest" time="0.40">
+        </testcase>
+        <testcase name="test_execute_deleteMaster_success" classname="ErpPromotionJobTest" time="0.34">
+        </testcase>
+        <testcase name="test_execute_updateMaster_success" classname="ErpPromotionJobTest" time="0.34">
+        </testcase>
+    </testsuite>
+</testsuites>

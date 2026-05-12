@@ -1,0 +1,1 @@
+SELECT Id, SaleNo__c, OrderNo__c FROM Order WHERE OrderNo__c = 'SOR04010' OR SaleNo__c = 'SAL04043'

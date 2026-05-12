@@ -1,8 +1,25 @@
 @IsTest
 private class ContactUiControllerTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
+
+  private static void setCalloutMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
+
   /* ================= 공통 데이터 생성 ================= */
 
   private static LoyaltyProgramMember createMember(Boolean withStore) {
+    setCalloutMock();
+
     Account store = null;
 
     if (withStore) {
@@ -15,10 +32,12 @@ private class ContactUiControllerTest {
       MobilePhone = '010-1111-2222',
       Email = 'test@test.com',
       Birthdate = Date.newInstance(1990, 1, 1),
+      LegalBirthdate__c = '900101',
       Grade__c = '01',
       MailingStreet = '서울시',
       MailingCity = '강남구',
       IsMarried__c = true,
+      TierQualifyingSpend3Y__c = 1500000,
       StoreMana__c = withStore ? store.Id : null,
       StoreRegi__c = withStore ? store.Id : null
     );
@@ -61,6 +80,12 @@ private class ContactUiControllerTest {
     /* 매장 이름 검증 */
     System.assertEquals('강남점', dto.storeName);
     System.assertEquals('강남점', dto.signupStore);
+
+    /* 법정생년월일 검증 */
+    System.assertEquals('900101', dto.legalBirthdate);
+
+    /* 등급 산정 누적 구매금액 검증 */
+    System.assertEquals(1500000, dto.tierQualifyingSpend3Y);
   }
 
   /* ================= 매장 없는 경우 ================= */
@@ -79,6 +104,8 @@ private class ContactUiControllerTest {
 
   @IsTest
   static void test_getMemberProfile_nullId() {
+    setCalloutMock();
+
     try {
       ContactUiController.getMemberProfile(null);
       System.assert(false);
@@ -104,6 +131,41 @@ private class ContactUiControllerTest {
     System.assertEquals('', ContactUiController.buildAddress(new Contact()));
 
     System.assertEquals(null, ContactUiController.buildAddress(null));
+
+    /* getMemberTypeLabel — null/blank */
+    System.assertEquals(null, ContactUiController.getMemberTypeLabel(null));
+    System.assertEquals(null, ContactUiController.getMemberTypeLabel(''));
+
+    /* getMemberTypeLabel — 매핑 안되는 코드는 그대로 반환 */
+    System.assertEquals('UNKNOWN_CODE', ContactUiController.getMemberTypeLabel('UNKNOWN_CODE'));
+  }
+
+  /* ================= 법정생년월일 빈 값 ================= */
+
+  @IsTest
+  static void test_getMemberProfile_blankLegalBirthdate() {
+    setCalloutMock();
+
+    Contact c = new Contact(LastName = '미입력', LegalBirthdate__c = null);
+    insert c;
+
+    LoyaltyProgram lp = new LoyaltyProgram(Name = 'Blank LB Program', Status = 'Active');
+    insert lp;
+
+    String validStatus = LoyaltyProgramMember.MemberStatus.getDescribe().getPicklistValues()[0].getValue();
+
+    LoyaltyProgramMember lpm = new LoyaltyProgramMember(
+      ContactId = c.Id,
+      ProgramId = lp.Id,
+      MembershipNumber = 'BLANK-LB-001',
+      EnrollmentDate = Date.today(),
+      MemberStatus = validStatus
+    );
+    insert lpm;
+
+    ContactUiController.MemberProfileDTO dto = ContactUiController.getMemberProfile(lpm.Id);
+
+    System.assertEquals(null, dto.legalBirthdate);
   }
 
   /* ================= DTO null 경로 ================= */
@@ -120,6 +182,8 @@ private class ContactUiControllerTest {
 
   @IsTest
   static void test_email_del_prefix() {
+    setCalloutMock();
+
     Account store = new Account(Name = '테스트매장');
     insert store;
 

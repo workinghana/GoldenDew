@@ -214,6 +214,31 @@ public with sharing class GdMigrationUtil {
     Decimal actual,
     String reason
   ) {
+    // 26.05.06 CS - 기존 8-인자 호출자 호환 유지. 9-인자 신규 메서드로 위임 (returnOrderId=null).
+    return recordAdjustmentLog(
+      memberId, memberNo, adjustType, sourceApi, originalSaleOrDepositNo,
+      requested, actual, reason, null
+    );
+  }
+
+  /**
+   * 분기 처리 이력 1건 기록 (반품 Order Id 매핑 키 포함).
+   * 26.05.06 CS - RETURN_REGISTER_BRANCH ↔ RETURN_DELETE_BRANCH 1:1 매칭용.
+   *
+   * @param returnOrderId  반품 Order Id (없으면 null — 기존 호환)
+   * 그 외 인자는 기존 8-인자 시그니처와 동일.
+   */
+  public static Id recordAdjustmentLog(
+    Id memberId,
+    String memberNo,
+    String adjustType,
+    String sourceApi,
+    String originalSaleOrDepositNo,
+    Decimal requested,
+    Decimal actual,
+    String reason,
+    Id returnOrderId
+  ) {
     if (String.isBlank(adjustType)) {
       System.debug('GdMigrationUtil.recordAdjustmentLog skipped: adjustType blank');
       return null;
@@ -247,6 +272,10 @@ public with sharing class GdMigrationUtil {
       // 32k 안전 truncate
       String safeReason = reason.length() > 30000 ? reason.substring(0, 30000) : reason;
       log.Reason__c = safeReason;
+    }
+    // 26.05.06 CS - 반품 Order Id 매핑 키
+    if (returnOrderId != null) {
+      log.ReturnOrderId__c = String.valueOf(returnOrderId);
     }
 
     try {
@@ -366,6 +395,16 @@ public with sharing class GdMigrationUtil {
           String.isNotBlank(benefitPointTypeCode) &&
           excludedPointTypeCodes.contains(benefitPointTypeCode.trim())
         ) {
+          continue;
+        }
+
+        // 26.05.08 CS - 옵션 C 추정은 구매포인트(PointTypeCode='01') 비율만 사용.
+        //   이유: 옛 일자 판매 적립 정책 — 구매포인트 비율로 기타포인트 적립.
+        //         환불/판매삭제/PATCH 등 force-debit 추정도 동일 정책으로 일관성 유지 (회원 잔액 부당 차감 방지).
+        //   변경 전: PT='06' 만 제외 (구매+사은 합산) → 적립과 환불 비대칭 발생
+        //   변경 후: PT='01' 만 포함 (구매분만)
+        //   영향: 모든 옵션 C 호출자 일관 — 적립/환불/판매삭제/PATCH/입금삭제 모두 PT='01' 비율 기준.
+        if (!'01'.equals(benefitPointTypeCode)) {
           continue;
         }
 
@@ -862,6 +901,132 @@ public with sharing class GdMigrationUtil {
     }
     forceTj.AdditionalNotes__c = 'OPTC_FORCE_CREDIT: ' + safeReason;
     return forceTj;
+  }
+
+  // ============================================================
+  // Section 8.7: 옛 판매 포인트 사용 취소 (Phase 6.5 보강) — 26.05.06 CS
+  //
+  // 표준 cancelPointRedemption 은 OrderId 기반 LLT 매칭이라
+  // 옵션 C force-debit 흔적까지 같이 잡혀 부정확함.
+  // 안전한 매칭: PM=81 TJ.Id 직접 + SubType.Name='Point Debit' 필터.
+  //
+  // 처리 흐름:
+  //   1. 사전 검증: 매칭되는 LLT 있는지 확인 (없으면 skip + 시그널)
+  //   2. 매칭된 LLT 의 Points 합산 = 사용 환원 대상
+  //   3. force-credit 으로 회원 묶음 잔액에 환원 (별도 TJ + LL)
+  //   4. audit: usage restore 마커 부여
+  //
+  // 안전성:
+  //   - 모든 단계 try/catch
+  //   - 실패 시 result.success=false, throw 안 함 → 호출자 시그널 fallback
+  //   - 표준 cancelPointRedemption 호출 안 함 (부수효과 격리)
+  //
+  // 한계:
+  //   - 원래의 Debit LL 자체는 그대로 두고 새 Credit LL 만 추가
+  //   - 회원 잔액은 정확히 +α 회복되지만, 사용 흔적 LL/LLT 는 살아있음
+  //   - 회원정보 도움창에 "사용" 흔적 + "사용 환원" 흔적 둘 다 노출됨
+  //     (표준 cancelPointRedemption 도 비슷한 동작이므로 일관성 유지)
+  // ============================================================
+
+  /**
+   * 옛 판매 PM=81 사용 환원 결과.
+   */
+  public class CancelOldSalePointUsageResult {
+    public Decimal requestedPoints;     // PM=81 사용 환원 대상 금액
+    public Decimal actualPoints;        // 실 환원 금액 (force-credit 결과)
+    public Decimal unprocessed;         // 환원 못한 금액
+    public Boolean success;             // 환원 성공 여부
+    public Id creditTjId;               // 생성된 환원 TJ Id
+    public Integer matchedLLTCount;     // 매칭된 LLT 수
+    public Boolean lltMissing;          // LLT 매칭 0건 (사전 검증 실패)
+    public String error;
+  }
+
+  /**
+   * 옛 판매의 PM=81 (포인트 결제) TJ에 대해 사용 환원 처리.
+   *
+   * @param pm81Tj  PM=81 TransactionJournal (PaymentMethod='81' 인 원본 TJ)
+   * @return        CancelOldSalePointUsageResult
+   *
+   * 안전 매칭:
+   *   WHERE DebitLoyaltyLedger.TransactionJournalId = :pm81Tj.Id
+   *     AND DebitLoyaltyLedger.TransactionJournal.JournalSubType.Name = 'Point Debit'
+   *     AND ActionType = 'Debit'
+   *   → 옵션 C force-debit 흔적 (Api Forced Debit) 자동 제외
+   */
+  public static CancelOldSalePointUsageResult cancelOldSalePointUsageSafe(TransactionJournal pm81Tj) {
+    CancelOldSalePointUsageResult out = new CancelOldSalePointUsageResult();
+    out.success = false;
+    out.matchedLLTCount = 0;
+    out.lltMissing = false;
+
+    if (pm81Tj == null || pm81Tj.Id == null || pm81Tj.MemberId == null) {
+      out.error = 'invalid pm81Tj input';
+      return out;
+    }
+    if (!'81'.equals(pm81Tj.PaymentMethod)) {
+      out.error = 'not a PM=81 TJ';
+      return out;
+    }
+
+    try {
+      // 1. 사전 검증: PM=81 TJ Id 직접 매칭 + SubType 필터
+      List<LoyaltyLedgerTraceability> llts = [
+        SELECT Id, Points, ActionType,
+               CreditLoyaltyLedger.TransactionJournalId,
+               CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId,
+               CreditLoyaltyLedger.LoyaltyPgmCrcySubtype.Name,
+               CreditLoyaltyLedger.LoyaltyPgmCrcySubtype.PointTypeCode__c,
+               CreditLoyaltyLedger.ExpiryDate
+        FROM LoyaltyLedgerTraceability
+        WHERE DebitLoyaltyLedger.TransactionJournalId = :pm81Tj.Id
+          AND DebitLoyaltyLedger.TransactionJournal.JournalSubType.Name = 'Point Debit'
+          AND ActionType = 'Debit'
+          AND Points > 0
+      ];
+      out.matchedLLTCount = llts.size();
+      if (llts.isEmpty()) {
+        // LLT 없음 → 마이그 데이터 결함 또는 이미 처리됨
+        out.lltMissing = true;
+        out.error = 'no LLT matched for PM=81 TJ (data issue or already processed)';
+        return out;
+      }
+
+      // 2. 환원 대상 합산
+      Decimal totalToRestore = 0;
+      for (LoyaltyLedgerTraceability llt : llts) {
+        if (llt.Points != null && llt.Points > 0) {
+          totalToRestore += llt.Points;
+        }
+      }
+      out.requestedPoints = totalToRestore;
+      if (totalToRestore <= 0) {
+        out.error = 'restore amount <= 0';
+        return out;
+      }
+
+      // 3. force-credit 으로 회원 묶음 잔액에 환원
+      GdMigrationUtil.ForceCreditResult fc = forceCreditPointsSafe(
+        pm81Tj.MemberId,
+        pm81Tj.LoyaltyProgramId,
+        pm81Tj.OrderId,
+        totalToRestore,
+        'OPTC_OLD_SALE_USAGE_RESTORE: pm81TjId=' + pm81Tj.Id +
+        ', amount=' + pm81Tj.TransactionAmount +
+        ', matchedLLT=' + llts.size()
+      );
+      out.actualPoints = fc.actualPoints;
+      out.unprocessed = fc.unprocessed;
+      out.success = fc.success;
+      out.creditTjId = fc.creditTjId;
+      out.error = fc.error;
+      return out;
+    } catch (Exception e) {
+      System.debug('cancelOldSalePointUsageSafe exception: ' + e.getMessage());
+      out.success = false;
+      out.error = e.getMessage();
+      return out;
+    }
   }
 
   // ============================================================

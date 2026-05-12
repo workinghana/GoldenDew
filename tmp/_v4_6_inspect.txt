@@ -1,0 +1,231 @@
+2026-05-07T09:52:05.000+0000  a12JO000000LxN2YAK  GdSaleApiControllerV1
+  url=/gd/v1/sale  
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"123002600463","SaleNo__c":"SAL202605070250","ActualPaymentAmount__c":500000.0,"EndDate":"20260507","SaleStatus__c":"01","PromotionNo__c":"PRO202604161041","OrderItem":[{"SaleSeqNo__c":"1","OrderNo__c":null,"ProductCode":"2A2600001","Quantity"
+
+2026-05-07T09:53:02.000+0000  a12JO000000LyUDYA0  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={"StoreCode__c":"99998","MemberNo__c":"123002600463","Type":null,"PromotionNo__c":"PRO202604161041","OrderDate":"20260507","SaleNo__c":""}
+
+2026-05-07T09:53:12.000+0000  a12JO000000LyVsYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale  
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"123002600463","SaleNo__c":"SAL202605070252","ActualPaymentAmount__c":500000.0,"EndDate":"20260507","SaleStatus__c":"01","PromotionNo__c":"PRO202604161041","OrderItem":[{"SaleSeqNo__c":"1","OrderNo__c":null,"ProductCode":"2A2600001","Quantity"
+
+2026-05-07T09:55:05.000+0000  a12JO000000LwvSYAS  GdSaleDepositApiControllerV1
+  url={"DeposiSeqNo__c":"2","DepositNo__c":"DEP202605070314"}  
+  req=
+
+2026-05-07T09:56:15.000+0000  a12JO000000LvksYAC  GdSaleDepositApiControllerV1
+  url={"DeposiSeqNo__c":"1","DepositNo__c":"DEP202605070312"}  
+  req=
+
+2026-05-07T09:57:30.000+0000  a12JO000000LyCaYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale  
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"123002600463","SaleNo__c":"SAL202605010379","ActualPaymentAmount__c":500000.0,"EndDate":"20260501","SaleStatus__c":"01","PromotionNo__c":"PRO202604161041","OrderItem":[{"SaleSeqNo__c":"1","OrderNo__c":null,"ProductCode":"2A2600001","Quantity"
+
+2026-05-07T09:58:42.000+0000  a12JO000000LynZYAS  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={"StoreCode__c":"99998","MemberNo__c":"123002600463","Type":null,"PromotionNo__c":"PRO202604161041","OrderDate":"20260503","SaleNo__c":""}
+
+2026-05-07T09:59:01.000+0000  a12JO000000Lw2dYAC  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={"StoreCode__c":"99998","MemberNo__c":"123002600463","Type":null,"PromotionNo__c":"PRO202604161041","OrderDate":"20260503","SaleNo__c":""}
+
+2026-05-07T09:59:43.000+0000  a12JO000000LwsEYAS  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={"StoreCode__c":"99998","MemberNo__c":"123002600463","Type":null,"PromotionNo__c":"PRO202604161041","OrderDate":"20260503","SaleNo__c":""}
+
+2026-05-07T10:00:00.000+0000  a12JO000000LysPYAS  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={"StoreCode__c":"99998","MemberNo__c":"123002600463","Type":null,"PromotionNo__c":"PRO202604161041","OrderDate":"20260503","SaleNo__c":""}
+
+2026-05-07T10:00:18.000+0000  a12JO000000LyIxYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale  
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"123002600463","SaleNo__c":"SAL202605030281","ActualPaymentAmount__c":500000.0,"EndDate":"20260503","SaleStatus__c":"01","PromotionNo__c":"PRO202604161041","OrderItem":[{"SaleSeqNo__c":"1","OrderNo__c":null,"ProductCode":"2A2600001","Quantity"
+
+2026-05-07T10:01:00.000+0000  a12JO000000Lyu4YAC  GdSaleApiControllerV1
+  url=/gd/v1/sale  
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"123002600463","SaleNo__c":"SAL202605030282","ActualPaymentAmount__c":500000.0,"EndDate":"20260503","SaleStatus__c":"01","PromotionNo__c":"PRO202604161041","OrderItem":[{"SaleSeqNo__c":"1","OrderNo__c":null,"ProductCode":"2A2600001","Quantity"
+
+2026-05-07T10:09:38.000+0000  a12JO000000LpacYAC  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={     "StoreCode__c": "",      "MemberNo__c": "123002600463",      "Type": "",      "PromotionNo__c": "",      "OrderDate": "",      "SaleNo__c": ""  }
+
+2026-05-07T10:10:41.000+0000  a12JO000000LxEpYAK  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={"StoreCode__c":"99998","MemberNo__c":"123002600463","Type":null,"PromotionNo__c":"PRO202604161041","OrderDate":"20260503","SaleNo__c":""}
+
+2026-05-07T10:10:44.000+0000  a12JO000000LwCIYA0  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={     "StoreCode__c": "99998",     "MemberNo__c": "123002600463",     "Type": null,     "PromotionNo__c": "PRO202604161041",     "OrderDate": "20260503",     "SaleNo__c": "" }
+
+2026-05-07T10:11:24.000+0000  a12JO000000LyxFYAS  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={     "StoreCode__c": "99998",     "MemberNo__c": "123002600463",     "Type": null,     "PromotionNo__c": "PRO202604161041",     "OrderDate": "20260503",     "SaleNo__c": "" }
+
+2026-05-07T10:11:41.000+0000  a12JO000000LoGPYA0  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={     "StoreCode__c": "99998",     "MemberNo__c": "123002600463",     "Type": null,     "PromotionNo__c": "PRO202604161041",     "OrderDate": "20260507",     "SaleNo__c": "" }
+
+2026-05-07T10:11:46.000+0000  a12JO000000LyyrYAC  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={     "StoreCode__c": "99998",     "MemberNo__c": "123002600463",     "Type": null,     "PromotionNo__c": "PRO202604161041",     "OrderDate": "20260503",     "SaleNo__c": "" }
+
+2026-05-07T10:11:49.000+0000  a12JO000000Lz0TYAS  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={     "StoreCode__c": "99998",     "MemberNo__c": "123002600463",     "Type": null,     "PromotionNo__c": "PRO202604161041",     "OrderDate": "20260507",     "SaleNo__c": "" }
+
+2026-05-07T10:12:00.000+0000  a12JO000000Lz25YAC  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={     "StoreCode__c": "99998",     "MemberNo__c": "123002600463",     "Type": null,     "PromotionNo__c": "PRO202604161041",     "OrderDate": "20260503",     "SaleNo__c": "" }
+
+2026-05-07T10:21:21.000+0000  a12JO000000LzLUYA0  GdReturnApiControllerV1
+  url=/services/apexrest/gd/v1/return  
+  req={"TransactionJournal":[{"TransactionAmount":100000,"DepositType__c":"03","PaymentMethod":"03","ActivityDate":"2026-05-07","DeposiSeqNo__c":"1","DepositNo__c":"DEP_FIX_REG_20260507192117"}],"OrderItem":[{"IsExclude__c":false,"DiscountRate__c":0,"NetSalesUnitPrice__c":100000,"Quantity":-1,"ProductCode
+
+2026-05-07T10:22:20.000+0000  a12JO000000LzN6YAK  GdReturnApiControllerV1
+  url=/services/apexrest/gd/v1/return  
+  req={"TransactionJournal":[{"TransactionAmount":100000,"DepositType__c":"03","PaymentMethod":"03","ActivityDate":"2026-05-07","DeposiSeqNo__c":"1","DepositNo__c":"DEP_FIX_EXCL_20260507192219"}],"OrderItem":[{"IsExclude__c":false,"DiscountRate__c":0,"NetSalesUnitPrice__c":50000,"Quantity":-1,"OriginalOrd
+
+2026-05-07T10:22:56.000+0000  a12JO000000LzOfYAK  GdReturnApiControllerV1
+  url=/services/apexrest/gd/v1/return  
+  req={"TransactionJournal":[{"TransactionAmount":50000,"DepositType__c":"03","PaymentMethod":"03","ActivityDate":"2026-05-07","DeposiSeqNo__c":"1","DepositNo__c":"DEP_FIX_PM_20260507192256"},{"CouponNo":"","TransactionAmount":50000,"DepositType__c":"03","PaymentMethod":"90","ActivityDate":"2026-05-07","D
+
+2026-05-07T10:23:06.000+0000  a12JO000000LzQHYA0  GdReturnApiControllerV1
+  url=/services/apexrest/gd/v1/return  
+  req={"TransactionJournal":[{"TransactionAmount":50000,"DepositType__c":"03","PaymentMethod":"03","ActivityDate":"2026-05-07","DeposiSeqNo__c":"1","DepositNo__c":"DEP_FIX_PM_20260507192306"},{"CouponNo":"","TransactionAmount":50000,"DepositType__c":"03","PaymentMethod":"90","ActivityDate":"2026-05-07","D
+
+2026-05-07T10:24:30.000+0000  a12JO000000LzRuYAK  GdReturnApiControllerV1
+  url=/services/apexrest/gd/v1/return  
+  req={"TransactionJournal":[{"TransactionAmount":30000,"DepositType__c":"03","PaymentMethod":"03","ActivityDate":"2026-05-07","DeposiSeqNo__c":"1","DepositNo__c":"DEP_FIX_PM81_20260507192429"},{"TransactionAmount":30000,"DepositType__c":"03","PaymentMethod":"81","ActivityDate":"2026-05-07","DeposiSeqNo__
+
+2026-05-07T10:24:55.000+0000  a12JO000000LxYDYA0  GdReturnApiControllerV1
+  url=/services/apexrest/gd/v1/return  
+  req={"TransactionJournal":[{"TransactionAmount":30000,"DepositType__c":"03","PaymentMethod":"03","ActivityDate":"2026-05-07","DeposiSeqNo__c":"1","DepositNo__c":"DEP_FIX_PM81_20260507192454"},{"TransactionAmount":30000,"DepositType__c":"03","PaymentMethod":"20","ActivityDate":"2026-05-07","DeposiSeqNo__
+
+2026-05-07T10:35:53.000+0000  a12JO000000LztJYAS  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={"StoreCode__c":"99998","MemberNo__c":"123002600463","Type":null,"PromotionNo__c":"PRO202604161041","OrderDate":"20260503","SaleNo__c":""}
+
+2026-05-08T05:11:49.000+0000  a12JO000000MBfzYAG  GdPointHelpApiControllerV1
+  url=/gd/v1/point/help  
+  req={"StoreCode__c":"99998","MemberNo__c":"123002600463","Type":"01","PromotionNo__c":"PRO202604201055","OrderDate":"20260508","SaleNo__c":""}
+
+2026-05-08T05:11:57.000+0000  a12JO000000MCiUYAW  GdVoucherHelpApiControllerV1
+  url=/gd/v1/voucher/help  
+  req={"StoreCode__c":"99998","MemberNo__c":"123002600463","ActualPaymentAmount__c":2400000.0000,"OrderStatus__c":null,"Type":"01","PromotionNo__c":"PRO202604201055","OrderItem":[{"OrderSeqNo__c":null,"Status__c":null,"ProductCode":"212500046","Quantity":1,"isExclude":null,"NetSalesUnitPrice__c":0.0,"Disc
+
+2026-05-08T05:12:14.000+0000  a12JO000000MDcyYAG  GdOrderApiControllerV1
+  url=/gd/v1/order  
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"123002600463","OrderNo__c":"SOR202605080137","ActualPaymentAmount__c":1920000.0,"OrderStatus__c":"01","Type":"01","PromotionNo__c":"PRO202604201055","OrderItem":[{"OrderSeqNo__c":"1","Status__c":"01","ProductCode":"212500046","Quantity":1,"is
+
+2026-05-08T05:15:36.000+0000  a12JO000000MDDBYA4  GdSaleApiControllerV1
+  url=/gd/v1/sale  
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"123002600463","SaleNo__c":"SAL202605080141","ActualPaymentAmount__c":1920000.0,"EndDate":"20260508","SaleStatus__c":"01","PromotionNo__c":"PRO202604201055","OrderItem":[{"SaleSeqNo__c":"1","OrderNo__c":"SOR202605080137","ProductCode":"2125000
+
+2026-05-08T05:15:47.000+0000  a12JO000000MDg9YAG  GdPointCreditApiControllerV1
+  url=/gd/v1/point/credit  
+  req={"MemberNo__c":"123002600463","PointsList":[{"point":9000.0,"cd_type_point":"05"}],"SaleNo__c":"SAL202605080141","EndDate":"20260508"}
+
+2026-05-08T05:17:34.000+0000  a12JO000000MAIUYA4  GdPointDebitApiControllerV1
+  url={"SaleNo__c":"SAL202605080141"}  
+  req=
+
+2026-05-08T05:19:03.000+0000  a12JO000000MDOWYA4  GdReturnApiControllerV1
+  url=/gd/v1/return  
+  req={"SaleNo__c":"SAL202605080145","OriginalOrderId":"SAL202605080141","ActualPaymentAmount__c":800000.0,"OrderItem":[{"SaleSeqNo__c":"2","OrderNo__c":null,"ProductCode":"212500047","Quantity":-1,"isExclude":false,"NetSalesUnitPrice__c":400000.0000,"DiscountRate__c":20.0000},{"SaleSeqNo__c":"3","OrderNo
+
+2026-05-08T05:21:11.000+0000  a12JO000000MDwHYAW  GdPointDebitApiControllerV1
+  url={"SaleNo__c":"SAL202605080141"}  
+  req=
+
+2026-05-08T05:22:11.000+0000  a12JO000000MDxwYAG  GdReturnApiControllerV1
+  url=/gd/v1/return  
+  req={"SaleNo__c":"SAL202605080148","OriginalOrderId":"SAL202605080141","ActualPaymentAmount__c":320000.0,"OrderItem":[{"SaleSeqNo__c":"1","OrderNo__c":null,"ProductCode":"212500046","Quantity":-1,"isExclude":false,"NetSalesUnitPrice__c":320000.0000,"DiscountRate__c":20.0000}],"TransactionJournal":[{"Dep
+
+2026-05-08T05:23:31.000+0000  a12JO000000ME17YAG  GdReturnDepositApiControllerV1
+  url={"DeposiSeqNo__c":"3","DepositNo__c":"DEP202605080150"}  
+  req=
+
+2026-05-08T05:23:35.000+0000  a12JO000000MCQlYAO  GdReturnDepositApiControllerV1
+  url={"DeposiSeqNo__c":"2","DepositNo__c":"DEP202605080150"}  
+  req=
+
+2026-05-08T05:26:29.000+0000  a12JO000000MBrHYAW  GdVoucherHelpApiControllerV1
+  url=/gd/v1/voucher/help  
+  req={"StoreCode__c":"99998","MemberNo__c":"123002600463","ActualPaymentAmount__c":1400000.0000,"OrderStatus__c":null,"Type":"01","PromotionNo__c":"PRO202604171053","OrderItem":[{"OrderSeqNo__c":null,"Status__c":null,"ProductCode":"212500046","Quantity":1,"isExclude":null,"NetSalesUnitPrice__c":0.0,"Disc
+
+2026-05-08T05:26:49.000+0000  a12JO000000MDGPYA4  GdOrderApiControllerV1
+  url=/gd/v1/order  
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"123002600463","OrderNo__c":"SOR202605080141","ActualPaymentAmount__c":1050000.0,"OrderStatus__c":"01","Type":"01","PromotionNo__c":"PRO202604171053","OrderItem":[{"OrderSeqNo__c":"1","Status__c":"01","ProductCode":"212500046","Quantity":1,"is
+
+2026-05-08T05:28:45.000+0000  a12JO000000MECSYA4  GdSaleApiControllerV1
+  url=/gd/v1/sale  
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"123002600463","SaleNo__c":"SAL202605080155","ActualPaymentAmount__c":1050000.0,"EndDate":"20260508","SaleStatus__c":"01","PromotionNo__c":"PRO202604171053","OrderItem":[{"SaleSeqNo__c":"1","OrderNo__c":"SOR202605080141","ProductCode":"2125000
+
+2026-05-08T05:29:00.000+0000  a12JO000000MEE1YAO  GdPointCreditApiControllerV1
+  url=/gd/v1/point/credit  
+  req={"MemberNo__c":"123002600463","PointsList":[{"point":9000.0,"cd_type_point":"05"}],"SaleNo__c":"SAL202605080155","EndDate":"20260508"}
+
+2026-05-08T05:32:02.000+0000  a12JO000000MENkYAO  GdReturnApiControllerV1
+  url=/gd/v1/return  
+  req={"SaleNo__c":"SAL202605080158","OriginalOrderId":"SAL202605080155","ActualPaymentAmount__c":1050000.0,"OrderItem":[{"SaleSeqNo__c":"1","OrderNo__c":null,"ProductCode":"212500046","Quantity":-1,"isExclude":false,"NetSalesUnitPrice__c":300000.0000,"DiscountRate__c":25.0000},{"SaleSeqNo__c":"2","OrderN
+
+2026-05-08T05:36:30.000+0000  a12JO000000MDWXYA4  GdOrderApiControllerV1
+  url=/gd/v1/order  
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"123002600463","OrderNo__c":"SOR202605080146","ActualPaymentAmount__c":500000.0,"OrderStatus__c":"01","Type":"01","PromotionNo__c":"PRO202604171052","OrderItem":[{"OrderSeqNo__c":"1","Status__c":"01","ProductCode":"382600002","Quantity":1,"isE
+
+2026-05-08T05:38:08.000+0000  a12JO000000MDl3YAG  GdSaleApiControllerV1
+  url=/gd/v1/sale  
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"123002600463","SaleNo__c":"SAL202605080161","ActualPaymentAmount__c":500000.0,"EndDate":"20260508","SaleStatus__c":"01","PromotionNo__c":"PRO202604171052","OrderItem":[{"SaleSeqNo__c":"1","OrderNo__c":"SOR202605080146","ProductCode":"38260000
+
+2026-05-08T05:42:11.000+0000  a12JO000000MEifYAG  GdVoucherHelpApiControllerV1
+  url=/gd/v1/voucher/help  
+  req={"StoreCode__c":"99997","MemberNo__c":"123002600463","ActualPaymentAmount__c":1000000.0000,"OrderStatus__c":null,"Type":"01","PromotionNo__c":"","OrderItem":[{"OrderSeqNo__c":null,"Status__c":null,"ProductCode":"2A2600001","Quantity":1,"isExclude":null,"NetSalesUnitPrice__c":0.0,"DiscountRate__c":0.
+
+2026-05-08T05:42:38.000+0000  a12JO000000MBNXYA4  GdVoucherHelpApiControllerV1
+  url=/gd/v1/voucher/help  
+  req={"StoreCode__c":"99997","MemberNo__c":"123002600463","ActualPaymentAmount__c":1000000.0000,"OrderStatus__c":null,"Type":"01","PromotionNo__c":"","OrderItem":[{"OrderSeqNo__c":null,"Status__c":null,"ProductCode":"2A2600001","Quantity":1,"isExclude":null,"NetSalesUnitPrice__c":0.0,"DiscountRate__c":0.
+
+2026-05-08T05:43:12.000+0000  a12JO000000MEPRYA4  GdOrderApiControllerV1
+  url=/gd/v1/order  
+  req={"AccountId":"1000","StoreCode__c":"99997","MemberNo__c":"123002600463","OrderNo__c":"SOR202605080147","ActualPaymentAmount__c":1000000.0,"OrderStatus__c":"01","Type":"01","PromotionNo__c":"","OrderItem":[{"OrderSeqNo__c":"1","Status__c":"01","ProductCode":"2A2600001","Quantity":1,"isExclude":false,
+
+2026-05-08T05:44:10.000+0000  a12JO000000MEQxYAO  GdOrderApiControllerV1
+  url=/gd/v1/order  
+  req={"AccountId":"1000","StoreCode__c":"99997","MemberNo__c":"123002600463","OrderNo__c":"SOR202605080147","ActualPaymentAmount__c":1000000.0,"OrderStatus__c":"01","Type":"01","PromotionNo__c":"","OrderItem":[{"OrderSeqNo__c":"1","Status__c":"01","ProductCode":"2A2600001","Quantity":1,"isExclude":false,
+
+2026-05-08T05:44:17.000+0000  a12JO000000MEnVYAW  GdVoucherHelpApiControllerV1
+  url=/gd/v1/voucher/help  
+  req={"StoreCode__c":"99997","MemberNo__c":"123002600463","ActualPaymentAmount__c":1000000.00000000,"OrderStatus__c":null,"Type":"01","PromotionNo__c":"","OrderItem":[{"OrderSeqNo__c":null,"Status__c":null,"ProductCode":"2A2600001","Quantity":1,"isExclude":null,"NetSalesUnitPrice__c":0.0,"DiscountRate__c
+
+2026-05-08T05:44:28.000+0000  a12JO000000MCLwYAO  GdOrderApiControllerV1
+  url=/gd/v1/order  
+  req={"AccountId":"1000","StoreCode__c":"99997","MemberNo__c":"123002600463","OrderNo__c":"SOR202605080147","ActualPaymentAmount__c":1000000.0,"OrderStatus__c":"01","Type":"01","PromotionNo__c":"","OrderItem":[{"OrderSeqNo__c":"1","Status__c":"01","ProductCode":"2A2600001","Quantity":1,"isExclude":false,
+
+2026-05-08T05:45:06.000+0000  a12JO000000MCKNYA4  GdOrderApiControllerV1
+  url=/gd/v1/order  
+  req={"AccountId":"1000","StoreCode__c":"99997","MemberNo__c":"123002600463","OrderNo__c":"SOR202605080147","ActualPaymentAmount__c":1000000.0,"OrderStatus__c":"01","Type":"01","PromotionNo__c":"","OrderItem":[{"OrderSeqNo__c":"1","Status__c":"01","ProductCode":"2A2600001","Quantity":1,"isExclude":false,
+
+2026-05-08T05:45:10.000+0000  a12JO000000MD1qYAG  GdVoucherHelpApiControllerV1
+  url=/gd/v1/voucher/help  
+  req={"StoreCode__c":"99997","MemberNo__c":"123002600463","ActualPaymentAmount__c":1000000.00000000,"OrderStatus__c":null,"Type":"01","PromotionNo__c":"","OrderItem":[{"OrderSeqNo__c":null,"Status__c":null,"ProductCode":"2A2600001","Quantity":1,"isExclude":null,"NetSalesUnitPrice__c":0.0,"DiscountRate__c
+
+2026-05-08T05:45:16.000+0000  a12JO000000MEp8YAG  GdOrderApiControllerV1
+  url=/gd/v1/order  
+  req={"AccountId":"1000","StoreCode__c":"99997","MemberNo__c":"123002600463","OrderNo__c":"SOR202605080147","ActualPaymentAmount__c":1000000.0,"OrderStatus__c":"01","Type":"01","PromotionNo__c":"","OrderItem":[{"OrderSeqNo__c":"1","Status__c":"01","ProductCode":"2A2600001","Quantity":1,"isExclude":false,
+
+2026-05-08T05:47:38.000+0000  a12JO000000MEsOYAW  GdSaleApiControllerV1
+  url=/gd/v1/sale  
+  req={"AccountId":"1000","StoreCode__c":"99997","MemberNo__c":"123002600463","SaleNo__c":"SAL202605080164","ActualPaymentAmount__c":1000000.0,"EndDate":"20260508","SaleStatus__c":"01","PromotionNo__c":"","OrderItem":[{"SaleSeqNo__c":"1","OrderNo__c":"SOR202605080147","ProductCode":"2A2600001","Quantity":
+
+2026-05-08T05:49:31.000+0000  a12JO000000MEyqYAG  GdSaleApiControllerV1
+  url=/gd/v1/sale  
+  req={"AccountId":"1000","StoreCode__c":"99997","MemberNo__c":"123002600463","SaleNo__c":"SAL202605080167","ActualPaymentAmount__c":1000000.0,"EndDate":"20260508","SaleStatus__c":"01","PromotionNo__c":"","OrderItem":[{"SaleSeqNo__c":"1","OrderNo__c":"SOR202605080147","ProductCode":"2A2600001","Quantity":
+
+2026-05-08T06:15:33.000+0000  a12JO000000MFtIYAW  GdOrderApiControllerV1
+  url=/gd/v1/order  
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"123002600463","OrderNo__c":"SOR202605080155","ActualPaymentAmount__c":500000.0,"OrderStatus__c":"01","Type":"01","PromotionNo__c":"PRO202604161045","OrderItem":[{"OrderSeqNo__c":"1","Status__c":"01","ProductCode":"2A2600001","Quantity":1,"isE
+
+2026-05-08T06:18:51.000+0000  a12JO000000MFy8YAG  GdSaleApiControllerV1
+  url=/gd/v1/sale  
+  req={"AccountId":"1000","StoreCode__c":"99998","MemberNo__c":"123002600463","SaleNo__c":"SAL202605080182","ActualPaymentAmount__c":500000.0,"EndDate":"20260508","SaleStatus__c":"01","PromotionNo__c":"PRO202604161045","OrderItem":[{"SaleSeqNo__c":"1","OrderNo__c":"SOR202605080155","ProductCode":"2A260000
