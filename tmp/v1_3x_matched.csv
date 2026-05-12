@@ -1,0 +1,283 @@
+Id,CreatedDate,ApexClass__c,RequestUrl__c,RequestBody__c,ResponseBody__c
+a12JO000000MeI9YAK,2026-05-10T09:16:41.000+0000,ErpAsyncJob,callout:GoldenDewApiNC/Crm/CouponDetail,"{""couponDetailModels"":[{""no_mbr"":""TEST02006"",""no_man_coupon_mil"":""00218247"",""no_man_coupon"":""COP2026MY0011"",""id_insert"":""milvus""}]}","{""code"":0,""success"":false,""message"":""SQL - 회원이 존재하지 않습니다."",""data"":null}"
+a12JO000000Mdh4YAC,2026-05-10T09:18:37.000+0000,ErpAsyncJob,callout:GoldenDewApiNC/Crm/CouponDetail,"{""couponDetailModels"":[{""no_mbr"":""TEST02006"",""no_man_coupon_mil"":""AKU33FUQ"",""no_man_coupon"":""COP2026MY0011"",""id_insert"":""milvus""}]}","{""code"":0,""success"":false,""message"":""SQL - 회원이 존재하지 않습니다."",""data"":null}"
+a12JO000000Me8aYAC,2026-05-10T09:18:37.000+0000,GdSaleApiControllerV1,/gd/v1/sale,"{
+    ""AccountId"": ""1000"",
+    ""StoreCode__c"": ""99998"",
+    ""MemberNo__c"": ""TEST02006"",
+    ""SaleNo__c"": ""SAL02V006"",
+    ""ActualPaymentAmount__c"": 1000000.0,
+    ""EndDate"": ""20260510"",
+    ""SaleStatus__c"": ""01"",
+    ""PromotionNo__c"": ""PRO202604161041"",
+    ""OrderItem"": [
+        {
+            ""SaleSeqNo__c"": ""1"",
+            ""OrderNo__c"": null,
+            ""ProductCode"": ""2A2600001"",
+            ""Quantity"": 2,
+            ""isExclude"": false,
+            ""NetSalesUnitPrice__c"": 500000.0000,
+            ""DiscountRate__c"": 0.0000
+        }
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+    ],
+    ""TransactionJournal"": [
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        {
+            ""DepositNo__c"": ""DEP02V006"",
+            ""DeposiSeqNo__c"": ""1"",
+            ""ActivityDate"": ""20260510"",
+            ""PaymentMethod"": ""01"",
+            ""DepositType__c"": ""02"",
+            ""TransactionAmount"": 900000.0000,
+            ""CouponNo"": """",
+            ""OrderNo__c"": null
+        }
+        ,
+        {
+            ""DepositNo__c"": ""DEP02V006"",
+            ""DeposiSeqNo__c"": ""2"",
+            ""ActivityDate"": ""20260510"",
+            ""PaymentMethod"": ""90"",
+            ""DepositType__c"": ""02"",
+            ""TransactionAmount"": 100000.0000,
+            ""CouponNo"": ""COP2026MY0011;-;9TKSHRYN"",
+            ""OrderNo__c"": null
+        }
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+    ]
+}","{
+  ""success"" : true,
+  ""message"" : ""판매 등록 완료"",
+  ""data"" : {
+    ""CreditPointList"" : [ {
+      ""TX_REMARK"" : ""구매포인트|11cJO000001BAZlYAO|2.00"",
+      ""PT_TARGET"" : 18000.0000,
+      ""NO_SAL"" : null,
+      ""NO_PROM_MBR"" : ""PRO202604161041"",
+      ""NO_MBR"" : ""TEST02006"",
+      ""NO_GRADE_ADVAN"" : ""04"",
+      ""ID_INSERT"" : null,
+      ""DTS_INSERT"" : ""2026-05-10 18:18:36"",
+      ""DT_SAVE_PLAN"" : null,
+      ""DT_LIMIT_START"" : ""2026-05-10 09:00:00"",
+      ""DT_LIMIT_END"" : ""2028-05-10"",
+      ""DT_DESTROY_PLAN"" : ""2028-05-11"",
+      ""CD_TYPE_SAVE"" : ""Credit"",
+      ""CD_TYPE_POINT"" : ""01"",
+      ""CD_JOURNAL"" : ""05wJO0000004Q8pYAE"",
+      ""AM_SAL"" : 1000000.0
+    }, {
+      ""TX_REMARK"" : ""사은포인트|11cJO000001BAY9YAO|3.00"",
+      ""PT_TARGET"" : 27000.0000,
+      ""NO_SAL"" : null,
+      ""NO_PROM_MBR"" : ""PRO202604161041"",
+      ""NO_MBR"" : ""TEST02006"",
+      ""NO_GRADE_ADVAN"" : ""04"",
+      ""ID_INSERT"" : null,
+      ""DTS_INSERT"" : ""2026-05-10 18:18:36"",
+      ""DT_SAVE_PLAN"" : null,
+      ""DT_LIMIT_START"" : ""2026-05-10 09:00:00"",
+      ""DT_LIMIT_END"" : ""2028-05-10"",
+      ""DT_DESTROY_PLAN"" : ""2028-05-11"",
+      ""CD_TYPE_SAVE"" : ""Credit"",
+      ""CD_TYPE_POINT"" : ""01"",
+      ""CD_JOURNAL"" : ""05wJO0000004Q8qYAE"",
+      ""AM_SAL"" : 1000000.0
+    } ],
+    ""oiList"" : [ {
+      ""attributes"" : {
+        ""type"" : ""OrderItem"",
+        ""url"" : ""/services/data/v67.0/sobjects/OrderItem/802JO000005445nYAA""
+      },
+      ""OrderId"" : ""801JO00000IBcCgYAL"",
+      ""PricebookEntryId"" : ""01uJO000001R0w4YAC"",
+      ""Quantity"" : 2,
+      ""UnitPrice"" : 500000,
+      ""SaleSeqNo__c"" : ""1"",
+      ""SaleItemNo__c"" : ""801JO00000IBcCgYAL-1"",
+      ""IsExclude__c"" : false,
+      ""NetSalesUnitPrice__c"" : 500000.0000,
+      ""DiscountRate__c"" : 0.0000,
+      ""Id"" : ""802JO000005445nYAA""
+    } ],
+    ""storeType"" : ""09"",
+    ""storeTypeFour"" : ""NULL"",
+    ""orderId"" : ""801JO00000IBcCgYAL"",
+    ""TransactionJournal"" : [ {
+      ""OrderNo__c"" : null,
+      ""CouponNo"" : """",
+      ""TransactionAmount"" : 900000.0000,
+      ""DepositType__c"" : ""02"",
+      ""PaymentMethod"" : ""01"",
+      ""ActivityDate"" : ""20260510"",
+      ""DeposiSeqNo__c"" : ""1"",
+      ""DepositNo__c"" : ""DEP02V006""
+    }, {
+      ""OrderNo__c"" : null,
+      ""CouponNo"" : ""COP2026MY0011;-;9TKSHRYN"",
+      ""TransactionAmount"" : 100000.0000,
+      ""DepositType__c"" : ""02"",
+      ""PaymentMethod"" : ""90"",
+      ""ActivityDate"" : ""20260510"",
+      ""DeposiSeqNo__c"" : ""2"",
+      ""DepositNo__c"" : ""DEP02V006""
+    } ],
+    ""OrderItem"" : [ {
+      ""DiscountRate__c"" : 0.0000,
+      ""NetSalesUnitPrice__c"" : 500000.0000,
+      ""isExclude"" : false,
+      ""Quantity"" : 2,
+      ""ProductCode"" : ""2A2600001"",
+      ""OrderNo__c"" : null,
+      ""SaleSeqNo__c"" : ""1""
+    } ],
+    ""PromotionNo__c"" : ""PRO202604161041"",
+    ""SaleStatus__c"" : ""01"",
+    ""EndDate"" : ""20260510"",
+    ""ActualPaymentAmount__c"" : 1000000.0,
+    ""SaleNo__c"" : ""SAL02V006"",
+    ""MemberNo__c"" : ""TEST02006"",
+    ""StoreCode__c"" : ""99998"",
+    ""AccountId"" : ""1000""
+  },
+  ""code"" : 200
+}"
+a12JO000000MeJoYAK,2026-05-10T09:22:18.000+0000,GdReturnApiControllerV1,/gd/v1/return,"{
+    ""SaleNo__c"": ""SAL02V007"", 
+    ""OriginalOrderId"": ""SAL02V006"", 
+    ""ActualPaymentAmount__c"": 1000000, 
+    ""OrderItem"": [ 
+        {
+            ""SaleSeqNo__c"": ""1"", 
+            ""ProductCode"": ""2A2600001"", 
+            ""Quantity"": -2, 
+            ""isExclude"": false, 
+            ""NetSalesUnitPrice__c"": 500000.0, 
+            ""DiscountRate__c"": 0 
+        }
+    ],
+    ""TransactionJournal"": [ 
+        {
+            ""DepositNo__c"": ""DEP02V007"", 
+            ""DeposiSeqNo__c"": ""1"", 
+            ""ActivityDate"": ""20260510"", 
+            ""PaymentMethod"": ""01"", 
+            ""DepositType__c"": ""03"", 
+            ""TransactionAmount"": 900000, 
+            ""CouponNo"": """" 
+        }
+        ,
+        {
+            ""DepositNo__c"": ""DEP02V007"", 
+            ""DeposiSeqNo__c"": ""2"", 
+            ""ActivityDate"": ""20260510"", 
+            ""PaymentMethod"": ""90"", 
+            ""DepositType__c"": ""03"", 
+            ""TransactionAmount"": 100000, 
+            ""CouponNo"": ""COP2026MY0011;-;9TKSHRYN"" 
+        }
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+    ],
+    ""InsertId__c"": ""골든듀"" 
+}","{
+  ""success"" : true,
+  ""message"" : ""반품 등록 완료"",
+  ""data"" : {
+    ""CancelPointsCreditedList"" : [ {
+      ""PT_USE"" : 18000.0000,
+      ""NO_SAL_RTN"" : null,
+      ""NO_SAL"" : ""SAL02V006"",
+      ""NO_MBR"" : ""TEST02006"",
+      ""ID_INSERT"" : null,
+      ""DTS_INSERT"" : ""2026-05-10 18:22:17"",
+      ""CD_TYPE_POINT"" : ""01"",
+      ""CD_RESON"" : ""6"",
+      ""CD_LEDGER"" : ""05wJO0000004QITYA2"",
+      ""CD_JOURNAL"" : ""05wJO0000004Q8pYAE"",
+      ""AM_SAL"" : null
+    }, {
+      ""PT_USE"" : 27000.0000,
+      ""NO_SAL_RTN"" : null,
+      ""NO_SAL"" : ""SAL02V006"",
+      ""NO_MBR"" : ""TEST02006"",
+      ""ID_INSERT"" : null,
+      ""DTS_INSERT"" : ""2026-05-10 18:22:17"",
+      ""CD_TYPE_POINT"" : ""06"",
+      ""CD_RESON"" : ""6"",
+      ""CD_LEDGER"" : ""05wJO0000004QIUYA2"",
+      ""CD_JOURNAL"" : ""05wJO0000004Q8qYAE"",
+      ""AM_SAL"" : null
+    } ],
+    ""originalOrderId"" : ""801JO00000IBcCgYAL"",
+    ""orderId"" : ""801JO00000IBbdBYAT"",
+    ""InsertId__c"" : ""골든듀"",
+    ""TransactionJournal"" : [ {
+      ""CouponNo"" : """",
+      ""TransactionAmount"" : 900000,
+      ""DepositType__c"" : ""03"",
+      ""PaymentMethod"" : ""01"",
+      ""ActivityDate"" : ""20260510"",
+      ""DeposiSeqNo__c"" : ""1"",
+      ""DepositNo__c"" : ""DEP02V007""
+    }, {
+      ""CouponNo"" : ""COP2026MY0011;-;9TKSHRYN"",
+      ""TransactionAmount"" : 100000,
+      ""DepositType__c"" : ""03"",
+      ""PaymentMethod"" : ""90"",
+      ""ActivityDate"" : ""20260510"",
+      ""DeposiSeqNo__c"" : ""2"",
+      ""DepositNo__c"" : ""DEP02V007""
+    } ],
+    ""OrderItem"" : [ {
+      ""DiscountRate__c"" : 0,
+      ""NetSalesUnitPrice__c"" : 500000.0,
+      ""isExclude"" : false,
+      ""Quantity"" : -2,
+      ""ProductCode"" : ""2A2600001"",
+      ""SaleSeqNo__c"" : ""1""
+    } ],
+    ""ActualPaymentAmount__c"" : 1000000,
+    ""OriginalOrderId"" : ""SAL02V006"",
+    ""SaleNo__c"" : ""SAL02V007""
+  },
+  ""code"" : 200
+}"

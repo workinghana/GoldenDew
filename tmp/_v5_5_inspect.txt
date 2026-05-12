@@ -1,0 +1,54 @@
+2026-05-10T14:02:23.000+0000  a12JO000000MhfsYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST03007",      "SaleNo__c": "SAL04058",      "EndDate": "20260510",      "ActualPaymentAmount__c": 1000000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO202605051083",      "OrderItem": [           {             "SaleSeqNo__c": "1",              "Status__c": "01",              "ProductCode": "TEST-00
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|1.00",       "PT_TARGET" : 10000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202605051083",       "NO_MBR" : "TEST03007",       "NO_GRADE_ADVAN" : "01",       "ID_INSERT" : "골든듀",       "DTS_INSERT" : "2026-05-10 23:02:22",       "DT_SAVE_PLAN" : null,  
+
+2026-05-10T14:03:54.000+0000  a12JO000000MhkiYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST03007",      "SaleNo__c": "SAL04059",      "EndDate": "20260510",      "ActualPaymentAmount__c": 2000000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO202605051083",      "OrderItem": [           {             "SaleSeqNo__c": "1",              "Status__c": "01",              "ProductCode": "TEST-00
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|1.00",       "PT_TARGET" : 20000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202605051083",       "NO_MBR" : "TEST03007",       "NO_GRADE_ADVAN" : "01",       "ID_INSERT" : "골든듀",       "DTS_INSERT" : "2026-05-10 23:03:53",       "DT_SAVE_PLAN" : null,  
+
+2026-05-10T14:05:07.000+0000  a12JO000000MhnwYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST03007",      "SaleNo__c": "SAL04060",      "EndDate": "20260510",      "ActualPaymentAmount__c": 1000000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO202605051083",      "OrderItem": [           {             "SaleSeqNo__c": "1",              "Status__c": "01",              "ProductCode": "TEST-00
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|1.00",       "PT_TARGET" : 10000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202605051083",       "NO_MBR" : "TEST03007",       "NO_GRADE_ADVAN" : "01",       "ID_INSERT" : "골든듀",       "DTS_INSERT" : "2026-05-10 23:05:06",       "DT_SAVE_PLAN" : null,  
+
+2026-05-10T14:07:49.000+0000  a12JO000000MhuOYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST03007",      "SaleNo__c": "SAL04061",      "EndDate": "20260510",      "ActualPaymentAmount__c": 2020000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO202605051083",      "OrderItem": [           {             "SaleSeqNo__c": "1",              "Status__c": "01",              "ProductCode": "TEST-00
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|1.00",       "PT_TARGET" : 20000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202605051083",       "NO_MBR" : "TEST03007",       "NO_GRADE_ADVAN" : "01",       "ID_INSERT" : "골든듀",       "DTS_INSERT" : "2026-05-10 23:07:48",       "DT_SAVE_PLAN" : null,  
+
+2026-05-10T14:08:17.000+0000  a12JO000000MhxZYAS  GdSaleDepositApiControllerV1
+  url={"DeposiSeqNo__c":"1","DepositNo__c":"DEP040031"}
+  req=
+  resp={   "success" : true,   "message" : "판매 입금 삭제 삭제 완료",   "data" : {     "CancelCoupon" : null,     "CancelPointsCreditedList" : [ {       "PT_USE" : 20000.0000,       "NO_SAL_RTN" : null,       "NO_SAL" : "SAL04061",       "NO_MBR" : "TEST03007",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-10 23:08:16",       "CD_TYPE_POINT" : "01",       "CD_RESON" : null,       "CD_LEDGER" : "05wJO000
+
+2026-05-10T14:08:39.000+0000  a12JO000000Mi0qYAC  GdSaleApiControllerV1
+  url={"SaleNo__c":"SAL04061"}
+  req=
+  resp={   "success" : true,   "message" : "판매 전체 삭제 완료",   "data" : { },   "code" : 200 }
+
+2026-05-10T14:09:05.000+0000  a12JO000000Mi2SYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST03007",      "SaleNo__c": "SAL04062",      "EndDate": "20260510",      "ActualPaymentAmount__c": 2020000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO202605051083",      "OrderItem": [           {             "SaleSeqNo__c": "1",              "Status__c": "01",              "ProductCode": "TEST-00
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|1.00",       "PT_TARGET" : 20000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202605051083",       "NO_MBR" : "TEST03007",       "NO_GRADE_ADVAN" : "01",       "ID_INSERT" : "골든듀",       "DTS_INSERT" : "2026-05-10 23:09:05",       "DT_SAVE_PLAN" : null,  
+
+2026-05-10T14:11:50.000+0000  a12JO000000Mi8yYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST03007",      "SaleNo__c": "SAL04063",      "EndDate": "20260510",      "ActualPaymentAmount__c": 2015000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO202605051083",      "OrderItem": [           {             "SaleSeqNo__c": "1",              "Status__c": "01",              "ProductCode": "TEST-00
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|1.00",       "PT_TARGET" : 20000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202605051083",       "NO_MBR" : "TEST03007",       "NO_GRADE_ADVAN" : "01",       "ID_INSERT" : "골든듀",       "DTS_INSERT" : "2026-05-10 23:11:49",       "DT_SAVE_PLAN" : null,  
+
+2026-05-10T14:19:25.000+0000  a12JO000000MiFJYA0  GdSaleDepositApiControllerV1
+  url={"DeposiSeqNo__c":"1","DepositNo__c":"DEP040029"}
+  req=
+  resp={   "success" : false,   "message" : "해당 입금 건은 삭제할 수 없습니다. 적립된 포인트가 다른 주문/판매에서 사용되었습니다. 판매번호: SAL04062 / 입금번호: DEP040034-2",   "code" : 400 }
+
+2026-05-10T16:20:17.000+0000  a12JO000000MkNcYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST01009",     "SaleNo__c": "SAL01V500",     "ActualPaymentAmount__c": 500000.0,     "EndDate": "20260511",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202604161041",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__c": "",             "ProductCode": "2A2600001",  
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|1.50",       "PT_TARGET" : 7425.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202604161041",       "NO_MBR" : "TEST01009",       "NO_GRADE_ADVAN" : "02",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-11 01:20:17",       "DT_SAVE_PLAN" : null,    
+
+2026-05-10T16:24:00.000+0000  a12JO000000MhPmYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST01009",     "SaleNo__c": "SAL01V501",     "ActualPaymentAmount__c": 500000.0,     "EndDate": "20260511",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202604161041",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__c": "",             "ProductCode": "2A2600001",  
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|1.50",       "PT_TARGET" : 7425.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202604161041",       "NO_MBR" : "TEST01009",       "NO_GRADE_ADVAN" : "02",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-11 01:24:00",       "DT_SAVE_PLAN" : null,    

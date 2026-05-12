@@ -1,0 +1,219 @@
+2026-05-10T09:00:03.000+0000  a12JO000000Mdp7YAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02005",     "SaleNo__c": "SAL02101",     "ActualPaymentAmount__c": 10000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T09:00:14.000+0000  a12JO000000MdqkYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02005",     "SaleNo__c": "SAL02V001",     "ActualPaymentAmount__c": 10000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO20
+
+2026-05-10T09:00:27.000+0000  a12JO000000Mdu0YAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02005",     "SaleNo__c": "SAL02V001",     "ActualPaymentAmount__c": 10000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO20
+
+2026-05-10T09:00:46.000+0000  a12JO000000MdvZYAS  GdVoucherHelpApiControllerV1
+  url=/gd/v1/voucher/help
+  req={     "StoreCode__c": "99998",     "MemberNo__c": "TEST01100",     "ActualPaymentAmount__c": 1000000.00000000,     "OrderStatus__c": null,     "Type": "01",     "PromotionNo__c": "PRO202604161041",     "OrderItem": [         {             "O
+
+2026-05-10T09:02:50.000+0000  a12JO000000Me0SYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST01100",     "SaleNo__c": "SAL01V001",     "ActualPaymentAmount__c": 500000.0,     "EndDate": "20260508",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO2026
+
+2026-05-10T09:03:59.000+0000  a12JO000000Me3gYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V002",     "ActualPaymentAmount__c": 10000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO20
+
+2026-05-10T09:06:53.000+0000  a12JO000000Me8WYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST01100",     "SaleNo__c": "SAL01V002",     "ActualPaymentAmount__c": 500000.0,     "EndDate": "20260508",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO2026
+
+2026-05-10T09:07:41.000+0000  a12JO000000MeA6YAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V003",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T09:07:50.000+0000  a12JO000000MeBkYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V003",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T09:09:58.000+0000  a12JO000000MeDKYA0  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V004",     "ActualPaymentAmount__c": 2000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T09:10:32.000+0000  a12JO000000MdnZYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V004",     "ActualPaymentAmount__c": 2000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T09:17:42.000+0000  a12JO000000Mc6xYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99997",     "MemberNo__c": "TEST01100",     "SaleNo__c": "SAL01V006",     "ActualPaymentAmount__c": 500000.0,     "EndDate": "20260508",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO2026
+
+2026-05-10T09:18:37.000+0000  a12JO000000Me8aYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V006",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T09:26:01.000+0000  a12JO000000MeLQYA0  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST03006",      "OrderNo__c": "SOR04012",      "ActualPaymentAmount__c": 500000,      "OrderStatus__c": "01",      "Type": "01",      "PromotionNo__c": "PRO202604161
+
+2026-05-10T09:30:51.000+0000  a12JO000000MeQGYA0  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST03006",      "SaleNo__c": "SAL04046",      "EndDate": "20260510",      "ActualPaymentAmount__c": 500000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO
+
+2026-05-10T09:34:14.000+0000  a12JO000000Me8eYAC  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST01005",     "OrderNo__c": "SOR01V003",     "ActualPaymentAmount__c": 500000.0,     "OrderStatus__c": "01",     "Type": "01",     "PromotionNo__c": "PRO20260416104
+
+2026-05-10T09:36:28.000+0000  a12JO000000MeZwYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST01005",     "SaleNo__c": "SAL01V007",     "ActualPaymentAmount__c": 500000.0,     "EndDate": "20260508",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO2026
+
+2026-05-10T09:43:45.000+0000  a12JO000000MeTVYA0  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST01005",     "SaleNo__c": "SAL01V009",     "ActualPaymentAmount__c": 500000.0,     "EndDate": "20260508",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO2026
+
+2026-05-10T09:44:56.000+0000  a12JO000000MdxDYAS  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "OrderNo__c": "SOR02V013",     "ActualPaymentAmount__c": 1000000.0,     "OrderStatus__c": "01",     "Type": "01",     "PromotionNo__c": "PRO2026041610
+
+2026-05-10T09:45:08.000+0000  a12JO000000Mei0YAC  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "OrderNo__c": "SOR02V014",     "ActualPaymentAmount__c": 1000000.0,     "OrderStatus__c": "01",     "Type": "01",     "PromotionNo__c": "PRO2026041610
+
+2026-05-10T09:47:52.000+0000  a12JO000000MelEYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V015",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T09:47:58.000+0000  a12JO000000MdlxYAC  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST03005",      "OrderNo__c": "SOR04013",      "ActualPaymentAmount__c": 500000,      "OrderStatus__c": "01",      "Type": "01",      "PromotionNo__c": "PRO202604161
+
+2026-05-10T09:50:44.000+0000  a12JO000000Mei4YAC  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "1000",     "StoreCode__c": "99997",     "MemberNo__c": "TEST01005",     "OrderNo__c": "SOR01V004",     "ActualPaymentAmount__c": 70000.0,     "OrderStatus__c": "03",     "Type": "01",     "PromotionNo__c": "PRO202604161041
+
+2026-05-10T09:51:13.000+0000  a12JO000000MeLUYA0  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST03005",      "SaleNo__c": "SAL04047",      "EndDate": "20260510",      "ActualPaymentAmount__c": 500000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO
+
+2026-05-10T09:58:46.000+0000  a12JO000000MdVpYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99997",     "MemberNo__c": "TEST01005",     "SaleNo__c": "SAL01V011",     "ActualPaymentAmount__c": 70000.0,     "EndDate": "20260508",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO20260
+
+2026-05-10T10:27:37.000+0000  a12JO000000Mf69YAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02007",     "SaleNo__c": "SAL02V016",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T10:27:46.000+0000  a12JO000000Mf1KYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02007",     "SaleNo__c": "SAL02V016",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T10:27:52.000+0000  a12JO000000Mf7mYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02007",     "SaleNo__c": "SAL02V017",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T10:28:05.000+0000  a12JO000000Mf9QYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02007",     "SaleNo__c": "SAL02V017",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T10:30:17.000+0000  a12JO000000MfB0YAK  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "1000",     "StoreCode__c": "99997",     "MemberNo__c": "TEST01300",     "OrderNo__c": "SOR01V304",     "ActualPaymentAmount__c": 70000.0,     "OrderStatus__c": "01",     "Type": "03",     "PromotionNo__c": "PRO202604161041
+
+2026-05-10T10:30:29.000+0000  a12JO000000MfCeYAK  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "1000",     "StoreCode__c": "99997",     "MemberNo__c": "TEST01300",     "OrderNo__c": "SOR01V304",     "ActualPaymentAmount__c": 70000.0,     "OrderStatus__c": "01",     "Type": "03",     "PromotionNo__c": "PRO202604161041
+
+2026-05-10T10:31:20.000+0000  a12JO000000MdUFYA0  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99997",     "MemberNo__c": "TEST01300",     "SaleNo__c": "SAL01V311",     "ActualPaymentAmount__c": 70000.0,     "EndDate": "20260508",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO20260
+
+2026-05-10T10:32:18.000+0000  a12JO000000MfEGYA0  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99997",     "MemberNo__c": "TEST01300",     "SaleNo__c": "SAL01V312",     "ActualPaymentAmount__c": 70000.0,     "EndDate": "20260508",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO20260
+
+2026-05-10T10:37:01.000+0000  a12JO000000MfMKYA0  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99997",     "MemberNo__c": "TEST01005",     "SaleNo__c": "SAL01V511",     "ActualPaymentAmount__c": 70000.0,     "EndDate": "20260508",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO20260
+
+2026-05-10T10:38:15.000+0000  a12JO000000MfNwYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02007",     "SaleNo__c": "SAL02V019",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T10:41:47.000+0000  a12JO000000MfUOYA0  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99997",     "MemberNo__c": "TEST01005",     "SaleNo__c": "SAL01V611",     "ActualPaymentAmount__c": 70000.0,     "EndDate": "20260508",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO20260
+
+2026-05-10T10:48:49.000+0000  a12JO000000Mey7YAC  GdReturnDepositApiControllerV1
+  url={"DeposiSeqNo__c":"1","DepositNo__c":"DEP02V020"}
+  req=
+
+2026-05-10T11:01:22.000+0000  a12JO000000MffgYAC  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "1000",     "StoreCode__c": "99997",     "MemberNo__c": "TEST01005",     "OrderNo__c": "SOR01V704",     "ActualPaymentAmount__c": 70000.0,     "OrderStatus__c": "01",     "Type": "03",     "PromotionNo__c": "PRO202604161041
+
+2026-05-10T11:02:15.000+0000  a12JO000000MfhIYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99997",     "MemberNo__c": "TEST01005",     "SaleNo__c": "SAL01V711",     "ActualPaymentAmount__c": 70000.0,     "EndDate": "20260508",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO20260
+
+2026-05-10T11:11:27.000+0000  a12JO000000McmgYAC  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "1000",     "StoreCode__c": "99997",     "MemberNo__c": "TEST01005",     "OrderNo__c": "SOR01V804",     "ActualPaymentAmount__c": 70000.0,     "OrderStatus__c": "01",     "Type": "03",     "PromotionNo__c": "PRO202604161041
+
+2026-05-10T11:12:12.000+0000  a12JO000000MfxQYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99997",     "MemberNo__c": "TEST01005",     "SaleNo__c": "SAL01V811",     "ActualPaymentAmount__c": 70000.0,     "EndDate": "20260508",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO20260
+
+2026-05-10T11:15:37.000+0000  a12JO000000Mei8YAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02008",     "SaleNo__c": "SAL02V022",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260429",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T11:19:25.000+0000  a12JO000000MfXcYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02008",     "SaleNo__c": "SAL02V023",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260504",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T11:19:39.000+0000  a12JO000000Mfz2YAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02008",     "SaleNo__c": "SAL02V023",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260504",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T11:28:15.000+0000  a12JO000000MgBwYAK  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST01005",     "OrderNo__c": "SOR01V005",     "ActualPaymentAmount__c": 1000000.0,     "OrderStatus__c": "01",     "Type": "01",     "PromotionNo__c": "PRO2026041610
+
+2026-05-10T11:29:28.000+0000  a12JO000000MgFAYA0  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST01005",     "SaleNo__c": "SAL01V013",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260508",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202
+
+2026-05-10T11:34:18.000+0000  a12JO000000MfxRYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST02009",      "SaleNo__c": "SAL04051",      "EndDate": "20260504",      "ActualPaymentAmount__c": 2000000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PR
+
+2026-05-10T11:34:28.000+0000  a12JO000000MfvsYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST02009",      "SaleNo__c": "SAL04052",      "EndDate": "20260504",      "ActualPaymentAmount__c": 2000000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PR
+
+2026-05-10T11:38:40.000+0000  a12JO000000MfZIYA0  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST02009",      "SaleNo__c": "SAL04053",      "EndDate": "20260510",      "ActualPaymentAmount__c": 230000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO
+
+2026-05-10T11:45:20.000+0000  a12JO000000MgLcYAK  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST01007",     "OrderNo__c": "SOR01V011",     "ActualPaymentAmount__c": 3000000.0,     "OrderStatus__c": "01",     "Type": "01",     "PromotionNo__c": "PRO2026041610
+
+2026-05-10T11:49:38.000+0000  a12JO000000MgNEYA0  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST02009",      "SaleNo__c": "SAL04054",      "EndDate": "20260510",      "ActualPaymentAmount__c": 540000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO
+
+2026-05-10T11:57:50.000+0000  a12JO000000MgTgYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST02009",      "SaleNo__c": "SAL04055",      "EndDate": "20260510",      "ActualPaymentAmount__c": 330000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO
+
+2026-05-10T12:00:50.000+0000  a12JO000000MgYWYA0  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST02009",      "SaleNo__c": "SAL04056",      "EndDate": "20260510",      "ActualPaymentAmount__c": 210000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO
+
+2026-05-10T12:40:30.000+0000  a12JO000000Mh3AYAS  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST02009",      "OrderNo__c": "SOR04016",      "ActualPaymentAmount__c": 400000,      "OrderStatus__c": "01",      "Type": "01",      "PromotionNo__c": "PRO202604161
+
+2026-05-10T12:43:22.000+0000  a12JO000000Mh4mYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST02009",      "SaleNo__c": "SAL04057",      "EndDate": "20260510",      "ActualPaymentAmount__c": 400000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO

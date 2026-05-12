@@ -1,0 +1,44 @@
+2026-05-10T09:27:25.000+0000  a12JO000000MeN2YAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V008",     "ActualPaymentAmount__c": 1500000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202605021069",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "사은포인트|11cJO000001BAY9YAO|3.00",       "PT_TARGET" : 45000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202605021069",       "NO_MBR" : "TEST02006",       "NO_GRADE_ADVAN" : "04",  
+
+2026-05-10T09:27:58.000+0000  a12JO000000MeObYAK  GdPointCreditApiControllerV1
+  url=/gd/v1/point/credit
+  req={     "MemberNo__c": "TEST02006",     "PointsList": [         {             "point": 6000.0,             "cd_type_point": "05"         }     ],     "SaleNo__c": "SAL02V008",     "EndDate": "" }
+  resp={   "success" : true,   "message" : "포인트 지급 성공",   "data" : {     "PointCreditList" : [ {       "TX_REMARK" : "이벤트포인트",       "PT_TARGET" : 6000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : null,       "NO_MBR" : "TEST02006",       "NO_GRADE_ADVAN" : null,       "ID_INSERT" : null,       "DTS_
+
+2026-05-10T09:29:39.000+0000  a12JO000000McMuYAK  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V009",      "OriginalOrderId": "SAL02V008",      "ActualPaymentAmount__c": 500000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -1,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRate
+  resp={   "success" : true,   "message" : "반품 등록 완료",   "data" : {     "CancelPointsCreditedList" : [ {       "PT_USE" : 15000.0000,       "NO_SAL_RTN" : null,       "NO_SAL" : "SAL02V008",       "NO_MBR" : "TEST02006",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-10 18:29:39",       "CD_TYPE_P
+
+2026-05-10T09:33:34.000+0000  a12JO000000MeRsYAK  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V010",      "OriginalOrderId": "SAL02V008",      "ActualPaymentAmount__c": 500000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -1,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRate
+  resp={   "success" : true,   "message" : "반품 등록 완료",   "data" : {     "CancelPointsCreditedList" : [ {       "PT_USE" : 15000.0000,       "NO_SAL_RTN" : null,       "NO_SAL" : "SAL02V008",       "NO_MBR" : "TEST02006",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-10 18:33:34",       "CD_TYPE_P
+
+2026-05-10T09:34:59.000+0000  a12JO000000MeV4YAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V011",     "ActualPaymentAmount__c": 500000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202605021069",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__c
+  resp={   "success" : false,   "message" : "Insert failed. First exception on row 0; first error: DUPLICATE_VALUE, 중복 값 발견: DepositNo__c이(가) ID가 다음과 같은 레코드의 값과 중복됩니다. 0lVJO000000CHMr2AO: []",   "code" : 500 }
+
+2026-05-10T09:35:15.000+0000  a12JO000000MeWiYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V011",     "ActualPaymentAmount__c": 500000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202605021069",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__c
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "사은포인트|11cJO000001BAY9YAO|3.00",       "PT_TARGET" : 13200.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202605021069",       "NO_MBR" : "TEST02006",       "NO_GRADE_ADVAN" : "04",  
+
+2026-05-10T09:39:49.000+0000  a12JO000000Mdu2YAC  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V012",      "OriginalOrderId": "SAL02V008",      "ActualPaymentAmount__c": 500000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -1,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRate
+  resp={   "success" : false,   "message" : "반품 입금 등록 불가 — 적립된 포인트가 다른 주문/판매에서 이미 사용되었습니다. 판매번호: SAL02V011 / 입금번호: DEP02V011-2",   "code" : 400 }
+
+2026-05-10T09:40:56.000+0000  a12JO000000MedAYAS  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V012",      "OriginalOrderId": "SAL02V011",      "ActualPaymentAmount__c": 500000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -1,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRate
+  resp={   "success" : true,   "message" : "반품 등록 완료",   "data" : {     "CancelPointsCreditedList" : [ {       "PT_USE" : 13200.0000,       "NO_SAL_RTN" : null,       "NO_SAL" : "SAL02V011",       "NO_MBR" : "TEST02006",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-10 18:40:55",       "CD_TYPE_P
+
+2026-05-10T09:42:24.000+0000  a12JO000000Md9FYAS  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V013",      "OriginalOrderId": "SAL02V008",      "ActualPaymentAmount__c": 500000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -1,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRate
+  resp={   "success" : true,   "message" : "반품 등록 완료",   "data" : {     "CancelPointsCreditedList" : [ {       "PT_USE" : 15000.0000,       "NO_SAL_RTN" : null,       "NO_SAL" : "SAL02V008",       "NO_MBR" : "TEST02006",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-10 18:42:23",       "CD_TYPE_P

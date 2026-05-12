@@ -52,6 +52,10 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
   private static final String JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL = 'Point Redeem Cancel';
   private static final String JOURNAL_SUB_TYPE_NAME_POINT_DEBIT = 'Point Debit';
   private static final String ADDITIONAL_NOTE_FULL_RETURN_ECO_POINT_CANCEL = 'FULL_RETURN_ECO_POINT_CANCEL';
+  private static final String OPTION_C_RETURN_DEPOSIT_DELETE_USAGE_RESTORE_NOTE_PREFIX = 'OPTC_RETURN_DEPOSIT_DELETE_USAGE_RESTORE:';
+  private static final String OPTION_C_RETURN_DEPOSIT_DELETE_USAGE_RESTORE_NOTE_LIKE =
+    OPTION_C_RETURN_DEPOSIT_DELETE_USAGE_RESTORE_NOTE_PREFIX + '%';
+  private static final String ORIGIN_CREDIT_LL_TOKEN = 'ORIGIN_CREDIT_LL=';
   // [scn5 R1-10/R1-11/R2-8 Fix 2026-04-27] 반품 입금 삭제 재차감 Debit 마커 — v3 paradigm 으로 원본 trace 가 보존되어
   // 재차감 trace 가 화면에서 중복 노출되는 문제 방지용. 동일 마커가 GdReturnDepositServiceImpl/GdSaleDepositServiceImpl 에도 사용됨.
   private static final String RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE = '반품 입금 삭제로 인한 "포인트 사용" 내역 복구';
@@ -168,6 +172,40 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     }
     return additionalNotes.contains(OPTION_C_RETURN_DELETE_RESTORE_MARKER)
       || additionalNotes.contains(OPTION_C_RETURN_DEPOSIT_DELETE_RESTORE_MARKER);
+  }
+
+  private static Boolean isReturnDepositDeletePointRestoreHelperNote(String additionalNotes) {
+    return additionalNotes == RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE
+      || (String.isNotBlank(additionalNotes)
+        && additionalNotes.startsWith(OPTION_C_RETURN_DEPOSIT_DELETE_USAGE_RESTORE_NOTE_PREFIX));
+  }
+
+  private static Id extractOriginCreditLedgerId(String additionalNotes) {
+    if (String.isBlank(additionalNotes)) {
+      return null;
+    }
+
+    Integer tokenIndex = additionalNotes.indexOf(ORIGIN_CREDIT_LL_TOKEN);
+    if (tokenIndex < 0) {
+      return null;
+    }
+
+    Integer valueStart = tokenIndex + ORIGIN_CREDIT_LL_TOKEN.length();
+    Integer valueEnd = additionalNotes.indexOf(';', valueStart);
+    String originIdText = valueEnd < 0
+      ? additionalNotes.substring(valueStart)
+      : additionalNotes.substring(valueStart, valueEnd);
+    originIdText = originIdText == null ? null : originIdText.trim();
+
+    if (String.isBlank(originIdText) || (originIdText.length() != 15 && originIdText.length() != 18)) {
+      return null;
+    }
+
+    try {
+      return (Id) originIdText;
+    } catch (Exception e) {
+      return null;
+    }
   }
 
   private static String extractOptionCNoteValue(String additionalNotes, String key) {
@@ -564,6 +602,8 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         //   v3 paradigm 으로 원본 사용 TJ 가 보존된 상태에서 재차감 TJ 가 함께 합산되면 PT_USE_SALE 가 두 배가 됨.
         AND (AdditionalNotes__c = NULL
         OR AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
+        AND (AdditionalNotes__c = NULL
+        OR (NOT AdditionalNotes__c LIKE :OPTION_C_RETURN_DEPOSIT_DELETE_USAGE_RESTORE_NOTE_LIKE))
         // [scn6 R2-9 Fix 2026-04-27] 통반품/전체판매 DELETE 시 에코포인트 취소 Debit TJ 제외
         //   FULL_RETURN_ECO_POINT_CANCEL 마커가 붙은 Api Forced Debit TJ 는 사용이 아닌 소멸이므로 PT_USE_SALE 에 합산되면 안 됨.
         //   (현재 PaymentMethod=null 이라 자연 제외되지만 방어적 일관성을 위해 명시)
@@ -610,7 +650,7 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       Integer amount = tj.TransactionAmount == null ? 0 : tj.TransactionAmount.abs().intValue();
       String journalSubTypeName = tj.JournalSubType != null ? tj.JournalSubType.Name : null;
       Boolean isExcludedSubType = journalSubTypeName != null && EXCLUDED_PAYMENT_JOURNAL_SUBTYPES.contains(journalSubTypeName);
-      Boolean isPointRestoreHelper = tj.AdditionalNotes__c == RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE
+      Boolean isPointRestoreHelper = isReturnDepositDeletePointRestoreHelperNote(tj.AdditionalNotes__c)
           || tj.AdditionalNotes__c == ADDITIONAL_NOTE_FULL_RETURN_ECO_POINT_CANCEL;
 
       Map<Id, Integer> targetMap;
@@ -854,6 +894,11 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
           && ll.TransactionJournal.OrderId != null
           && ll.TransactionJournal.JournalSubType != null
           && ll.TransactionJournal.JournalSubType.Name == JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL) {
+        Id directOriginCreditLLId = extractOriginCreditLedgerId(ll.AdditionalNotes);
+        if (directOriginCreditLLId != null) {
+          result.put(ll.Id, directOriginCreditLLId);
+          continue;
+        }
         Id oid = ll.TransactionJournal.OrderId;
         cancelLLToOrder.put(ll.Id, oid);
         cancelLLToSubtype.put(ll.Id, ll.LoyaltyPgmCrcySubtypeId);
@@ -1053,10 +1098,16 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
           && ll.TransactionJournal.OrderId != null
           && ll.TransactionJournal.JournalSubType != null
           && ll.TransactionJournal.JournalSubType.Name == JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL) {
+        Id directOriginCreditLLId = extractOriginCreditLedgerId(ll.AdditionalNotes);
+        Integer cancelPoints = ll.Points == null ? 0 : ll.Points.abs().intValue();
+        if (directOriginCreditLLId != null && cancelPoints > 0) {
+          result.put(ll.Id, new List<OriginPortion>{ new OriginPortion(directOriginCreditLLId, cancelPoints) });
+          continue;
+        }
         cancelLLToOrder.put(ll.Id, ll.TransactionJournal.OrderId);
         cancelLLToSubtype.put(ll.Id, ll.LoyaltyPgmCrcySubtypeId);
         cancelLLToExpiry.put(ll.Id, ll.ExpiryDate);
-        cancelLLToPoints.put(ll.Id, ll.Points == null ? 0 : ll.Points.abs().intValue());
+        cancelLLToPoints.put(ll.Id, cancelPoints);
         targetOrderIds.add(ll.TransactionJournal.OrderId);
       }
     }
@@ -1285,6 +1336,8 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         //   원 적립 Credit 의 PT_USE 가 두 배가 되는 문제(시나리오5 의 판매1 구매포인트 8000) 해결.
         AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
         OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
+        AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
+        OR (NOT DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c LIKE :OPTION_C_RETURN_DEPOSIT_DELETE_USAGE_RESTORE_NOTE_LIKE))
         // [scn6 R2-9 Fix 2026-04-27] 통반품/전체판매 DELETE 시 에코포인트 취소 Debit LLT 제외
         //   FULL_RETURN_ECO_POINT_CANCEL 마커가 붙은 Api Forced Debit TJ 의 LLT 는 사용 흔적이 아니라
         //   소멸 흔적이므로 PT_USE 에 합산되면 안 됨.
@@ -1587,6 +1640,8 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :ADDITIONAL_NOTE_FULL_RETURN_ECO_POINT_CANCEL)
         AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
         OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
+        AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
+        OR (NOT DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c LIKE :OPTION_C_RETURN_DEPOSIT_DELETE_USAGE_RESTORE_NOTE_LIKE))
         AND DebitLoyaltyLedger.TransactionJournalId NOT IN :excludeDebitTjIds
       GROUP BY CreditLoyaltyLedgerId, DebitLoyaltyLedger.TransactionJournal.OrderId
       LIMIT 50000
@@ -2956,7 +3011,7 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
           && ll.TransactionJournal.JournalSubType != null
           && ll.TransactionJournal.JournalSubType.Name == JOURNAL_SUB_TYPE_NAME_POINT_DEBIT
           && ll.Points != null
-          && ll.TransactionJournal.AdditionalNotes__c != RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE) {
+          && !isReturnDepositDeletePointRestoreHelperNote(ll.TransactionJournal.AdditionalNotes__c)) {
         Id debitOrderId = ll.TransactionJournal.OrderId;
         Integer amt = ll.Points.abs().intValue();
         Boolean isDeleted = ll.TransactionJournal.IsDeleted__c == true;
@@ -3016,6 +3071,10 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       }
       String note = ll.TransactionJournal.AdditionalNotes__c;
       Boolean isOptionCForceCreditRestore = isOptionCReturnRestoreCreditNote(note);
+      Boolean isPointRedeemCancelCredit = ll.TransactionJournal.JournalSubType != null
+          && ll.TransactionJournal.JournalSubType.Name == JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL;
+      Id directOriginCreditLLId = extractOriginCreditLedgerId(ll.AdditionalNotes);
+      Boolean hasDirectOriginCreditLL = directOriginCreditLLId != null && isPointRedeemCancelCredit;
       Boolean isUnmarkedReturnPurchaseAccrualRestore =
           note == null
           && ll.TransactionJournal.JournalType != null
@@ -3029,7 +3088,8 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
           && note != RESTORE_PROMOTION_ACCRUAL_NOTE
           && note != ECO_POINT_RESTORE_NOTE
           && !isOptionCForceCreditRestore
-          && !isUnmarkedReturnPurchaseAccrualRestore) {
+          && !isUnmarkedReturnPurchaseAccrualRestore
+          && !hasDirectOriginCreditLL) {
         continue;
       }
       Boolean isDeletedReturnRestore = ll.TransactionJournal.SaleId__r != null
@@ -3043,7 +3103,8 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       List<LoyaltyLedger> originCandidates = originCreditsByRestoreKey.get(key);
       List<OriginPortion> directOptionCPortions = optionCRestoreOriginPortionsBySourceTj.get(ll.Id);
       if ((originCandidates == null || originCandidates.isEmpty())
-          && (directOptionCPortions == null || directOptionCPortions.isEmpty())) {
+          && (directOptionCPortions == null || directOptionCPortions.isEmpty())
+          && directOriginCreditLLId == null) {
         continue;
       }
       Integer restorePoints = ll.Points.abs().intValue();
@@ -3051,7 +3112,9 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         continue;
       }
       List<OriginPortion> portions = new List<OriginPortion>();
-      if (directOptionCPortions != null && !directOptionCPortions.isEmpty()) {
+      if (directOriginCreditLLId != null) {
+        portions.add(new OriginPortion(directOriginCreditLLId, restorePoints));
+      } else if (directOptionCPortions != null && !directOptionCPortions.isEmpty()) {
         portions.addAll(directOptionCPortions);
       } else {
         Integer candidateTotal = 0;
@@ -3444,6 +3507,8 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
         OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
         AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
+        OR (NOT DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c LIKE :OPTION_C_RETURN_DEPOSIT_DELETE_USAGE_RESTORE_NOTE_LIKE))
+        AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
         OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :ADDITIONAL_NOTE_FULL_RETURN_ECO_POINT_CANCEL)
         AND (DebitLoyaltyLedger.TransactionJournalId NOT IN :excludeDebitTjIds))
         OR ((ActionType = 'DebitCancellation'
@@ -3554,9 +3619,12 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
             if (portions != null && !portions.isEmpty()) {
               OriginPortion originPortion = portions[0];
               Id originCreditLLId = originPortion == null ? null : originPortion.originCreditLLId;
-              response.NO_SAL_SAVE = originCreditLLId != null && saleNoByCreditLLId.containsKey(originCreditLLId)
+              String originSaleNo = originCreditLLId != null && saleNoByCreditLLId.containsKey(originCreditLLId)
                 ? saleNoByCreditLLId.get(originCreditLLId)
                 : '';
+              if (String.isNotBlank(originSaleNo)) {
+                response.NO_SAL_SAVE = originSaleNo;
+              }
               if (originCreditLLId != null && ledgerIdToActivityDateForDisplay.containsKey(originCreditLLId)) {
                 Datetime originActivityDate = ledgerIdToActivityDateForDisplay.get(originCreditLLId);
                 if (originActivityDate != null) {

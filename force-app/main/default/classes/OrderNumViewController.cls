@@ -1740,7 +1740,7 @@ public with sharing class OrderNumViewController {
         AdditionalNotes__c,
         DepositType__c
       FROM TransactionJournal
-      WHERE (OrderId IN :saleOrderIds OR SaleId__c IN :saleOrderIds) AND TransactionAmount != NULL
+      WHERE (OrderId IN :saleOrderIds OR SaleId__c IN :saleOrderIds) AND TransactionAmount != NULL AND (IsDeleted__c = FALSE OR IsDeleted__c = NULL)
     ]) {
       if (!isOriginalSaleJournalForSet(journal, saleOrderIds)) {
         continue;
@@ -2565,6 +2565,8 @@ public with sharing class OrderNumViewController {
         OR OrderId IN :orderIds)
         AND Order.IsReductionOrder__c = FALSE
         AND TransactionAmount != NULL
+        AND (IsDeleted__c = FALSE
+        OR IsDeleted__c = NULL)
         AND PaymentMethod != NULL
         AND ((JournalType.Name = 'Deposit'
         AND JournalSubTypeId = :saleDepositSubTypeId)
@@ -2794,6 +2796,7 @@ public with sharing class OrderNumViewController {
       'WHERE Order.SaleNo__c IN :saleNumbers ' +
       'AND Order.IsReductionOrder__c = FALSE ' +
       'AND TransactionAmount != NULL ' +
+      'AND (IsDeleted__c = FALSE OR IsDeleted__c = NULL) ' +
       'AND PaymentMethod != NULL ' +
       'AND ((JournalType.Name = \'Deposit\' AND JournalSubTypeId = :saleDepositSubTypeId) ' +
       'OR (JournalType.Name = \'Deposit Reversal\' AND JournalSubTypeId = :saleDepositReversalSubTypeId)) ';

@@ -1,0 +1,19 @@
+2026-05-10T09:16:41.000+0000  a12JO000000MeI9YAK  ErpAsyncJob
+  url=callout:GoldenDewApiNC/Crm/CouponDetail
+  req={"couponDetailModels":[{"no_mbr":"TEST02006","no_man_coupon_mil":"00218247","no_man_coupon":"COP2026MY0011","id_insert":"milvus"}]}
+  resp={"code":0,"success":false,"message":"SQL - 회원이 존재하지 않습니다.","data":null}
+
+2026-05-10T09:18:37.000+0000  a12JO000000Mdh4YAC  ErpAsyncJob
+  url=callout:GoldenDewApiNC/Crm/CouponDetail
+  req={"couponDetailModels":[{"no_mbr":"TEST02006","no_man_coupon_mil":"AKU33FUQ","no_man_coupon":"COP2026MY0011","id_insert":"milvus"}]}
+  resp={"code":0,"success":false,"message":"SQL - 회원이 존재하지 않습니다.","data":null}
+
+2026-05-10T09:18:37.000+0000  a12JO000000Me8aYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V006",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202604161041",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__c": null,             "ProductCode": "2A2600001",
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|2.00",       "PT_TARGET" : 18000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202604161041",       "NO_MBR" : "TEST02006",       "NO_GRADE_ADVAN" : "04",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-10 18:18:36",       "DT_SAVE_PLAN" : null,   
+
+2026-05-10T09:22:18.000+0000  a12JO000000MeJoYAK  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V007",      "OriginalOrderId": "SAL02V006",      "ActualPaymentAmount__c": 1000000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -2,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRate__c": 0          }     ],     "TransactionJourn
+  resp={   "success" : true,   "message" : "반품 등록 완료",   "data" : {     "CancelPointsCreditedList" : [ {       "PT_USE" : 18000.0000,       "NO_SAL_RTN" : null,       "NO_SAL" : "SAL02V006",       "NO_MBR" : "TEST02006",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-10 18:22:17",       "CD_TYPE_POINT" : "01",       "CD_RESON" : "6",       "CD_LEDGER" : "05wJO0000004QITYA2",       "CD_JOURNAL" :

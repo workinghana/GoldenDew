@@ -1,0 +1,119 @@
+2026-05-10T09:03:59.000+0000  a12JO000000Me3gYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V002",     "ActualPaymentAmount__c": 10000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202604161041",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo_
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|2.00",       "PT_TARGET" : 200000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202604161041",       "NO_MBR" : "TEST02006",       "NO_GRADE_ADVAN" : "04", 
+
+2026-05-10T09:04:53.000+0000  a12JO000000Me5FYAS  GdPointCreditApiControllerV1
+  url=/gd/v1/point/credit
+  req={     "MemberNo__c": "TEST02006",     "PointsList": [         {             "point": 9000.0,             "cd_type_point": "05"         }     ],     "SaleNo__c": "SAL02V002",     "EndDate": "" }
+  resp={   "success" : true,   "message" : "포인트 지급 성공",   "data" : {     "PointCreditList" : [ {       "TX_REMARK" : "이벤트포인트",       "PT_TARGET" : 9000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : null,       "NO_MBR" : "TEST02006",       "NO_GRADE_ADVAN" : null,       "ID_INSERT" : null,       "DTS_
+
+2026-05-10T09:07:41.000+0000  a12JO000000MeA6YAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V003",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202604161041",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__
+  resp={   "success" : false,   "message" : "Insert failed. First exception on row 0; first error: DUPLICATE_VALUE, 중복 값 발견: DepositNo__c이(가) ID가 다음과 같은 레코드의 값과 중복됩니다. 0lVJO000000CH3V2AW: []",   "code" : 500 }
+
+2026-05-10T09:07:50.000+0000  a12JO000000MeBkYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V003",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202604161041",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|2.00",       "PT_TARGET" : 13400.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202604161041",       "NO_MBR" : "TEST02006",       "NO_GRADE_ADVAN" : "04",  
+
+2026-05-10T09:09:58.000+0000  a12JO000000MeDKYA0  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V004",     "ActualPaymentAmount__c": 2000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202604161041",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__
+  resp={   "success" : false,   "message" : "포인트 잔액이 부족합니다. 사용 가능 금액: 878652P (요청: 1000000P)",   "code" : 400 }
+
+2026-05-10T09:10:32.000+0000  a12JO000000MdnZYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V004",     "ActualPaymentAmount__c": 2000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202604161041",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|2.00",       "PT_TARGET" : 22600.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202604161041",       "NO_MBR" : "TEST02006",       "NO_GRADE_ADVAN" : "04",  
+
+2026-05-10T09:13:58.000+0000  a12JO000000MeGXYA0  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V004",      "OriginalOrderId": "SAL02V002",      "ActualPaymentAmount__c": 9000000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -18,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRa
+  resp={   "success" : false,   "message" : "SaleNo__c already exists.",   "code" : 400 }
+
+2026-05-10T09:14:05.000+0000  a12JO000000MdUBYA0  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V005",      "OriginalOrderId": "SAL02V002",      "ActualPaymentAmount__c": 9000000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -18,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRa
+  resp={   "success" : false,   "message" : "반품 입금 등록 불가 — 적립된 포인트가 다른 주문/판매에서 이미 사용되었습니다. 판매번호: SAL02V004 / 입금번호: DEP02V004-2",   "code" : 400 }
+
+2026-05-10T09:16:41.000+0000  a12JO000000MeI9YAK  ErpAsyncJob
+  url=callout:GoldenDewApiNC/Crm/CouponDetail
+  req={"couponDetailModels":[{"no_mbr":"TEST02006","no_man_coupon_mil":"00218247","no_man_coupon":"COP2026MY0011","id_insert":"milvus"}]}
+  resp={"code":0,"success":false,"message":"SQL - 회원이 존재하지 않습니다.","data":null}
+
+2026-05-10T09:18:37.000+0000  a12JO000000Mdh4YAC  ErpAsyncJob
+  url=callout:GoldenDewApiNC/Crm/CouponDetail
+  req={"couponDetailModels":[{"no_mbr":"TEST02006","no_man_coupon_mil":"AKU33FUQ","no_man_coupon":"COP2026MY0011","id_insert":"milvus"}]}
+  resp={"code":0,"success":false,"message":"SQL - 회원이 존재하지 않습니다.","data":null}
+
+2026-05-10T09:18:37.000+0000  a12JO000000Me8aYAC  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V006",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202604161041",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|2.00",       "PT_TARGET" : 18000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202604161041",       "NO_MBR" : "TEST02006",       "NO_GRADE_ADVAN" : "04",  
+
+2026-05-10T09:22:18.000+0000  a12JO000000MeJoYAK  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V007",      "OriginalOrderId": "SAL02V006",      "ActualPaymentAmount__c": 1000000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -2,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRat
+  resp={   "success" : true,   "message" : "반품 등록 완료",   "data" : {     "CancelPointsCreditedList" : [ {       "PT_USE" : 18000.0000,       "NO_SAL_RTN" : null,       "NO_SAL" : "SAL02V006",       "NO_MBR" : "TEST02006",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-10 18:22:17",       "CD_TYPE_P
+
+2026-05-10T09:27:25.000+0000  a12JO000000MeN2YAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V008",     "ActualPaymentAmount__c": 1500000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202605021069",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "사은포인트|11cJO000001BAY9YAO|3.00",       "PT_TARGET" : 45000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202605021069",       "NO_MBR" : "TEST02006",       "NO_GRADE_ADVAN" : "04",  
+
+2026-05-10T09:27:58.000+0000  a12JO000000MeObYAK  GdPointCreditApiControllerV1
+  url=/gd/v1/point/credit
+  req={     "MemberNo__c": "TEST02006",     "PointsList": [         {             "point": 6000.0,             "cd_type_point": "05"         }     ],     "SaleNo__c": "SAL02V008",     "EndDate": "" }
+  resp={   "success" : true,   "message" : "포인트 지급 성공",   "data" : {     "PointCreditList" : [ {       "TX_REMARK" : "이벤트포인트",       "PT_TARGET" : 6000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : null,       "NO_MBR" : "TEST02006",       "NO_GRADE_ADVAN" : null,       "ID_INSERT" : null,       "DTS_
+
+2026-05-10T09:29:39.000+0000  a12JO000000McMuYAK  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V009",      "OriginalOrderId": "SAL02V008",      "ActualPaymentAmount__c": 500000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -1,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRate
+  resp={   "success" : true,   "message" : "반품 등록 완료",   "data" : {     "CancelPointsCreditedList" : [ {       "PT_USE" : 15000.0000,       "NO_SAL_RTN" : null,       "NO_SAL" : "SAL02V008",       "NO_MBR" : "TEST02006",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-10 18:29:39",       "CD_TYPE_P
+
+2026-05-10T09:33:34.000+0000  a12JO000000MeRsYAK  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V010",      "OriginalOrderId": "SAL02V008",      "ActualPaymentAmount__c": 500000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -1,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRate
+  resp={   "success" : true,   "message" : "반품 등록 완료",   "data" : {     "CancelPointsCreditedList" : [ {       "PT_USE" : 15000.0000,       "NO_SAL_RTN" : null,       "NO_SAL" : "SAL02V008",       "NO_MBR" : "TEST02006",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-10 18:33:34",       "CD_TYPE_P
+
+2026-05-10T09:34:59.000+0000  a12JO000000MeV4YAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V011",     "ActualPaymentAmount__c": 500000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202605021069",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__c
+  resp={   "success" : false,   "message" : "Insert failed. First exception on row 0; first error: DUPLICATE_VALUE, 중복 값 발견: DepositNo__c이(가) ID가 다음과 같은 레코드의 값과 중복됩니다. 0lVJO000000CHMr2AO: []",   "code" : 500 }
+
+2026-05-10T09:35:15.000+0000  a12JO000000MeWiYAK  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V011",     "ActualPaymentAmount__c": 500000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202605021069",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__c
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "사은포인트|11cJO000001BAY9YAO|3.00",       "PT_TARGET" : 13200.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202605021069",       "NO_MBR" : "TEST02006",       "NO_GRADE_ADVAN" : "04",  
+
+2026-05-10T09:40:56.000+0000  a12JO000000MedAYAS  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V012",      "OriginalOrderId": "SAL02V011",      "ActualPaymentAmount__c": 500000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -1,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRate
+  resp={   "success" : true,   "message" : "반품 등록 완료",   "data" : {     "CancelPointsCreditedList" : [ {       "PT_USE" : 13200.0000,       "NO_SAL_RTN" : null,       "NO_SAL" : "SAL02V011",       "NO_MBR" : "TEST02006",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-10 18:40:55",       "CD_TYPE_P
+
+2026-05-10T09:42:24.000+0000  a12JO000000Md9FYAS  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V013",      "OriginalOrderId": "SAL02V008",      "ActualPaymentAmount__c": 500000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -1,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRate
+  resp={   "success" : true,   "message" : "반품 등록 완료",   "data" : {     "CancelPointsCreditedList" : [ {       "PT_USE" : 15000.0000,       "NO_SAL_RTN" : null,       "NO_SAL" : "SAL02V008",       "NO_MBR" : "TEST02006",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-10 18:42:23",       "CD_TYPE_P
+
+2026-05-10T09:44:56.000+0000  a12JO000000MdxDYAS  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "OrderNo__c": "SOR02V013",     "ActualPaymentAmount__c": 1000000.0,     "OrderStatus__c": "01",     "Type": "01",     "PromotionNo__c": "PRO202604161041",     "OrderItem": [         {             "OrderSeqNo__c": "1",             "Status__c": "01
+  resp={   "success" : false,   "message" : "Insert failed. First exception on row 0; first error: DUPLICATE_VALUE, 중복 값 발견: DepositNo__c이(가) ID가 다음과 같은 레코드의 값과 중복됩니다. 0lVJO000000CHZl2AO: []",   "code" : 500 }
+
+2026-05-10T09:45:08.000+0000  a12JO000000Mei0YAC  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "OrderNo__c": "SOR02V014",     "ActualPaymentAmount__c": 1000000.0,     "OrderStatus__c": "01",     "Type": "01",     "PromotionNo__c": "PRO202604161041",     "OrderItem": [         {             "OrderSeqNo__c": "1",             "Status__c": "01
+  resp={   "success" : true,   "message" : "주문 등록 완료",   "data" : {     "DebitPointList" : [ ],     "isGoldenBar" : false,     "oiList" : [ {       "attributes" : {         "type" : "OrderItem",         "url" : "/services/data/v67.0/sobjects/OrderItem/802JO0000054690YAA"       },       "OrderId" : "801JO00
+
+2026-05-10T09:47:52.000+0000  a12JO000000MelEYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "1000",     "StoreCode__c": "99998",     "MemberNo__c": "TEST02006",     "SaleNo__c": "SAL02V015",     "ActualPaymentAmount__c": 1000000.0,     "EndDate": "20260510",     "SaleStatus__c": "01",     "PromotionNo__c": "PRO202604161041",     "OrderItem": [         {             "SaleSeqNo__c": "1",             "OrderNo__
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|2.00",       "PT_TARGET" : 18000.0000,       "NO_SAL" : null,       "NO_PROM_MBR" : "PRO202604161041",       "NO_MBR" : "TEST02006",       "NO_GRADE_ADVAN" : "04",  
+
+2026-05-10T10:00:48.000+0000  a12JO000000MeuuYAC  GdReturnApiControllerV1
+  url=/gd/v1/return
+  req={     "SaleNo__c": "SAL02V016",      "OriginalOrderId": "SAL02V015",      "ActualPaymentAmount__c": 500000,      "OrderItem": [          {             "SaleSeqNo__c": "1",              "ProductCode": "2A2600001",              "Quantity": -1,              "isExclude": false,              "NetSalesUnitPrice__c": 500000.0,              "DiscountRate
+  resp={   "success" : true,   "message" : "반품 등록 완료",   "data" : {     "CancelPointsCreditedList" : [ {       "PT_USE" : 8400.0000,       "NO_SAL_RTN" : null,       "NO_SAL" : "SAL02V015",       "NO_MBR" : "TEST02006",       "ID_INSERT" : null,       "DTS_INSERT" : "2026-05-10 19:00:48",       "CD_TYPE_PO

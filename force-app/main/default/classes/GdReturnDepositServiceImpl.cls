@@ -85,27 +85,26 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     List<Voucher> voucherList = new List<Voucher>();
 
     if (String.isNotBlank(searchVoucherCode) && searchVoucherCode.contains(';-;')) {
-        String couponManNo = searchVoucherCode.substringBefore(';-;');
-        String realVoucherCode = searchVoucherCode.substringAfter(';-;'); 
-        
-        voucherList = [
-            SELECT UsedTransactionJournalId__c, UsedTransactionJournalId__r.OrderId, UsedTransactionJournalId__r.OrderId__c
-            FROM Voucher
-            WHERE VoucherCode = :realVoucherCode 
-              AND LoyaltyProgramMemberId = :tj.MemberId 
-              AND Status = 'Redeemed'
-              AND VoucherDefinition.CouponManNo__c = :couponManNo
-            LIMIT 1
-        ];
+      String couponManNo = searchVoucherCode.substringBefore(';-;');
+      String realVoucherCode = searchVoucherCode.substringAfter(';-;');
+
+      voucherList = [
+        SELECT UsedTransactionJournalId__c, UsedTransactionJournalId__r.OrderId, UsedTransactionJournalId__r.OrderId__c
+        FROM Voucher
+        WHERE
+          VoucherCode = :realVoucherCode
+          AND LoyaltyProgramMemberId = :tj.MemberId
+          AND Status = 'Redeemed'
+          AND VoucherDefinition.CouponManNo__c = :couponManNo
+        LIMIT 1
+      ];
     } else {
-        voucherList = [
-            SELECT UsedTransactionJournalId__c, UsedTransactionJournalId__r.OrderId, UsedTransactionJournalId__r.OrderId__c
-            FROM Voucher
-            WHERE VoucherCode = :searchVoucherCode 
-              AND LoyaltyProgramMemberId = :tj.MemberId 
-              AND Status = 'Redeemed'
-            LIMIT 1
-        ];
+      voucherList = [
+        SELECT UsedTransactionJournalId__c, UsedTransactionJournalId__r.OrderId, UsedTransactionJournalId__r.OrderId__c
+        FROM Voucher
+        WHERE VoucherCode = :searchVoucherCode AND LoyaltyProgramMemberId = :tj.MemberId AND Status = 'Redeemed'
+        LIMIT 1
+      ];
     }
 
     if (voucherList.isEmpty() || voucherList[0].UsedTransactionJournalId__c == null) {
@@ -235,28 +234,38 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           }
           continue;
         }
-              System.debug('1');
+        System.debug('1');
 
         if ('81'.equals(paymentMethod)) {
           // 포인트 사용 취소 (03 = 환불)
           if ('03'.equals(depositType)) {
             // Long actionStartMs = Datetime.now().getTime();
             // Integer actionStartCpu = Limits.getCpuTime();
-              System.debug('121');
+            System.debug('121');
             Map<String, Object> cancelPointResult = pointSvc.cancelPointRedemption(tj);
-              System.debug('122');
+            System.debug('122');
             // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.cancelPointRedemption', actionStartMs, actionStartCpu);
             data.put('CancelPointList', cancelPointResult);
           }
           // 포인트 사용 (01 = 선수금 | 02 = 잔금)
           else if ('01'.equals(depositType) || '02'.equals(depositType)) {
+            // 신규 로직 (26.05.11 CS)
+            throw new CustomException(400, '반품 시 입금 구분 코드 오류. 입금 구분 코드 : ' + depositType);
+            // 반품 등록 시 depositType는 '03'으로만 들어 온다고 함.
+
             // Long actionStartMs = Datetime.now().getTime();
             // Integer actionStartCpu = Limits.getCpuTime();
-              System.debug('123');
+
+            /*
+            // 기존 로직
+            System.debug('123');
             List<GdSaleApiController.PointDebitDTO> debitPointList = pointSvc.debitPoint(tj);
-              System.debug('124');
-            // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.debitPoint', actionStartMs, actionStartCpu);
+            System.debug('124');
             data.put('DebitPointList', debitPointList);
+
+            */
+
+            // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.debitPoint', actionStartMs, actionStartCpu);
           }
         } else {
           tj.Status = 'Processed';
@@ -272,7 +281,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           tjList.add(tj);
         }
       }
-              System.debug('12');
+      System.debug('12');
 
       // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.depositLoop', totalStartMs, totalStartCpu);
       if (!tjList.isEmpty()) {
@@ -285,7 +294,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           }
         }
       }
-              System.debug('13');
+      System.debug('13');
 
       // 구매 시 포인트 적립 로직
       if (!depositTransactionList.isEmpty()) {
@@ -307,7 +316,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           data.put('CreditPointList', creditPointList);
         }
       }
-              System.debug('14');
+      System.debug('14');
 
       // 구매 시 포인트 적립 취소 로직
       if (!cancelDepositTransactionList.isEmpty()) {
@@ -341,11 +350,12 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           // [Refunded Usage Exclusion 2026-05-08] deleteSale 과 동일 패턴 — Cancel Credit 환불/재사용 차감 식.
           //   기존 단순 LLT 매칭 검증 → calculateUnrefundedUsage 로 환불받은 사용분 자동 제외.
           //   부분 반품도 같은 정합 정책 적용 (B 반품 후 A 적립이 회수 가능한 경우만 차단).
-          GdSaleServiceImpl.UnrefundedUsageResult validationResult =
-            GdSaleServiceImpl.calculateUnrefundedUsage(originalOrderId);
+          GdSaleServiceImpl.UnrefundedUsageResult validationResult = GdSaleServiceImpl.calculateUnrefundedUsage(originalOrderId);
           if (validationResult.shouldBlock()) {
-            throw new CustomException(400,
-              validationResult.buildBlockMessage('반품 입금 등록 불가 — 적립된 포인트가 다른 주문/판매에서 이미 사용되었습니다.'));
+            throw new CustomException(
+              400,
+              validationResult.buildBlockMessage('반품 입금 등록 불가 — 적립된 포인트가 다른 주문/판매에서 이미 사용되었습니다.')
+            );
           }
         }
 
@@ -357,7 +367,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
         // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.cancelPointsCreditedOnPurchase', actionStartMs, actionStartCpu);
         data.put('CancelPointsCreditedList', cancelPointsCreditedList);
       }
-              System.debug('15');
+      System.debug('15');
 
       // 통반품 여부 확인
       if (isFullReturn(originalOrderId)) {
@@ -401,31 +411,30 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
 
           // 26.05.01 GD - 쿠폰 코드 분할 쿠폰 조회
           String searchVoucherCode = couponUsedOrderJournalList[0].VoucherCode;
-          Id memberId = couponUsedOrderJournalList[0].MemberId;           
+          Id memberId = couponUsedOrderJournalList[0].MemberId;
           List<Voucher> percentageVouchers = new List<Voucher>();
 
           if (String.isNotBlank(searchVoucherCode) && searchVoucherCode.contains(';-;')) {
-              String couponManNo = searchVoucherCode.substringBefore(';-;');
-              String realVoucherCode = searchVoucherCode.substringAfter(';-;');
-              
-              percentageVouchers = [
-                  SELECT Id
-                  FROM Voucher
-                  WHERE VoucherCode = :realVoucherCode
-                    AND VoucherDefinition.CouponManNo__c = :couponManNo
-                    AND LoyaltyProgramMemberId = :memberId
-                    AND VoucherDefinition.Type = 'DiscountPercentage'
-                  LIMIT 1
-              ];
+            String couponManNo = searchVoucherCode.substringBefore(';-;');
+            String realVoucherCode = searchVoucherCode.substringAfter(';-;');
+
+            percentageVouchers = [
+              SELECT Id
+              FROM Voucher
+              WHERE
+                VoucherCode = :realVoucherCode
+                AND VoucherDefinition.CouponManNo__c = :couponManNo
+                AND LoyaltyProgramMemberId = :memberId
+                AND VoucherDefinition.Type = 'DiscountPercentage'
+              LIMIT 1
+            ];
           } else {
-              percentageVouchers = [
-                  SELECT Id
-                  FROM Voucher
-                  WHERE VoucherCode = :searchVoucherCode
-                    AND LoyaltyProgramMemberId = :memberId 
-                    AND VoucherDefinition.Type = 'DiscountPercentage'
-                  LIMIT 1
-              ];
+            percentageVouchers = [
+              SELECT Id
+              FROM Voucher
+              WHERE VoucherCode = :searchVoucherCode AND LoyaltyProgramMemberId = :memberId AND VoucherDefinition.Type = 'DiscountPercentage'
+              LIMIT 1
+            ];
           }
           //
 
@@ -694,12 +703,14 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           if (!expiredLedgers.isEmpty()) {
             List<Map<String, Object>> expiredSkipped = new List<Map<String, Object>>();
             for (LoyaltyLedger ll : expiredLedgers) {
-              expiredSkipped.add(new Map<String, Object>{
-                'PointTypeName' => ll.LoyaltyPgmCrcySubtype.Name,
-                'Points' => ll.Points,
-                'ExpiryDate' => ll.ExpiryDate,
-                'Note' => '만료 포인트 재차감 스킵 (사용 상태 유지)'
-              });
+              expiredSkipped.add(
+                new Map<String, Object>{
+                  'PointTypeName' => ll.LoyaltyPgmCrcySubtype.Name,
+                  'Points' => ll.Points,
+                  'ExpiryDate' => ll.ExpiryDate,
+                  'Note' => '만료 포인트 재차감 스킵 (사용 상태 유지)'
+                }
+              );
             }
             data.put('포인트 사용 만료 확정(재차감 스킵)', expiredSkipped);
           }
@@ -720,29 +731,40 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           List<Voucher> vList = new List<Voucher>();
 
           if (String.isNotBlank(searchVoucherCode) && searchVoucherCode.contains(';-;')) {
-              String couponManNo = searchVoucherCode.substringBefore(';-;');
-              String realVoucherCode = searchVoucherCode.substringAfter(';-;'); 
-              
-              vList = [
-                  SELECT Id, Status, ExpirationDate, VoucherCode, LoyaltyProgramMemberId,
-                        VoucherDefinitionId, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c,
-                        UsedTransactionJournalId__c
-                  FROM Voucher
-                  WHERE VoucherCode = :realVoucherCode
-                    AND VoucherDefinition.CouponManNo__c = :couponManNo
-                    AND LoyaltyProgramMemberId = :sourceTj.MemberId
-                  LIMIT 1
-              ];
+            String couponManNo = searchVoucherCode.substringBefore(';-;');
+            String realVoucherCode = searchVoucherCode.substringAfter(';-;');
+
+            vList = [
+              SELECT
+                Id,
+                Status,
+                ExpirationDate,
+                VoucherCode,
+                LoyaltyProgramMemberId,
+                VoucherDefinitionId,
+                VoucherDefinition.Name,
+                VoucherDefinition.IsUnlimited__c,
+                UsedTransactionJournalId__c
+              FROM Voucher
+              WHERE VoucherCode = :realVoucherCode AND VoucherDefinition.CouponManNo__c = :couponManNo AND LoyaltyProgramMemberId = :sourceTj.MemberId
+              LIMIT 1
+            ];
           } else {
-              vList = [
-                  SELECT Id, Status, ExpirationDate, VoucherCode, LoyaltyProgramMemberId,
-                        VoucherDefinitionId, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c,
-                        UsedTransactionJournalId__c
-                  FROM Voucher
-                  WHERE VoucherCode = :searchVoucherCode
-                    AND LoyaltyProgramMemberId = :sourceTj.MemberId
-                  LIMIT 1
-              ];
+            vList = [
+              SELECT
+                Id,
+                Status,
+                ExpirationDate,
+                VoucherCode,
+                LoyaltyProgramMemberId,
+                VoucherDefinitionId,
+                VoucherDefinition.Name,
+                VoucherDefinition.IsUnlimited__c,
+                UsedTransactionJournalId__c
+              FROM Voucher
+              WHERE VoucherCode = :searchVoucherCode AND LoyaltyProgramMemberId = :sourceTj.MemberId
+              LIMIT 1
+            ];
           }
 
           if (vList.isEmpty()) {
@@ -763,22 +785,28 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
             // 만료 후 반품으로 Redeemed 유지된 쿠폰: 상태 변경 없이 기록 TJ 만 insert
             newTj.AdditionalNotes__c = '반품 입금 삭제: 쿠폰 사용 상태 유지 (만료 후 반품 취소)';
             insert newTj;
-            data.put('쿠폰 상태 유지', new Map<String, Object>{
-              'VoucherCode' => v.VoucherCode,
-              'Status' => v.Status,
-              'ExpirationDate' => v.ExpirationDate,
-              'Note' => '만료 후 반품 취소 - 쿠폰 Redeemed 상태 유지'
-            });
+            data.put(
+              '쿠폰 상태 유지',
+              new Map<String, Object>{
+                'VoucherCode' => v.VoucherCode,
+                'Status' => v.Status,
+                'ExpirationDate' => v.ExpirationDate,
+                'Note' => '만료 후 반품 취소 - 쿠폰 Redeemed 상태 유지'
+              }
+            );
           } else if (v.Status == 'Expired') {
             // 레거시 데이터 (과거 반품에서 Expired 로 전이된 쿠폰): 복원 불가, 기록만 남김
             newTj.AdditionalNotes__c = '반품 입금 삭제: 이미 Expired 쿠폰 (레거시 복원 불가)';
             insert newTj;
-            data.put('쿠폰 Expired 상태 유지', new Map<String, Object>{
-              'VoucherCode' => v.VoucherCode,
-              'Status' => v.Status,
-              'ExpirationDate' => v.ExpirationDate,
-              'Note' => '레거시 Expired 쿠폰 - 복원 불가'
-            });
+            data.put(
+              '쿠폰 Expired 상태 유지',
+              new Map<String, Object>{
+                'VoucherCode' => v.VoucherCode,
+                'Status' => v.Status,
+                'ExpirationDate' => v.ExpirationDate,
+                'Note' => '레거시 Expired 쿠폰 - 복원 불가'
+              }
+            );
           } else {
             throw new CustomException(400, '알 수 없는 쿠폰 상태입니다. status=' + v.Status + ', voucherCode=' + v.VoucherCode);
           }
@@ -814,14 +842,16 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           Id purchaseAccrualJtId2 = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_ACCRUAL, true);
           Id purchaseAccrualJstId2 = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_PURCHASE_ACCRUAL, true);
           Boolean hadOriginalPurchaseAccrual = ![
-            SELECT Id FROM LoyaltyLedger
-            WHERE
-              TransactionJournal.OrderId = :sourceTj.OrderId
-              AND TransactionJournal.JournalTypeId = :purchaseAccrualJtId2
-              AND TransactionJournal.JournalSubTypeId = :purchaseAccrualJstId2
-              AND EventType = 'Credit'
-            LIMIT 1
-          ].isEmpty();
+              SELECT Id
+              FROM LoyaltyLedger
+              WHERE
+                TransactionJournal.OrderId = :sourceTj.OrderId
+                AND TransactionJournal.JournalTypeId = :purchaseAccrualJtId2
+                AND TransactionJournal.JournalSubTypeId = :purchaseAccrualJstId2
+                AND EventType = 'Credit'
+              LIMIT 1
+            ]
+            .isEmpty();
 
           if (!hadOriginalPurchaseAccrual) {
             sourceTj.IsDeleted__c = true;
@@ -1281,15 +1311,18 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     for (OrderItem returnOi : [
       // 26.05.05 CS - Quantity 추가. 반품 OrderItem 의 Quantity 를 단가에 곱해서 적립 제외 금액 산출.
       //   IsExclude/단가 판정 기준(원판매 vs 반품) 과 무관하게, 실제 반품된 수량은 returnOi.Quantity 를 사용.
-      SELECT IsExclude__c, NetSalesUnitPrice__c, Quantity, OriginalOrderItemId__c,
-             OriginalOrderItem.IsExclude__c, OriginalOrderItem.NetSalesUnitPrice__c
+      SELECT
+        IsExclude__c,
+        NetSalesUnitPrice__c,
+        Quantity,
+        OriginalOrderItemId__c,
+        OriginalOrderItem.IsExclude__c,
+        OriginalOrderItem.NetSalesUnitPrice__c
       FROM OrderItem
       WHERE OrderId = :returnOrderId
     ]) {
       Boolean isExcluded = returnOi.OriginalOrderItemId__c != null ? returnOi.OriginalOrderItem.IsExclude__c : returnOi.IsExclude__c;
-      Decimal unitPrice = returnOi.OriginalOrderItemId__c != null
-        ? returnOi.OriginalOrderItem.NetSalesUnitPrice__c
-        : returnOi.NetSalesUnitPrice__c;
+      Decimal unitPrice = returnOi.OriginalOrderItemId__c != null ? returnOi.OriginalOrderItem.NetSalesUnitPrice__c : returnOi.NetSalesUnitPrice__c;
 
       if (isExcluded == true) {
         Decimal price = unitPrice != null ? unitPrice : 0;
@@ -1404,7 +1437,12 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
    * 운영 흐름은 insertSaleDepositHistoryByUpdate 내부에서만 호출됨. 외부 호출 금지.
    * 2026-05-05 추가 (Flag ON/OFF 단위 검증용 — 검증 완료 후 제거 가능).
    */
-  public static List<PointDebitDTO> sbVerifyCancelEcoPointsForFullReturn(Id returnOrderId, Id originalOrderId, LoyaltyProgramMember lpm, String insertId) {
+  public static List<PointDebitDTO> sbVerifyCancelEcoPointsForFullReturn(
+    Id returnOrderId,
+    Id originalOrderId,
+    LoyaltyProgramMember lpm,
+    String insertId
+  ) {
     return cancelEcoPointsForFullReturn(returnOrderId, originalOrderId, lpm, insertId);
   }
 
@@ -1600,8 +1638,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     Id apiForcedCreditJstId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_API_FORCED_CREDIT, true);
 
     ctx.originalEcoCreditLedgerList = [
-      SELECT Id, Points, LoyaltyPgmCrcySubtypeId, LoyaltyPgmCrcySubtype.Name,
-             LoyaltyProgramCurrencyId, ExpiryDate, ActivityDate, CreatedDate
+      SELECT Id, Points, LoyaltyPgmCrcySubtypeId, LoyaltyPgmCrcySubtype.Name, LoyaltyProgramCurrencyId, ExpiryDate, ActivityDate, CreatedDate
       FROM LoyaltyLedger
       WHERE
         TransactionJournal.OrderId = :originalOrderId
@@ -1627,9 +1664,10 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     for (AggregateResult ar : [
       SELECT CreditLoyaltyLedgerId creditLedgerId, SUM(Points) totalPoints
       FROM LoyaltyLedgerTraceability
-      WHERE CreditLoyaltyLedgerId IN :ctx.remainingByLedgerId.keySet()
+      WHERE
+        CreditLoyaltyLedgerId IN :ctx.remainingByLedgerId.keySet()
         AND (ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_DEBIT
-             OR ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION)
+        OR ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION)
         AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
         AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
         OR (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE
@@ -1655,7 +1693,12 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
   }
 
   @TestVisible
-  private static List<PointDebitDTO> cancelEcoPointsForFullReturn_v2(Id returnOrderId, Id originalOrderId, LoyaltyProgramMember lpm, String insertId) {
+  private static List<PointDebitDTO> cancelEcoPointsForFullReturn_v2(
+    Id returnOrderId,
+    Id originalOrderId,
+    LoyaltyProgramMember lpm,
+    String insertId
+  ) {
     Savepoint sp = Database.setSavepoint();
     try {
       // 에코포인트 회수했는지 체크 (기존 로직과 동일)
@@ -1811,8 +1854,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       //    ActionType = 'CreditCancellation' 만 합산하므로 통반품 에코 회수를 소멸로 표시하려면 필수
       //  - 기존 (Flag OFF) 로직 line 1392-1410 와 동일 동작
       List<LoyaltyLedgerTraceability> tracesToReplace = [
-        SELECT Id, LoyaltyProgramMemberId, LoyaltyProgramCurrencyId, LoyaltyPgmCurrencySubtypeId,
-               CreditLoyaltyLedgerId, DebitLoyaltyLedgerId, Points
+        SELECT Id, LoyaltyProgramMemberId, LoyaltyProgramCurrencyId, LoyaltyPgmCurrencySubtypeId, CreditLoyaltyLedgerId, DebitLoyaltyLedgerId, Points
         FROM LoyaltyLedgerTraceability
         WHERE Id IN :newTraceList
       ];
@@ -1841,8 +1883,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       List<LoyaltyMemberCurrency> lmcList = [
         SELECT Id, TotalPointsRedeemed
         FROM LoyaltyMemberCurrency
-        WHERE LoyaltyMemberId = :lpm.Id
-          AND LoyaltyProgramCurrency.Id = :loyaltyProgramCurrencyId
+        WHERE LoyaltyMemberId = :lpm.Id AND LoyaltyProgramCurrency.Id = :loyaltyProgramCurrencyId
         LIMIT 1
       ];
       if (!lmcList.isEmpty()) {
@@ -1889,8 +1930,10 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
         pcDto.CD_JOURNAL = llt.CreditLoyaltyLedgerId;
         pcDto.CD_TYPE_POINT = llt.LoyaltyPgmCurrencySubtype != null ? llt.LoyaltyPgmCurrencySubtype.PointTypeCode__c : null;
         pcDto.CD_RESON = ecoCancelTj.JournalReason__c;
-        pcDto.NO_MBR = (llt.LoyaltyProgramMember != null && llt.LoyaltyProgramMember.Contact != null)
-            ? llt.LoyaltyProgramMember.Contact.MemberNo__c : null;
+        pcDto.NO_MBR = (llt.LoyaltyProgramMember != null &&
+          llt.LoyaltyProgramMember.Contact != null)
+          ? llt.LoyaltyProgramMember.Contact.MemberNo__c
+          : null;
         if (orderInfo != null) {
           if (String.isNotBlank(orderInfo.OrderNo__c)) {
             pcDto.NO_SAL = orderInfo.OrderNo__c;
@@ -1954,9 +1997,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     List<LoyaltyLedger> cancelCreditLLs = [
       SELECT Id, LoyaltyPgmCrcySubtypeId, ExpiryDate, TransactionJournal.OrderId
       FROM LoyaltyLedger
-      WHERE TransactionJournalId = :sourceTjId
-        AND EventType = 'Credit'
-        AND IsDeleted = FALSE
+      WHERE TransactionJournalId = :sourceTjId AND EventType = 'Credit' AND IsDeleted = FALSE
       LIMIT 100
     ];
     if (cancelCreditLLs.isEmpty()) {
@@ -1977,20 +2018,19 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     // SOQL #2: 사용 LLT 와 origin LL 정보 통합 조회 (semi-join 으로 origin 매칭)
     //   사용 LLT 의 CreditLL 이 같은 (SubType, ExpiryDate) 의 Purchase/Promotion Accrual 인 것만 매칭.
     //   결과 LLT 의 CreditLL 정보 (Order.IsDeleted, SaleNo) 까지 한번에 가져옴.
-    Set<String> originSubTypeNames = new Set<String>{
-      JOURNAL_SUB_TYPE_NAME_PURCHASE_ACCRUAL,
-      JOURNAL_SUB_TYPE_NAME_PROMOTION_POINT_ACCRUAL
-    };
+    Set<String> originSubTypeNames = new Set<String>{ JOURNAL_SUB_TYPE_NAME_PURCHASE_ACCRUAL, JOURNAL_SUB_TYPE_NAME_PROMOTION_POINT_ACCRUAL };
     Set<String> deletedSaleNoSet = new Set<String>();
     Set<Id> matchedOriginIds = new Set<Id>();
     Map<Id, String> originSaleNoById = new Map<Id, String>();
     for (LoyaltyLedgerTraceability llt : [
-      SELECT CreditLoyaltyLedgerId,
-             CreditLoyaltyLedger.TransactionJournal.OrderId,
-             CreditLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
-             CreditLoyaltyLedger.TransactionJournal.Order.IsDeleted__c
+      SELECT
+        CreditLoyaltyLedgerId,
+        CreditLoyaltyLedger.TransactionJournal.OrderId,
+        CreditLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
+        CreditLoyaltyLedger.TransactionJournal.Order.IsDeleted__c
       FROM LoyaltyLedgerTraceability
-      WHERE LoyaltyProgramMemberId = :memberId
+      WHERE
+        LoyaltyProgramMemberId = :memberId
         AND ActionType = 'Debit'
         AND DebitLoyaltyLedger.TransactionJournal.OrderId IN :usedOrderIds
         AND CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId IN :subtypeIds
@@ -2000,15 +2040,15 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     ]) {
       Id originId = llt.CreditLoyaltyLedgerId;
       matchedOriginIds.add(originId);
-      String saleNo = (llt.CreditLoyaltyLedger != null
-          && llt.CreditLoyaltyLedger.TransactionJournal != null
-          && llt.CreditLoyaltyLedger.TransactionJournal.Order != null)
+      String saleNo = (llt.CreditLoyaltyLedger != null &&
+        llt.CreditLoyaltyLedger.TransactionJournal != null &&
+        llt.CreditLoyaltyLedger.TransactionJournal.Order != null)
         ? llt.CreditLoyaltyLedger.TransactionJournal.Order.SaleNo__c
         : null;
-      Boolean orderIsDeleted = (llt.CreditLoyaltyLedger != null
-          && llt.CreditLoyaltyLedger.TransactionJournal != null
-          && llt.CreditLoyaltyLedger.TransactionJournal.Order != null
-          && llt.CreditLoyaltyLedger.TransactionJournal.Order.IsDeleted__c == true);
+      Boolean orderIsDeleted = (llt.CreditLoyaltyLedger != null &&
+      llt.CreditLoyaltyLedger.TransactionJournal != null &&
+      llt.CreditLoyaltyLedger.TransactionJournal.Order != null &&
+      llt.CreditLoyaltyLedger.TransactionJournal.Order.IsDeleted__c == true);
       if (saleNo != null) {
         originSaleNoById.put(originId, saleNo);
         if (orderIsDeleted) {
@@ -2028,7 +2068,8 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     for (AggregateResult ar : [
       SELECT CreditLoyaltyLedgerId originId, SUM(Points) totalPts
       FROM LoyaltyLedgerTraceability
-      WHERE CreditLoyaltyLedgerId IN :matchedOriginIds
+      WHERE
+        CreditLoyaltyLedgerId IN :matchedOriginIds
         AND ActionType = 'CreditCancellation'
         AND IsDeleted = FALSE
         AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
@@ -2050,7 +2091,9 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       }
     }
 
-    if (deletedSaleNoSet.isEmpty() && reversedSaleNoSet.isEmpty()) {
+    // A prior CreditCancellation on the origin accrual does not by itself make this return deposit delete invalid.
+    // The restored credit ledger's actual recoverability is validated later by buildReturnDeleteRecoverablePointAmounts().
+    if (deletedSaleNoSet.isEmpty()) {
       return;
     }
 
@@ -2079,14 +2122,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     }
 
     for (LoyaltyLedger ll : ledgers) {
-      if (
-        ll != null &&
-        ll.EventType == 'Credit' &&
-        ll.Id != null &&
-        ll.Points != null &&
-        ll.Points > 0 &&
-        ll.LoyaltyPgmCrcySubtypeId != null
-      ) {
+      if (ll != null && ll.EventType == 'Credit' && ll.Id != null && ll.Points != null && ll.Points > 0 && ll.LoyaltyPgmCrcySubtypeId != null) {
         result.add(ll);
       }
     }
@@ -2124,12 +2160,21 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       }
 
       Decimal debitPoints = Math.min(requestedPoints.abs(), creditLedger.Points.abs());
-      if (debitPoints <= 0 || creditLedger.TransactionJournalId == null || creditLedger.LoyaltyPgmCrcySubtypeId == null || creditLedger.ExpiryDate == null) {
+      if (
+        debitPoints <= 0 ||
+        creditLedger.TransactionJournalId == null ||
+        creditLedger.LoyaltyPgmCrcySubtypeId == null ||
+        creditLedger.ExpiryDate == null
+      ) {
         continue;
       }
 
       expiredDebitPointsByCreditLedgerId.put(creditLedger.Id, debitPoints);
-      String expiryKey = buildPointRecoverabilityKey(creditLedger.TransactionJournalId, creditLedger.LoyaltyPgmCrcySubtypeId, creditLedger.ExpiryDate);
+      String expiryKey = buildPointRecoverabilityKey(
+        creditLedger.TransactionJournalId,
+        creditLedger.LoyaltyPgmCrcySubtypeId,
+        creditLedger.ExpiryDate
+      );
       Decimal current = expiredDebitPointsByExpiryKey.containsKey(expiryKey) ? expiredDebitPointsByExpiryKey.get(expiryKey) : 0;
       expiredDebitPointsByExpiryKey.put(expiryKey, current + debitPoints);
       if (creditLedger.LoyaltyProgramCurrencyId != null) {
@@ -2152,15 +2197,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     List<LoyaltyLedger> expiryLedgersToDelete = new List<LoyaltyLedger>();
     List<LoyaltyLedger> expiryLedgersToInsert = new List<LoyaltyLedger>();
     for (LoyaltyLedger expiryLedger : [
-      SELECT
-        Id,
-        Points,
-        TransactionJournalId,
-        LoyaltyProgramMemberId,
-        LoyaltyProgramCurrencyId,
-        LoyaltyPgmCrcySubtypeId,
-        ExpiryDate,
-        ActivityDate
+      SELECT Id, Points, TransactionJournalId, LoyaltyProgramMemberId, LoyaltyProgramCurrencyId, LoyaltyPgmCrcySubtypeId, ExpiryDate, ActivityDate
       FROM LoyaltyLedger
       WHERE
         TransactionJournalId IN :transactionJournalIds
@@ -2172,7 +2209,11 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       ORDER BY CreatedDate ASC, Id ASC
       LIMIT 50000
     ]) {
-      String expiryKey = buildPointRecoverabilityKey(expiryLedger.TransactionJournalId, expiryLedger.LoyaltyPgmCrcySubtypeId, expiryLedger.ExpiryDate);
+      String expiryKey = buildPointRecoverabilityKey(
+        expiryLedger.TransactionJournalId,
+        expiryLedger.LoyaltyPgmCrcySubtypeId,
+        expiryLedger.ExpiryDate
+      );
       Decimal remainingDebitPoints = expiredDebitPointsByExpiryKey.get(expiryKey);
       if (remainingDebitPoints == null || remainingDebitPoints <= 0) {
         continue;
@@ -2187,16 +2228,18 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       Decimal remainingExpiryPoints = expiryPoints - consumedPoints;
       expiryLedgersToDelete.add(expiryLedger);
       if (remainingExpiryPoints > 0) {
-        expiryLedgersToInsert.add(new LoyaltyLedger(
-          LoyaltyProgramMemberId = expiryLedger.LoyaltyProgramMemberId,
-          LoyaltyProgramCurrencyId = expiryLedger.LoyaltyProgramCurrencyId,
-          TransactionJournalId = expiryLedger.TransactionJournalId,
-          LoyaltyPgmCrcySubtypeId = expiryLedger.LoyaltyPgmCrcySubtypeId,
-          Points = remainingExpiryPoints,
-          EventType = 'Expiry',
-          ActivityDate = expiryLedger.ActivityDate,
-          ExpiryDate = expiryLedger.ExpiryDate
-        ));
+        expiryLedgersToInsert.add(
+          new LoyaltyLedger(
+            LoyaltyProgramMemberId = expiryLedger.LoyaltyProgramMemberId,
+            LoyaltyProgramCurrencyId = expiryLedger.LoyaltyProgramCurrencyId,
+            TransactionJournalId = expiryLedger.TransactionJournalId,
+            LoyaltyPgmCrcySubtypeId = expiryLedger.LoyaltyPgmCrcySubtypeId,
+            Points = remainingExpiryPoints,
+            EventType = 'Expiry',
+            ActivityDate = expiryLedger.ActivityDate,
+            ExpiryDate = expiryLedger.ExpiryDate
+          )
+        );
       }
       expiredDebitPointsByExpiryKey.put(expiryKey, remainingDebitPoints - consumedPoints);
     }
@@ -2295,15 +2338,13 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       return resultByLedgerId;
     }
 
-    Map<Id, LoyaltyLedger> creditLedgerById = new Map<Id, LoyaltyLedger>([
-      SELECT Id, Points, LoyaltyPgmCrcySubtypeId, ExpiryDate
-      FROM LoyaltyLedger
-      WHERE
-        Id IN :queryRequiredByLedgerId.keySet()
-        AND LoyaltyProgramMemberId = :memberId
-        AND EventType = 'Credit'
-        AND IsDeleted = FALSE
-    ]);
+    Map<Id, LoyaltyLedger> creditLedgerById = new Map<Id, LoyaltyLedger>(
+      [
+        SELECT Id, Points, LoyaltyPgmCrcySubtypeId, ExpiryDate
+        FROM LoyaltyLedger
+        WHERE Id IN :queryRequiredByLedgerId.keySet() AND LoyaltyProgramMemberId = :memberId AND EventType = 'Credit' AND IsDeleted = FALSE
+      ]
+    );
     if (creditLedgerById.isEmpty()) {
       return resultByLedgerId;
     }
@@ -2323,7 +2364,8 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
         AND CreditLoyaltyLedgerId IN :creditLedgerById.keySet()
         AND IsDeleted = FALSE
         AND ActionType IN :reducingActionTypes
-        AND (DebitLoyaltyLedgerId = NULL OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
+        AND (DebitLoyaltyLedgerId = NULL
+        OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
       GROUP BY CreditLoyaltyLedgerId, ActionType
       LIMIT 50000
     ]) {
@@ -2443,7 +2485,11 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       ORDER BY CreatedDate ASC, Id ASC
       LIMIT 50000
     ]) {
-      String useKey = buildPointRecoverabilityKey(cancelLedger.TransactionJournal.OrderId, cancelLedger.LoyaltyPgmCrcySubtypeId, cancelLedger.ExpiryDate);
+      String useKey = buildPointRecoverabilityKey(
+        cancelLedger.TransactionJournal.OrderId,
+        cancelLedger.LoyaltyPgmCrcySubtypeId,
+        cancelLedger.ExpiryDate
+      );
       if (!cancelLedgersByUseKey.containsKey(useKey)) {
         cancelLedgersByUseKey.put(useKey, new List<LoyaltyLedger>());
       }
@@ -2474,7 +2520,13 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       }
     }
 
-    Map<Id, Decimal> childAmounts = collectReturnDeleteRecoverablePointAmounts(childRequiredByLedgerId, memberId, depth + 1, visitedLedgerIds, useRefs);
+    Map<Id, Decimal> childAmounts = collectReturnDeleteRecoverablePointAmounts(
+      childRequiredByLedgerId,
+      memberId,
+      depth + 1,
+      visitedLedgerIds,
+      useRefs
+    );
     for (Id ledgerId : childAmounts.keySet()) {
       Decimal current = resultByLedgerId.containsKey(ledgerId) ? resultByLedgerId.get(ledgerId) : 0;
       resultByLedgerId.put(ledgerId, current + childAmounts.get(ledgerId));
@@ -2538,15 +2590,13 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       return 0;
     }
 
-    Map<Id, LoyaltyLedger> creditLedgerById = new Map<Id, LoyaltyLedger>([
-      SELECT Id, Points, LoyaltyPgmCrcySubtypeId, ExpiryDate
-      FROM LoyaltyLedger
-      WHERE
-        Id IN :queryLedgerIds
-        AND LoyaltyProgramMemberId = :memberId
-        AND EventType = 'Credit'
-        AND IsDeleted = FALSE
-    ]);
+    Map<Id, LoyaltyLedger> creditLedgerById = new Map<Id, LoyaltyLedger>(
+      [
+        SELECT Id, Points, LoyaltyPgmCrcySubtypeId, ExpiryDate
+        FROM LoyaltyLedger
+        WHERE Id IN :queryLedgerIds AND LoyaltyProgramMemberId = :memberId AND EventType = 'Credit' AND IsDeleted = FALSE
+      ]
+    );
     if (creditLedgerById.isEmpty()) {
       return 0;
     }
@@ -2566,7 +2616,8 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
         AND CreditLoyaltyLedgerId IN :creditLedgerById.keySet()
         AND IsDeleted = FALSE
         AND ActionType IN :reducingActionTypes
-        AND (DebitLoyaltyLedgerId = NULL OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
+        AND (DebitLoyaltyLedgerId = NULL
+        OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
       GROUP BY CreditLoyaltyLedgerId, ActionType
       LIMIT 50000
     ]) {
@@ -2683,7 +2734,11 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
         AND ExpiryDate IN :expiryDates
       LIMIT 50000
     ]) {
-      String useKey = buildPointRecoverabilityKey(cancelLedger.TransactionJournal.OrderId, cancelLedger.LoyaltyPgmCrcySubtypeId, cancelLedger.ExpiryDate);
+      String useKey = buildPointRecoverabilityKey(
+        cancelLedger.TransactionJournal.OrderId,
+        cancelLedger.LoyaltyPgmCrcySubtypeId,
+        cancelLedger.ExpiryDate
+      );
       if (!cancelLedgerIdsByUseKey.containsKey(useKey)) {
         cancelLedgerIdsByUseKey.put(useKey, new Set<Id>());
       }
@@ -2742,7 +2797,8 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
         AND CreditLoyaltyLedgerId IN :restoredLedgerIds
         AND IsDeleted = FALSE
         AND ActionType IN :reducingActionTypes
-        AND (DebitLoyaltyLedgerId = NULL OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
+        AND (DebitLoyaltyLedgerId = NULL
+        OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
       GROUP BY CreditLoyaltyLedgerId, ActionType
       LIMIT 50000
     ]) {
@@ -2847,10 +2903,12 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
         DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
         DebitLoyaltyLedger.TransactionJournal.DepositNo__c
       FROM LoyaltyLedgerTraceability
-      WHERE CreditLoyaltyLedgerId IN (
+      WHERE
+        CreditLoyaltyLedgerId IN (
           SELECT Id
           FROM LoyaltyLedger
-          WHERE TransactionJournal.OrderId = :originalOrderId
+          WHERE
+            TransactionJournal.OrderId = :originalOrderId
             AND TransactionJournal.JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_API_FORCED_CREDIT
             AND LoyaltyPgmCrcySubtype.PointTypeCode__c = :ECO_POINT_TYPE_CODE
             AND EventType = 'Credit'
@@ -2953,7 +3011,8 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     for (LoyaltyLedgerTraceability llt : [
       SELECT CreditLoyaltyLedgerId, Points, ActionType
       FROM LoyaltyLedgerTraceability
-      WHERE CreditLoyaltyLedgerId IN :creditLedgerIdSet
+      WHERE
+        CreditLoyaltyLedgerId IN :creditLedgerIdSet
         AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
         AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
         OR (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE

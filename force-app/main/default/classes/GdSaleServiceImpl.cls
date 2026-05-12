@@ -18,6 +18,8 @@ public with sharing class GdSaleServiceImpl implements GdSaleService {
     'Promotion Point Accrual'
   };
   private static final String SUBTYPE_NAME_POINT_REDEEM_CANCEL = 'Point Redeem Cancel';
+  private static final String ORIGIN_CREDIT_LL_TOKEN = 'ORIGIN_CREDIT_LL=';
+  private static final Integer MAX_REFUND_USAGE_TRACE_DEPTH = 8;
 
   /**
    * [Refunded Usage Exclusion 2026-05-08] 적립처 판매(originalOrderId) 의 활성 사용 LLT 중
@@ -44,21 +46,8 @@ public with sharing class GdSaleServiceImpl implements GdSaleService {
   public static UnrefundedUsageResult calculateUnrefundedUsage(Id originalOrderId) {
     UnrefundedUsageResult result = new UnrefundedUsageResult();
 
-    // [SOQL Optimization 2026-05-08 + Origin Accuracy Fix] 4 SOQL — Phase A 합계 + Phase B 사용처 collect.
-    //   배경:
-    //     - 기존 6 SOQL → governor limit 초과로 운영 에러
-    //     - 1차 최적화 (3 SOQL) 의 origin 매칭 누락으로 부당 통과 결함 발견
-    //     - 회원이 같은 (SubType, ExpiryDate) 의 다른 판매 적립을 가지면 그쪽 Cancel Credit 까지 refund 로 잘못 잡힘
-    //   해결:
-    //     - SOQL #1: 자기 판매 적립 LL + 회원 식별
-    //     - SOQL #2: 자기 적립 LL 의 직접 사용 LLT — directUsage 계산 + 사용 OrderId 셋 추출 (origin 매핑 핵심)
-    //     - SOQL #3: refund 매칭 — 사용 OrderId 와 같은 OrderId 의 Cancel Credit (= 진짜 origin=A 적립)
-    //     - SOQL #4: reuse 합 — 매칭된 Cancel Credit 의 활성 사용 LLT
-    //   효과: governor 한도 여유 + 정합 정확도 100% (다른 origin Cancel 오염 제거).
-
-    // SOQL #1: A판매 적립 Credit LL + 회원 식별
     List<LoyaltyLedger> originalAccrualLLs = [
-      SELECT Id, Points, LoyaltyPgmCrcySubtypeId, ExpiryDate, LoyaltyProgramMemberId
+      SELECT Id, Points, LoyaltyPgmCrcySubtypeId, ExpiryDate, LoyaltyProgramMemberId, AdditionalNotes
       FROM LoyaltyLedger
       WHERE TransactionJournal.OrderId = :originalOrderId
         AND TransactionJournal.JournalSubType.Name IN :ACCRUAL_VALIDATION_SUBTYPE_NAMES
@@ -68,96 +57,47 @@ public with sharing class GdSaleServiceImpl implements GdSaleService {
       LIMIT 200
     ];
     if (originalAccrualLLs.isEmpty()) {
-      return result;   // 적립 없음 → 통과
+      return result;
     }
 
     Set<Id> originalLLIds = new Set<Id>();
-    Set<Id> subtypeIdSet = new Set<Id>();
-    Set<Date> expiryDateSet = new Set<Date>();
     Id memberId = null;
     for (LoyaltyLedger ll : originalAccrualLLs) {
       originalLLIds.add(ll.Id);
-      subtypeIdSet.add(ll.LoyaltyPgmCrcySubtypeId);
-      expiryDateSet.add(ll.ExpiryDate);
       memberId = ll.LoyaltyProgramMemberId;
     }
 
-    // SOQL #2: 자기 적립 LL 의 직접 사용 LLT (a) + 사용 발생 OrderId 셋 (origin 매핑 키)
-    //   사용 발생 OrderId 와 같은 OrderId 의 Cancel Credit 만 origin=A 적립의 환불.
-    Decimal totalDirectUsage = 0;
-    Set<Id> usedOrderIds = new Set<Id>();
-    Set<String> directUsageSaleNos = new Set<String>();
-    Set<String> directUsageOrderNos = new Set<String>();
-    Set<String> directUsageDepositNos = new Set<String>();
-    for (LoyaltyLedgerTraceability llt : [
-      SELECT Id, CreditLoyaltyLedgerId, Points,
-             DebitLoyaltyLedger.TransactionJournal.OrderId,
-             DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
-             DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
-             DebitLoyaltyLedger.TransactionJournal.DepositNo__c
-      FROM LoyaltyLedgerTraceability
-      WHERE CreditLoyaltyLedgerId IN :originalLLIds
-        AND ActionType = 'Debit'
-        AND IsDeleted = FALSE
-        AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
-        AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
-        OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
-      LIMIT 50000
-    ]) {
-      totalDirectUsage += (llt.Points == null ? 0 : llt.Points);
-      if (llt.DebitLoyaltyLedger != null && llt.DebitLoyaltyLedger.TransactionJournal != null) {
-        if (llt.DebitLoyaltyLedger.TransactionJournal.OrderId != null) {
-          usedOrderIds.add(llt.DebitLoyaltyLedger.TransactionJournal.OrderId);
-        }
-        if (llt.DebitLoyaltyLedger.TransactionJournal.Order != null
-            && llt.DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c != null) {
-          directUsageSaleNos.add(llt.DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c);
-        } else if (llt.DebitLoyaltyLedger.TransactionJournal.Order != null
-            && llt.DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c != null) {
-          directUsageOrderNos.add(llt.DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c);
-        }
-        if (llt.DebitLoyaltyLedger.TransactionJournal.DepositNo__c != null) {
-          directUsageDepositNos.add(llt.DebitLoyaltyLedger.TransactionJournal.DepositNo__c);
+    Set<Id> activeCreditIds = new Set<Id>(originalLLIds);
+    Set<Id> tracedCreditIds = new Set<Id>();
+
+    for (Integer depth = 0; depth < MAX_REFUND_USAGE_TRACE_DEPTH && !activeCreditIds.isEmpty(); depth++) {
+      Set<Id> currentCreditIds = new Set<Id>();
+      for (Id creditId : activeCreditIds) {
+        if (creditId != null && !tracedCreditIds.contains(creditId)) {
+          currentCreditIds.add(creditId);
+          tracedCreditIds.add(creditId);
         }
       }
-    }
-
-    // SOQL #3: refund 매칭 — 자기 적립 LL 사용 OrderId 와 같은 OrderId 의 Cancel Credit
-    //   = origin=A 적립의 환불. 다른 판매 적립의 Cancel 은 OrderId 다르므로 자동 제외.
-    Decimal totalRefund = 0;
-    Set<Id> activeCancelLLIds = new Set<Id>();
-    if (!usedOrderIds.isEmpty()) {
-      for (LoyaltyLedger c : [
-        SELECT Id, Points
-        FROM LoyaltyLedger
-        WHERE LoyaltyProgramMemberId = :memberId
-          AND TransactionJournal.JournalSubType.Name = :SUBTYPE_NAME_POINT_REDEEM_CANCEL
-          AND TransactionJournal.OrderId IN :usedOrderIds
-          AND LoyaltyPgmCrcySubtypeId IN :subtypeIdSet
-          AND ExpiryDate IN :expiryDateSet
-          AND EventType = 'Credit'
-          AND IsDeleted = FALSE
-          AND TransactionJournal.IsDeleted__c = FALSE
-        LIMIT 1000
-      ]) {
-        totalRefund += (c.Points == null ? 0 : c.Points.abs());
-        activeCancelLLIds.add(c.Id);
+      if (currentCreditIds.isEmpty()) {
+        break;
       }
-    }
 
-    // SOQL #4: reuse 합 — Cancel Credit 의 활성 사용 LLT (재사용)
-    Decimal totalReuse = 0;
-    Set<String> reuseSaleNos = new Set<String>();
-    Set<String> reuseOrderNos = new Set<String>();
-    Set<String> reuseDepositNos = new Set<String>();
-    if (!activeCancelLLIds.isEmpty()) {
+      List<UsageTracePortion> usagePortionList = new List<UsageTracePortion>();
+      Set<Id> usageOrderIds = new Set<Id>();
+      Set<Id> usageSubtypeIds = new Set<Id>();
+      Set<Date> usageExpiryDates = new Set<Date>();
+
       for (LoyaltyLedgerTraceability llt : [
-        SELECT Id, Points,
+        SELECT Id, CreditLoyaltyLedgerId, DebitLoyaltyLedgerId, Points,
+               CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId,
+               CreditLoyaltyLedger.ExpiryDate,
+               CreditLoyaltyLedger.AdditionalNotes,
+               DebitLoyaltyLedger.TransactionJournal.OrderId,
                DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
                DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
                DebitLoyaltyLedger.TransactionJournal.DepositNo__c
         FROM LoyaltyLedgerTraceability
-        WHERE CreditLoyaltyLedgerId IN :activeCancelLLIds
+        WHERE CreditLoyaltyLedgerId IN :currentCreditIds
           AND ActionType = 'Debit'
           AND IsDeleted = FALSE
           AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
@@ -165,35 +105,172 @@ public with sharing class GdSaleServiceImpl implements GdSaleService {
           OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
         LIMIT 50000
       ]) {
-        totalReuse += (llt.Points == null ? 0 : llt.Points);
-        if (llt.DebitLoyaltyLedger != null && llt.DebitLoyaltyLedger.TransactionJournal != null) {
-          if (llt.DebitLoyaltyLedger.TransactionJournal.Order != null
-              && llt.DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c != null) {
-            reuseSaleNos.add(llt.DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c);
-          } else if (llt.DebitLoyaltyLedger.TransactionJournal.Order != null
-              && llt.DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c != null) {
-            reuseOrderNos.add(llt.DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c);
+        UsageTracePortion usagePortion = buildUsageTracePortion(llt, originalLLIds);
+        if (usagePortion == null || usagePortion.points <= 0 || usagePortion.originCreditLedgerId == null) {
+          continue;
+        }
+        usagePortionList.add(usagePortion);
+        if (usagePortion.orderId != null) usageOrderIds.add(usagePortion.orderId);
+        if (usagePortion.subtypeId != null) usageSubtypeIds.add(usagePortion.subtypeId);
+        if (usagePortion.expiryDate != null) usageExpiryDates.add(usagePortion.expiryDate);
+      }
+
+      if (usagePortionList.isEmpty()) {
+        activeCreditIds.clear();
+        continue;
+      }
+
+      Map<String, Decimal> cancelPointByUsageKey = new Map<String, Decimal>();
+      Set<Id> nextCreditIds = new Set<Id>();
+      if (!usageOrderIds.isEmpty()) {
+        for (LoyaltyLedger cancelCredit : [
+          SELECT Id, Points, AdditionalNotes, LoyaltyPgmCrcySubtypeId, ExpiryDate,
+                 TransactionJournal.OrderId,
+                 TransactionJournal.AdditionalNotes__c
+          FROM LoyaltyLedger
+          WHERE LoyaltyProgramMemberId = :memberId
+            AND TransactionJournal.JournalSubType.Name = :SUBTYPE_NAME_POINT_REDEEM_CANCEL
+            AND TransactionJournal.OrderId IN :usageOrderIds
+            AND LoyaltyPgmCrcySubtypeId IN :usageSubtypeIds
+            AND ExpiryDate IN :usageExpiryDates
+            AND EventType = 'Credit'
+            AND IsDeleted = FALSE
+            AND TransactionJournal.IsDeleted__c = FALSE
+          LIMIT 50000
+        ]) {
+          Id originCreditLedgerId = extractOriginCreditLedgerId(cancelCredit.AdditionalNotes);
+          if (originCreditLedgerId == null && cancelCredit.TransactionJournal != null) {
+            originCreditLedgerId = extractOriginCreditLedgerId(cancelCredit.TransactionJournal.AdditionalNotes__c);
           }
-          if (llt.DebitLoyaltyLedger.TransactionJournal.DepositNo__c != null) {
-            reuseDepositNos.add(llt.DebitLoyaltyLedger.TransactionJournal.DepositNo__c);
+          if (originCreditLedgerId == null || !originalLLIds.contains(originCreditLedgerId)) {
+            continue;
           }
+
+          String usageKey = buildUsageTraceKey(
+            originCreditLedgerId,
+            cancelCredit.TransactionJournal == null ? null : cancelCredit.TransactionJournal.OrderId,
+            cancelCredit.LoyaltyPgmCrcySubtypeId,
+            cancelCredit.ExpiryDate
+          );
+          Decimal cancelPoints = cancelCredit.Points == null ? 0 : cancelCredit.Points.abs();
+          cancelPointByUsageKey.put(
+            usageKey,
+            (cancelPointByUsageKey.containsKey(usageKey) ? cancelPointByUsageKey.get(usageKey) : 0) + cancelPoints
+          );
+          nextCreditIds.add(cancelCredit.Id);
         }
       }
+
+      for (UsageTracePortion usagePortion : usagePortionList) {
+        Decimal cancelPoints = cancelPointByUsageKey.containsKey(usagePortion.usageKey)
+          ? cancelPointByUsageKey.get(usagePortion.usageKey)
+          : 0;
+        Decimal usedCancelPoints = cancelPoints < usagePortion.points ? cancelPoints : usagePortion.points;
+        if (usedCancelPoints > 0) {
+          cancelPointByUsageKey.put(usagePortion.usageKey, cancelPoints - usedCancelPoints);
+        }
+        if (usagePortion.points - usedCancelPoints > 0) {
+          addBlockingUsage(result, usagePortion);
+        }
+      }
+
+      activeCreditIds = nextCreditIds;
     }
 
-    Decimal unrefundedUsage = totalDirectUsage - totalRefund + totalReuse;
-    if (unrefundedUsage <= 0) {
-      return result;   // 통과
-    }
-
-    // 차단 — 사용처 collect (이미 SOQL 결과에서 추출한 정보 활용, 추가 SOQL 없음)
-    result.saleNumberSet.addAll(directUsageSaleNos);
-    result.saleNumberSet.addAll(reuseSaleNos);
-    result.orderNumberSet.addAll(directUsageOrderNos);
-    result.orderNumberSet.addAll(reuseOrderNos);
-    result.depositNumberSet.addAll(directUsageDepositNos);
-    result.depositNumberSet.addAll(reuseDepositNos);
     return result;
+  }
+
+  private class UsageTracePortion {
+    Id originCreditLedgerId;
+    Id orderId;
+    Id subtypeId;
+    Date expiryDate;
+    Decimal points;
+    String saleNo;
+    String orderNo;
+    String depositNo;
+    String usageKey;
+  }
+
+  private static UsageTracePortion buildUsageTracePortion(LoyaltyLedgerTraceability llt, Set<Id> originalLLIds) {
+    if (llt == null || llt.CreditLoyaltyLedgerId == null || llt.CreditLoyaltyLedger == null
+        || llt.DebitLoyaltyLedger == null || llt.DebitLoyaltyLedger.TransactionJournal == null) {
+      return null;
+    }
+
+    Id originCreditLedgerId = originalLLIds.contains(llt.CreditLoyaltyLedgerId)
+      ? llt.CreditLoyaltyLedgerId
+      : extractOriginCreditLedgerId(llt.CreditLoyaltyLedger.AdditionalNotes);
+    if (originCreditLedgerId == null || !originalLLIds.contains(originCreditLedgerId)) {
+      return null;
+    }
+
+    TransactionJournal debitTj = llt.DebitLoyaltyLedger.TransactionJournal;
+    UsageTracePortion usagePortion = new UsageTracePortion();
+    usagePortion.originCreditLedgerId = originCreditLedgerId;
+    usagePortion.orderId = debitTj.OrderId;
+    usagePortion.subtypeId = llt.CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId;
+    usagePortion.expiryDate = llt.CreditLoyaltyLedger.ExpiryDate;
+    usagePortion.points = llt.Points == null ? 0 : llt.Points;
+    usagePortion.saleNo = debitTj.Order == null ? null : debitTj.Order.SaleNo__c;
+    usagePortion.orderNo = debitTj.Order == null ? null : debitTj.Order.OrderNo__c;
+    usagePortion.depositNo = debitTj.DepositNo__c;
+    usagePortion.usageKey = buildUsageTraceKey(
+      usagePortion.originCreditLedgerId,
+      usagePortion.orderId,
+      usagePortion.subtypeId,
+      usagePortion.expiryDate
+    );
+    return usagePortion;
+  }
+
+  private static String buildUsageTraceKey(Id originCreditLedgerId, Id orderId, Id subtypeId, Date expiryDate) {
+    return String.valueOf(originCreditLedgerId) + '::' +
+      String.valueOf(orderId) + '::' +
+      String.valueOf(subtypeId) + '::' +
+      String.valueOf(expiryDate);
+  }
+
+  private static void addBlockingUsage(UnrefundedUsageResult result, UsageTracePortion usagePortion) {
+    if (result == null || usagePortion == null) {
+      return;
+    }
+    if (String.isNotBlank(usagePortion.saleNo)) {
+      result.saleNumberSet.add(usagePortion.saleNo);
+    } else if (String.isNotBlank(usagePortion.orderNo)) {
+      result.orderNumberSet.add(usagePortion.orderNo);
+    }
+    if (String.isNotBlank(usagePortion.depositNo)) {
+      result.depositNumberSet.add(usagePortion.depositNo);
+    }
+  }
+
+  private static Id extractOriginCreditLedgerId(String additionalNotes) {
+    if (String.isBlank(additionalNotes)) {
+      return null;
+    }
+
+    Integer tokenIndex = additionalNotes.indexOf(ORIGIN_CREDIT_LL_TOKEN);
+    if (tokenIndex < 0) {
+      return null;
+    }
+
+    Integer valueStart = tokenIndex + ORIGIN_CREDIT_LL_TOKEN.length();
+    Integer valueEnd = additionalNotes.indexOf(';', valueStart);
+    String originIdText = valueEnd < 0
+      ? additionalNotes.substring(valueStart)
+      : additionalNotes.substring(valueStart, valueEnd);
+    originIdText = originIdText == null ? null : originIdText.trim();
+
+    if (String.isBlank(originIdText) || (originIdText.length() != 15 && originIdText.length() != 18)) {
+      return null;
+    }
+
+    try {
+      return (Id) originIdText;
+    } catch (Exception e) {
+      return null;
+    }
   }
 
   private static void collectBlockingUsages(List<List<LoyaltyLedgerTraceability>> lltGroups, UnrefundedUsageResult result) {

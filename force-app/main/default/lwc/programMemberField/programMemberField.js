@@ -124,6 +124,10 @@ export default class ProgramMemberField extends LightningElement {
     return this.displayValue(sanitized);
   }
 
+  get addressDetailText() {
+    return this.displayValue(this.member?.addressDetail);
+  }
+
   get storeNameText() {
     return this.displayValue(this.member?.storeName);
   }

@@ -647,25 +647,25 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       List<Voucher> vList = new List<Voucher>();
 
       if (String.isNotBlank(voucherCode) && voucherCode.contains(';-;')) {
-          String couponManNo = voucherCode.substringBefore(';-;');
-          voucherCode = voucherCode.substringAfter(';-;'); 
-          
-          vList = [
-              SELECT Id, Status, EffectiveDate, Reason, FaceValue, DiscountPercent, ExpirationDate
-              FROM Voucher
-              WHERE LoyaltyProgramMember.Contact.MemberNo__c = :memberNo 
-                AND VoucherCode = :voucherCode 
-                AND VoucherDefinition.CouponManNo__c = :couponManNo
-              LIMIT 1
-          ];
+        String couponManNo = voucherCode.substringBefore(';-;');
+        voucherCode = voucherCode.substringAfter(';-;');
+
+        vList = [
+          SELECT Id, Status, EffectiveDate, Reason, FaceValue, DiscountPercent, ExpirationDate
+          FROM Voucher
+          WHERE
+            LoyaltyProgramMember.Contact.MemberNo__c = :memberNo
+            AND VoucherCode = :voucherCode
+            AND VoucherDefinition.CouponManNo__c = :couponManNo
+          LIMIT 1
+        ];
       } else {
-          vList = [
-              SELECT Id, Status, EffectiveDate, Reason, FaceValue, DiscountPercent, ExpirationDate
-              FROM Voucher
-              WHERE LoyaltyProgramMember.Contact.MemberNo__c = :memberNo 
-                AND VoucherCode = :voucherCode
-              LIMIT 1
-          ];
+        vList = [
+          SELECT Id, Status, EffectiveDate, Reason, FaceValue, DiscountPercent, ExpirationDate
+          FROM Voucher
+          WHERE LoyaltyProgramMember.Contact.MemberNo__c = :memberNo AND VoucherCode = :voucherCode
+          LIMIT 1
+        ];
       }
       //
 
@@ -754,25 +754,22 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       List<Voucher> vList = new List<Voucher>();
 
       if (String.isNotBlank(voucherCode) && voucherCode.contains(';-;')) {
-          String couponManNo = voucherCode.substringBefore(';-;');
-          voucherCode = voucherCode.substringAfter(';-;'); 
-          
-          vList = [
-              SELECT Id, Status, Reason, VoucherCode
-              FROM Voucher
-              WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId
-                AND VoucherCode = :voucherCode 
-                AND VoucherDefinition.CouponManNo__c = :couponManNo
-              LIMIT 1
-          ];
+        String couponManNo = voucherCode.substringBefore(';-;');
+        voucherCode = voucherCode.substringAfter(';-;');
+
+        vList = [
+          SELECT Id, Status, Reason, VoucherCode
+          FROM Voucher
+          WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId AND VoucherCode = :voucherCode AND VoucherDefinition.CouponManNo__c = :couponManNo
+          LIMIT 1
+        ];
       } else {
-          vList = [
-              SELECT Id, Status, Reason, VoucherCode
-              FROM Voucher
-              WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId
-                AND VoucherCode = :voucherCode
-              LIMIT 1
-          ];
+        vList = [
+          SELECT Id, Status, Reason, VoucherCode
+          FROM Voucher
+          WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId AND VoucherCode = :voucherCode
+          LIMIT 1
+        ];
       }
       //
 
@@ -872,27 +869,40 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       List<Voucher> vList = new List<Voucher>();
 
       if (String.isNotBlank(couponNo) && couponNo.contains(';-;')) {
-          String couponManNo = couponNo.substringBefore(';-;');
-          couponNo = couponNo.substringAfter(';-;');
-          
-          vList = [
-              SELECT  Id, VoucherCode, VoucherDefinitionId, LoyaltyProgramMemberId, ExpirationDate, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c
-              FROM Voucher
-              WHERE LoyaltyProgramMemberId = :lpmList[0].Id
-                AND VoucherCode = :couponNo 
-                AND VoucherDefinition.CouponManNo__c = :couponManNo
-                AND Status = 'Issued'
-              LIMIT 1
-          ];
+        String couponManNo = couponNo.substringBefore(';-;');
+        couponNo = couponNo.substringAfter(';-;');
+
+        vList = [
+          SELECT
+            Id,
+            VoucherCode,
+            VoucherDefinitionId,
+            LoyaltyProgramMemberId,
+            ExpirationDate,
+            VoucherDefinition.Name,
+            VoucherDefinition.IsUnlimited__c
+          FROM Voucher
+          WHERE
+            LoyaltyProgramMemberId = :lpmList[0].Id
+            AND VoucherCode = :couponNo
+            AND VoucherDefinition.CouponManNo__c = :couponManNo
+            AND Status = 'Issued'
+          LIMIT 1
+        ];
       } else {
-          vList = [
-              SELECT Id, VoucherCode, VoucherDefinitionId, LoyaltyProgramMemberId, ExpirationDate, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c
-              FROM Voucher
-              WHERE VoucherCode = :couponNo 
-                AND LoyaltyProgramMemberId = :lpmList[0].Id 
-                AND Status = 'Issued'
-              LIMIT 1
-          ];
+        vList = [
+          SELECT
+            Id,
+            VoucherCode,
+            VoucherDefinitionId,
+            LoyaltyProgramMemberId,
+            ExpirationDate,
+            VoucherDefinition.Name,
+            VoucherDefinition.IsUnlimited__c
+          FROM Voucher
+          WHERE VoucherCode = :couponNo AND LoyaltyProgramMemberId = :lpmList[0].Id AND Status = 'Issued'
+          LIMIT 1
+        ];
       }
       //
       System.debug(
@@ -1037,27 +1047,40 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       List<Voucher> vList = new List<Voucher>();
 
       if (String.isNotBlank(searchVoucherCode) && searchVoucherCode.contains(';-;')) {
-          String couponManNo = searchVoucherCode.substringBefore(';-;');
-          String realVoucherCode = searchVoucherCode.substringAfter(';-;'); 
-    
-          vList = [
-              SELECT Id, VoucherCode, VoucherDefinitionId, LoyaltyProgramMemberId, ExpirationDate, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c
-              FROM Voucher
-              WHERE VoucherCode = :realVoucherCode 
-                AND LoyaltyProgramMemberId = :tj.MemberId 
-                AND Status = 'Issued'
-                AND VoucherDefinition.CouponManNo__c = :couponManNo 
-              LIMIT 1
-          ];
+        String couponManNo = searchVoucherCode.substringBefore(';-;');
+        String realVoucherCode = searchVoucherCode.substringAfter(';-;');
+
+        vList = [
+          SELECT
+            Id,
+            VoucherCode,
+            VoucherDefinitionId,
+            LoyaltyProgramMemberId,
+            ExpirationDate,
+            VoucherDefinition.Name,
+            VoucherDefinition.IsUnlimited__c
+          FROM Voucher
+          WHERE
+            VoucherCode = :realVoucherCode
+            AND LoyaltyProgramMemberId = :tj.MemberId
+            AND Status = 'Issued'
+            AND VoucherDefinition.CouponManNo__c = :couponManNo
+          LIMIT 1
+        ];
       } else {
-          vList = [
-              SELECT Id, VoucherCode, VoucherDefinitionId, LoyaltyProgramMemberId, ExpirationDate, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c
-              FROM Voucher
-              WHERE VoucherCode = :searchVoucherCode 
-                AND LoyaltyProgramMemberId = :tj.MemberId 
-                AND Status = 'Issued'
-              LIMIT 1
-          ];
+        vList = [
+          SELECT
+            Id,
+            VoucherCode,
+            VoucherDefinitionId,
+            LoyaltyProgramMemberId,
+            ExpirationDate,
+            VoucherDefinition.Name,
+            VoucherDefinition.IsUnlimited__c
+          FROM Voucher
+          WHERE VoucherCode = :searchVoucherCode AND LoyaltyProgramMemberId = :tj.MemberId AND Status = 'Issued'
+          LIMIT 1
+        ];
       }
       //
 
@@ -1130,39 +1153,48 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       //   WHERE VoucherCode = :tj.VoucherCode AND LoyaltyProgramMemberId = :tj.MemberId AND Status = 'Redeemed'
       //   LIMIT 1
       // ];
-      
+
       // 26.05.01 GD - 쿠폰 코드 분할 쿠폰 조회
       String searchVoucherCode = tj.VoucherCode;
       List<Voucher> vList = new List<Voucher>();
 
       if (String.isNotBlank(searchVoucherCode) && searchVoucherCode.contains(';-;')) {
-          String couponManNo = searchVoucherCode.substringBefore(';-;');
-          String realVoucherCode = searchVoucherCode.substringAfter(';-;'); 
-          
-          vList = [
-              SELECT 
-                  Id, VoucherCode, ExpirationDate, VoucherDefinition.Name, 
-                  VoucherDefinitionId, LoyaltyProgramMemberId, 
-                  UsedTransactionJournalId__c, VoucherDefinition.IsUnlimited__c
-              FROM Voucher
-              WHERE VoucherCode = :realVoucherCode 
-                AND LoyaltyProgramMemberId = :tj.MemberId 
-                AND Status = 'Redeemed' 
-                AND VoucherDefinition.CouponManNo__c = :couponManNo
-              LIMIT 1
-          ];
+        String couponManNo = searchVoucherCode.substringBefore(';-;');
+        String realVoucherCode = searchVoucherCode.substringAfter(';-;');
+
+        vList = [
+          SELECT
+            Id,
+            VoucherCode,
+            ExpirationDate,
+            VoucherDefinition.Name,
+            VoucherDefinitionId,
+            LoyaltyProgramMemberId,
+            UsedTransactionJournalId__c,
+            VoucherDefinition.IsUnlimited__c
+          FROM Voucher
+          WHERE
+            VoucherCode = :realVoucherCode
+            AND LoyaltyProgramMemberId = :tj.MemberId
+            AND Status = 'Redeemed'
+            AND VoucherDefinition.CouponManNo__c = :couponManNo
+          LIMIT 1
+        ];
       } else {
-          vList = [
-              SELECT 
-                  Id, VoucherCode, ExpirationDate, VoucherDefinition.Name, 
-                  VoucherDefinitionId, LoyaltyProgramMemberId, 
-                  UsedTransactionJournalId__c, VoucherDefinition.IsUnlimited__c
-              FROM Voucher
-              WHERE VoucherCode = :searchVoucherCode 
-                AND LoyaltyProgramMemberId = :tj.MemberId 
-                AND Status = 'Redeemed'
-              LIMIT 1
-          ];
+        vList = [
+          SELECT
+            Id,
+            VoucherCode,
+            ExpirationDate,
+            VoucherDefinition.Name,
+            VoucherDefinitionId,
+            LoyaltyProgramMemberId,
+            UsedTransactionJournalId__c,
+            VoucherDefinition.IsUnlimited__c
+          FROM Voucher
+          WHERE VoucherCode = :searchVoucherCode AND LoyaltyProgramMemberId = :tj.MemberId AND Status = 'Redeemed'
+          LIMIT 1
+        ];
       }
       //
       if (vList.isEmpty()) {
@@ -1288,25 +1320,25 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
           List<Voucher> vList = new List<Voucher>();
 
           if (String.isNotBlank(searchVoucherCode) && searchVoucherCode.contains(';-;')) {
-              String couponManNo = searchVoucherCode.substringBefore(';-;');
-              String realVoucherCode = searchVoucherCode.substringAfter(';-;'); 
-              
-              vList = [
-                  SELECT Id, VoucherDefinition.Name, ExpirationDate, VoucherCode, VoucherDefinition.CouponManNo__c
-                  FROM Voucher
-                  WHERE VoucherCode = :realVoucherCode
-                    AND VoucherDefinition.CouponManNo__c = :couponManNo
-                    AND LoyaltyProgramMemberId = :tjList[0].MemberId
-                  LIMIT 1
-              ];
+            String couponManNo = searchVoucherCode.substringBefore(';-;');
+            String realVoucherCode = searchVoucherCode.substringAfter(';-;');
+
+            vList = [
+              SELECT Id, VoucherDefinition.Name, ExpirationDate, VoucherCode, VoucherDefinition.CouponManNo__c
+              FROM Voucher
+              WHERE
+                VoucherCode = :realVoucherCode
+                AND VoucherDefinition.CouponManNo__c = :couponManNo
+                AND LoyaltyProgramMemberId = :tjList[0].MemberId
+              LIMIT 1
+            ];
           } else {
-              vList = [
-                  SELECT Id, VoucherDefinition.Name, ExpirationDate, VoucherCode, VoucherDefinition.CouponManNo__c
-                  FROM Voucher
-                  WHERE VoucherCode = :searchVoucherCode
-                    AND LoyaltyProgramMemberId = :tjList[0].MemberId
-                  LIMIT 1
-              ];
+            vList = [
+              SELECT Id, VoucherDefinition.Name, ExpirationDate, VoucherCode, VoucherDefinition.CouponManNo__c
+              FROM Voucher
+              WHERE VoucherCode = :searchVoucherCode AND LoyaltyProgramMemberId = :tjList[0].MemberId
+              LIMIT 1
+            ];
           }
           //
 
@@ -1406,7 +1438,7 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
         ];
 
         if (!tjList.isEmpty()) {
-            memberId = tjList[0].MemberId;
+          memberId = tjList[0].MemberId;
         }
         //
 
@@ -1558,29 +1590,31 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
         Map<String, Voucher> voucherByCode = new Map<String, Voucher>();
 
         for (Voucher voucherRec : [
-            SELECT 
-                Id, 
-                VoucherDefinition.Name, 
-                ExpirationDate, 
-                VoucherCode, 
-                DiscountPercent, 
-                FaceValue, 
-                UsedTransactionJournalId__r.DepositNo__c, 
-                VoucherDefinition.CouponManNo__c
-            FROM Voucher
-            WHERE VoucherCode IN :realVoucherCodeSet
-            AND LoyaltyProgramMemberId = : memberId
+          SELECT
+            Id,
+            VoucherDefinition.Name,
+            ExpirationDate,
+            VoucherCode,
+            DiscountPercent,
+            FaceValue,
+            UsedTransactionJournalId__r.DepositNo__c,
+            VoucherDefinition.CouponManNo__c
+          FROM Voucher
+          WHERE VoucherCode IN :realVoucherCodeSet AND LoyaltyProgramMemberId = :memberId
         ]) {
-            String couponManNo = (voucherRec.VoucherDefinition != null && voucherRec.VoucherDefinition.CouponManNo__c != null) ? voucherRec.VoucherDefinition.CouponManNo__c : '';
-            String combinedCode = String.isBlank(couponManNo) ? voucherRec.VoucherCode : couponManNo + ';-;' + voucherRec.VoucherCode;
+          String couponManNo = (voucherRec.VoucherDefinition != null &&
+            voucherRec.VoucherDefinition.CouponManNo__c != null)
+            ? voucherRec.VoucherDefinition.CouponManNo__c
+            : '';
+          String combinedCode = String.isBlank(couponManNo) ? voucherRec.VoucherCode : couponManNo + ';-;' + voucherRec.VoucherCode;
 
-            if (voucherCodeSet.contains(combinedCode)) {
-                voucherByCode.put(combinedCode, voucherRec);
-            } 
-            // (안전장치) 구분자가 없는 구버전 단일 쿠폰 번호를 찾고 있었던 거라면, 단일 코드로 일치할 때 담아줍니다.
-            else if (voucherCodeSet.contains(voucherRec.VoucherCode)) {
-                voucherByCode.put(voucherRec.VoucherCode, voucherRec);
-            }
+          if (voucherCodeSet.contains(combinedCode)) {
+            voucherByCode.put(combinedCode, voucherRec);
+          }
+          // (안전장치) 구분자가 없는 구버전 단일 쿠폰 번호를 찾고 있었던 거라면, 단일 코드로 일치할 때 담아줍니다.
+          else if (voucherCodeSet.contains(voucherRec.VoucherCode)) {
+            voucherByCode.put(voucherRec.VoucherCode, voucherRec);
+          }
         }
         //
 
@@ -1685,6 +1719,7 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
 
   /**
    * 사용 가능한 쿠폰 조회
+   * 쿠폰 적용 도움창 조회
    *
    * @version V1
    * @return ApiResult 사용 가능한 쿠폰 조회 결과 값
@@ -1885,7 +1920,7 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
           String couponManNo = (v.VoucherDefinition != null && v.VoucherDefinition.CouponManNo__c != null) ? v.VoucherDefinition.CouponManNo__c : '';
           String combinedCode = String.isBlank(couponManNo) ? v.VoucherCode : couponManNo + ';-;' + v.VoucherCode;
           if (!usedCouponNoSet.isEmpty() && (usedCouponNoSet.contains(combinedCode))) {
-              continue;
+            continue;
           }
 
           // 26.05.02 CS - 프로모션 쿠폰 사용 가능 여부 게이트
@@ -1923,7 +1958,7 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
           String couponManNo = (v.VoucherDefinition != null && v.VoucherDefinition.CouponManNo__c != null) ? v.VoucherDefinition.CouponManNo__c : '';
           String combinedCode = String.isBlank(couponManNo) ? v.VoucherCode : couponManNo + ';-;' + v.VoucherCode;
           if (!usedCouponNoSet.isEmpty() && (usedCouponNoSet.contains(combinedCode))) {
-              continue;
+            continue;
           }
           //
 
@@ -2175,8 +2210,17 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
       }
 
       // 주문 구분 포함
+      /* 기존 로직
       if (!includeOrderTypes.isEmpty()) {
         if (String.isBlank(orderType) || !includeOrderTypes.contains(orderType)) {
+          return false;
+        }
+      }
+      */
+      // 주문 구분 포함 — orderType 미입력 시 룰 무시
+      // 신규 로직 (26.05.11 CS)
+      if (!includeOrderTypes.isEmpty() && String.isNotBlank(orderType)) {
+        if (!includeOrderTypes.contains(orderType)) {
           return false;
         }
       }

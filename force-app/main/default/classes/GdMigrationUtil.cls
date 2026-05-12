@@ -17,15 +17,13 @@
  *   - OpenDate__c (Date)      : 운영 오픈 기준 일자
  */
 public with sharing class GdMigrationUtil {
+  private static final Integer MAX_ADDITIONAL_NOTES_LENGTH = 255;
 
   // 기본 기준 일자 (Custom Setting 미설정 시 fallback)
   private static final Date DEFAULT_OPEN_DATE = Date.newInstance(2026, 5, 15);
 
   // 마이그레이션 TJ InsertId 마커 (옵션 C 적재 시 사용된 값)
-  private static final Set<String> MIG_INSERT_IDS = new Set<String>{
-    'MIG_OPTC_CREDIT',
-    'MIG_OPTC_CANCEL'
-  };
+  private static final Set<String> MIG_INSERT_IDS = new Set<String>{ 'MIG_OPTC_CREDIT', 'MIG_OPTC_CANCEL' };
 
   // ============================================================
   // Section 1: Custom Setting 조회
@@ -103,9 +101,7 @@ public with sharing class GdMigrationUtil {
       return false;
     }
 
-    List<Order> oList = [
-      SELECT Id, EffectiveDate FROM Order WHERE SaleNo__c = :saleNo LIMIT 1
-    ];
+    List<Order> oList = [SELECT Id, EffectiveDate FROM Order WHERE SaleNo__c = :saleNo LIMIT 1];
     if (oList.isEmpty()) {
       return false;
     }
@@ -131,9 +127,7 @@ public with sharing class GdMigrationUtil {
       return false;
     }
 
-    List<Order> oList = [
-      SELECT Id, EffectiveDate FROM Order WHERE Id = :orderId LIMIT 1
-    ];
+    List<Order> oList = [SELECT Id, EffectiveDate FROM Order WHERE Id = :orderId LIMIT 1];
     if (oList.isEmpty() || oList[0].EffectiveDate == null) {
       return false;
     }
@@ -215,10 +209,7 @@ public with sharing class GdMigrationUtil {
     String reason
   ) {
     // 26.05.06 CS - 기존 8-인자 호출자 호환 유지. 9-인자 신규 메서드로 위임 (returnOrderId=null).
-    return recordAdjustmentLog(
-      memberId, memberNo, adjustType, sourceApi, originalSaleOrDepositNo,
-      requested, actual, reason, null
-    );
+    return recordAdjustmentLog(memberId, memberNo, adjustType, sourceApi, originalSaleOrDepositNo, requested, actual, reason, null);
   }
 
   /**
@@ -284,8 +275,7 @@ public with sharing class GdMigrationUtil {
         return sr.getId();
       } else {
         Database.Error err = sr.getErrors().isEmpty() ? null : sr.getErrors()[0];
-        System.debug('GdMigrationUtil.recordAdjustmentLog insert failed: ' +
-          (err == null ? '(no error)' : err.getMessage()));
+        System.debug('GdMigrationUtil.recordAdjustmentLog insert failed: ' + (err == null ? '(no error)' : err.getMessage()));
         return null;
       }
     } catch (Exception e) {
@@ -313,19 +303,17 @@ public with sharing class GdMigrationUtil {
   // ============================================================
 
   // 적립 불가 결제 수단 (표준 calculateEligibleAccrualAmount 와 동일)
-  private static final Set<String> PAYMENT_METHODS_NOT_ACCRUAL_ELIGIBLE = new Set<String>{
-    '20', '81', '90', '93'
-  };
+  private static final Set<String> PAYMENT_METHODS_NOT_ACCRUAL_ELIGIBLE = new Set<String>{ '20', '81', '90', '93' };
 
   /**
    * 적립 예상 결과 — Subtype 별로 1 건씩 반환.
    */
   public class AccrualEstimate {
-    public Id subtypeId;             // LoyaltyProgramCurrencySubtype Id
-    public String subtypeName;       // 예: '구매포인트', '사은포인트'
-    public String pointTypeCode;     // 예: '01' (구매), '06' (사은)
-    public Decimal pointRate;        // 적립률 % (예: 1.00 = 1%)
-    public Decimal points;           // 계산된 적립 포인트
+    public Id subtypeId; // LoyaltyProgramCurrencySubtype Id
+    public String subtypeName; // 예: '구매포인트', '사은포인트'
+    public String pointTypeCode; // 예: '01' (구매), '06' (사은)
+    public Decimal pointRate; // 적립률 % (예: 1.00 = 1%)
+    public Decimal points; // 계산된 적립 포인트
   }
 
   /**
@@ -346,11 +334,7 @@ public with sharing class GdMigrationUtil {
    *   - 모든 예외 catch → 빈 list 반환
    *   - 입력 검증
    */
-  public static List<AccrualEstimate> calculateAccrualForOldOrder(
-    Id memberId,
-    Decimal eligibleAmount,
-    Id promotionId
-  ) {
+  public static List<AccrualEstimate> calculateAccrualForOldOrder(Id memberId, Decimal eligibleAmount, Id promotionId) {
     List<AccrualEstimate> result = new List<AccrualEstimate>();
 
     if (memberId == null || eligibleAmount == null || eligibleAmount <= 0) {
@@ -369,9 +353,7 @@ public with sharing class GdMigrationUtil {
           Benefit.LoyaltyPgmCurrencySubtypeId__r.Name,
           Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c
         FROM LoyaltyTierBenefit
-        WHERE LoyaltyTierId IN (
-          SELECT LoyaltyTierId FROM LoyaltyMemberTier WHERE LoyaltyMemberId = :memberId
-        )
+        WHERE LoyaltyTierId IN (SELECT LoyaltyTierId FROM LoyaltyMemberTier WHERE LoyaltyMemberId = :memberId)
       ];
 
       if (ltbList.isEmpty()) {
@@ -391,10 +373,7 @@ public with sharing class GdMigrationUtil {
         String benefitPointTypeCode = ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r != null
           ? ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c
           : null;
-        if (
-          String.isNotBlank(benefitPointTypeCode) &&
-          excludedPointTypeCodes.contains(benefitPointTypeCode.trim())
-        ) {
+        if (String.isNotBlank(benefitPointTypeCode) && excludedPointTypeCodes.contains(benefitPointTypeCode.trim())) {
           continue;
         }
 
@@ -414,9 +393,7 @@ public with sharing class GdMigrationUtil {
 
         AccrualEstimate est = new AccrualEstimate();
         est.subtypeId = ltb.Benefit.LoyaltyPgmCurrencySubtypeId__c;
-        est.subtypeName = ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r != null
-          ? ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r.Name
-          : null;
+        est.subtypeName = ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r != null ? ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r.Name : null;
         est.pointTypeCode = benefitPointTypeCode;
         est.pointRate = rate;
         est.points = points;
@@ -441,10 +418,7 @@ public with sharing class GdMigrationUtil {
    * @param excludeAmount  반품 제외 항목 등 차감 금액
    * @return               적립 가능 금액 (WON)
    */
-  public static Decimal calculateEligibleAccrualAmount(
-    List<TransactionJournal> tjList,
-    Decimal excludeAmount
-  ) {
+  public static Decimal calculateEligibleAccrualAmount(List<TransactionJournal> tjList, Decimal excludeAmount) {
     if (tjList == null || tjList.isEmpty()) {
       return 0;
     }
@@ -455,10 +429,7 @@ public with sharing class GdMigrationUtil {
         continue;
       }
       // 적립 불가 결제 수단 스킵 (표준과 동일)
-      if (
-        tj.PaymentMethod != null &&
-        PAYMENT_METHODS_NOT_ACCRUAL_ELIGIBLE.contains(tj.PaymentMethod)
-      ) {
+      if (tj.PaymentMethod != null && PAYMENT_METHODS_NOT_ACCRUAL_ELIGIBLE.contains(tj.PaymentMethod)) {
         continue;
       }
       if (tj.TransactionAmount == null || tj.TransactionAmount == 0) {
@@ -484,9 +455,7 @@ public with sharing class GdMigrationUtil {
       return result;
     }
     try {
-      List<Promotion> pList = [
-        SELECT Id, PointTypeCode__c FROM Promotion WHERE Id = :promotionId LIMIT 1
-      ];
+      List<Promotion> pList = [SELECT Id, PointTypeCode__c FROM Promotion WHERE Id = :promotionId LIMIT 1];
       if (pList.isEmpty() || String.isBlank(pList[0].PointTypeCode__c)) {
         return result;
       }
@@ -520,12 +489,12 @@ public with sharing class GdMigrationUtil {
    * 강제 차감 결과.
    */
   public class ForceDebitResult {
-    public Decimal requestedPoints;   // 요청 차감 금액
-    public Decimal actualPoints;      // 실제 차감 금액
-    public Decimal loss;              // 손실 (회사 부담)
-    public Boolean success;           // 차감 성공 여부 (DML 성공)
-    public Id debitTjId;              // 생성된 차감 TJ Id
-    public String error;              // 에러 메시지 (있는 경우)
+    public Decimal requestedPoints; // 요청 차감 금액
+    public Decimal actualPoints; // 실제 차감 금액
+    public Decimal loss; // 손실 (회사 부담)
+    public Boolean success; // 차감 성공 여부 (DML 성공)
+    public Id debitTjId; // 생성된 차감 TJ Id
+    public String error; // 에러 메시지 (있는 경우)
   }
 
   /**
@@ -548,13 +517,7 @@ public with sharing class GdMigrationUtil {
    *   - 모든 DML try/catch
    *   - 실패 시 result.success=false, 호출자에게 throw 안 함
    */
-  public static ForceDebitResult forceDebitPointsSafe(
-    Id memberId,
-    Id loyaltyProgramId,
-    Id orderId,
-    Decimal requestedPoints,
-    String reason
-  ) {
+  public static ForceDebitResult forceDebitPointsSafe(Id memberId, Id loyaltyProgramId, Id orderId, Decimal requestedPoints, String reason) {
     ForceDebitResult result = new ForceDebitResult();
     result.requestedPoints = (requestedPoints == null) ? 0 : requestedPoints;
     result.actualPoints = 0;
@@ -571,10 +534,10 @@ public with sharing class GdMigrationUtil {
       //    안전 정책: 이관된 묶음 잔액 (PointTypeCode='04', 기타포인트) 만 차감 대상.
       //    회원이 마이그 후 신규로 적립한 포인트 (구매/사은/에코 등) 는 보호.
       List<LoyaltyAggrSubPointExprLedger__c> aggrList = [
-        SELECT AvailablePoints__c, CurrencySubTypeId__r.Name,
-               CurrencySubTypeId__r.UsagePriorityNumber, ExpiryDate__c
+        SELECT AvailablePoints__c, CurrencySubTypeId__r.Name, CurrencySubTypeId__r.UsagePriorityNumber, ExpiryDate__c
         FROM LoyaltyAggrSubPointExprLedger__c
-        WHERE LoyaltyProgramMemberId__c = :memberId
+        WHERE
+          LoyaltyProgramMemberId__c = :memberId
           AND AvailablePoints__c > 0
           AND ExpiryDate__c >= TODAY
           AND CurrencySubTypeId__r.PointTypeCode__c = '04'
@@ -588,9 +551,7 @@ public with sharing class GdMigrationUtil {
       }
 
       // 3. 실제 차감 금액 결정 (잔액 부족 시 부분 차감)
-      Decimal actual = (result.requestedPoints <= totalAvailable)
-        ? result.requestedPoints
-        : totalAvailable;
+      Decimal actual = (result.requestedPoints <= totalAvailable) ? result.requestedPoints : totalAvailable;
 
       if (actual <= 0) {
         // 잔액 0 → 모두 손실
@@ -612,9 +573,7 @@ public with sharing class GdMigrationUtil {
         true
       );
 
-      TransactionJournal forceTj = buildForceDebitTJ(
-        memberId, loyaltyProgramId, orderId, actual, reason, redemptionJtId, apiForcedDebitJstId
-      );
+      TransactionJournal forceTj = buildForceDebitTJ(memberId, loyaltyProgramId, orderId, actual, reason, redemptionJtId, apiForcedDebitJstId);
 
       insert forceTj;
       result.debitTjId = forceTj.Id;
@@ -656,10 +615,7 @@ public with sharing class GdMigrationUtil {
    * 순수 함수 (DML/SOQL 없음) → @TestVisible 로 단위 테스트.
    */
   @TestVisible
-  private static Map<String, Decimal> distributeDebitBySubtype(
-    List<LoyaltyAggrSubPointExprLedger__c> aggrList,
-    Decimal totalToDebit
-  ) {
+  private static Map<String, Decimal> distributeDebitBySubtype(List<LoyaltyAggrSubPointExprLedger__c> aggrList, Decimal totalToDebit) {
     Map<String, Decimal> subtypeDebitMap = new Map<String, Decimal>();
     if (aggrList == null || aggrList.isEmpty() || totalToDebit == null || totalToDebit <= 0) {
       return subtypeDebitMap;
@@ -694,9 +650,13 @@ public with sharing class GdMigrationUtil {
    */
   @TestVisible
   private static TransactionJournal buildForceDebitTJ(
-    Id memberId, Id loyaltyProgramId, Id orderId,
-    Decimal amount, String reason,
-    Id journalTypeId, Id journalSubTypeId
+    Id memberId,
+    Id loyaltyProgramId,
+    Id orderId,
+    Decimal amount,
+    String reason,
+    Id journalTypeId,
+    Id journalSubTypeId
   ) {
     TransactionJournal forceTj = new TransactionJournal();
     forceTj.MemberId = memberId;
@@ -711,11 +671,7 @@ public with sharing class GdMigrationUtil {
     forceTj.JournalReason__c = '1';
     forceTj.TransactionAmount = amount;
     forceTj.Status = 'Pending';
-    String safeReason = String.isBlank(reason) ? '' : reason;
-    if (safeReason.length() > 30000) {
-      safeReason = safeReason.substring(0, 30000);
-    }
-    forceTj.AdditionalNotes__c = 'OPTC_FORCE_DEBIT: ' + safeReason;
+    forceTj.AdditionalNotes__c = buildAdditionalNotes('OPTC_FORCE_DEBIT', reason);
     return forceTj;
   }
 
@@ -732,9 +688,7 @@ public with sharing class GdMigrationUtil {
       for (LoyaltyAggrSubPointExprLedger__c aggr : [
         SELECT AvailablePoints__c
         FROM LoyaltyAggrSubPointExprLedger__c
-        WHERE LoyaltyProgramMemberId__c = :memberId
-          AND AvailablePoints__c > 0
-          AND ExpiryDate__c >= TODAY
+        WHERE LoyaltyProgramMemberId__c = :memberId AND AvailablePoints__c > 0 AND ExpiryDate__c >= TODAY
       ]) {
         total += (aggr.AvailablePoints__c == null) ? 0 : aggr.AvailablePoints__c;
       }
@@ -762,12 +716,12 @@ public with sharing class GdMigrationUtil {
    * 강제 적립 결과.
    */
   public class ForceCreditResult {
-    public Decimal requestedPoints;   // 요청 적립 금액
-    public Decimal actualPoints;      // 실제 적립 금액
-    public Decimal unprocessed;       // 적립 못한 부분 (회원 보호)
-    public Boolean success;           // 적립 성공 여부
-    public Id creditTjId;             // 생성된 적립 TJ Id
-    public String error;              // 에러 메시지
+    public Decimal requestedPoints; // 요청 적립 금액
+    public Decimal actualPoints; // 실제 적립 금액
+    public Decimal unprocessed; // 적립 못한 부분 (회원 보호)
+    public Boolean success; // 적립 성공 여부
+    public Id creditTjId; // 생성된 적립 TJ Id
+    public String error; // 에러 메시지
   }
 
   /**
@@ -789,13 +743,7 @@ public with sharing class GdMigrationUtil {
    *   - 모든 DML try/catch
    *   - 실패 시 result.success=false, 호출자에게 throw 안 함
    */
-  public static ForceCreditResult forceCreditPointsSafe(
-    Id memberId,
-    Id loyaltyProgramId,
-    Id orderId,
-    Decimal requestedPoints,
-    String reason
-  ) {
+  public static ForceCreditResult forceCreditPointsSafe(Id memberId, Id loyaltyProgramId, Id orderId, Decimal requestedPoints, String reason) {
     ForceCreditResult result = new ForceCreditResult();
     result.requestedPoints = (requestedPoints == null) ? 0 : requestedPoints;
     result.actualPoints = 0;
@@ -810,12 +758,9 @@ public with sharing class GdMigrationUtil {
     try {
       // 1. 회원의 활성 기타포인트 묶음 잔액 (만료 안 된) 조회
       List<LoyaltyAggrSubPointExprLedger__c> aggrList = [
-        SELECT CurrencySubTypeId__c, CurrencySubTypeId__r.Name,
-               ExpiryDate__c
+        SELECT CurrencySubTypeId__c, CurrencySubTypeId__r.Name, ExpiryDate__c
         FROM LoyaltyAggrSubPointExprLedger__c
-        WHERE LoyaltyProgramMemberId__c = :memberId
-          AND CurrencySubTypeId__r.PointTypeCode__c = '04'
-          AND ExpiryDate__c >= TODAY
+        WHERE LoyaltyProgramMemberId__c = :memberId AND CurrencySubTypeId__r.PointTypeCode__c = '04' AND ExpiryDate__c >= TODAY
         ORDER BY ExpiryDate__c DESC
         LIMIT 1
       ];
@@ -837,8 +782,13 @@ public with sharing class GdMigrationUtil {
       );
 
       TransactionJournal forceTj = buildForceCreditTJ(
-        memberId, loyaltyProgramId, orderId, result.requestedPoints, reason,
-        accrualJtId, apiForcedCreditJstId
+        memberId,
+        loyaltyProgramId,
+        orderId,
+        result.requestedPoints,
+        reason,
+        accrualJtId,
+        apiForcedCreditJstId
       );
 
       insert forceTj;
@@ -879,9 +829,13 @@ public with sharing class GdMigrationUtil {
    */
   @TestVisible
   private static TransactionJournal buildForceCreditTJ(
-    Id memberId, Id loyaltyProgramId, Id orderId,
-    Decimal amount, String reason,
-    Id journalTypeId, Id journalSubTypeId
+    Id memberId,
+    Id loyaltyProgramId,
+    Id orderId,
+    Decimal amount,
+    String reason,
+    Id journalTypeId,
+    Id journalSubTypeId
   ) {
     TransactionJournal forceTj = new TransactionJournal();
     forceTj.MemberId = memberId;
@@ -895,12 +849,13 @@ public with sharing class GdMigrationUtil {
     forceTj.JournalSubTypeId = journalSubTypeId;
     forceTj.TransactionAmount = amount;
     forceTj.Status = 'Pending';
-    String safeReason = String.isBlank(reason) ? '' : reason;
-    if (safeReason.length() > 30000) {
-      safeReason = safeReason.substring(0, 30000);
-    }
-    forceTj.AdditionalNotes__c = 'OPTC_FORCE_CREDIT: ' + safeReason;
+    forceTj.AdditionalNotes__c = buildAdditionalNotes('OPTC_FORCE_CREDIT', reason);
     return forceTj;
+  }
+
+  private static String buildAdditionalNotes(String marker, String reason) {
+    String note = (String.isBlank(marker) ? 'OPTC' : marker) + ': ' + (String.isBlank(reason) ? '' : reason);
+    return note.length() > MAX_ADDITIONAL_NOTES_LENGTH ? note.substring(0, MAX_ADDITIONAL_NOTES_LENGTH) : note;
   }
 
   // ============================================================
@@ -932,13 +887,13 @@ public with sharing class GdMigrationUtil {
    * 옛 판매 PM=81 사용 환원 결과.
    */
   public class CancelOldSalePointUsageResult {
-    public Decimal requestedPoints;     // PM=81 사용 환원 대상 금액
-    public Decimal actualPoints;        // 실 환원 금액 (force-credit 결과)
-    public Decimal unprocessed;         // 환원 못한 금액
-    public Boolean success;             // 환원 성공 여부
-    public Id creditTjId;               // 생성된 환원 TJ Id
-    public Integer matchedLLTCount;     // 매칭된 LLT 수
-    public Boolean lltMissing;          // LLT 매칭 0건 (사전 검증 실패)
+    public Decimal requestedPoints; // PM=81 사용 환원 대상 금액
+    public Decimal actualPoints; // 실 환원 금액 (force-credit 결과)
+    public Decimal unprocessed; // 환원 못한 금액
+    public Boolean success; // 환원 성공 여부
+    public Id creditTjId; // 생성된 환원 TJ Id
+    public Integer matchedLLTCount; // 매칭된 LLT 수
+    public Boolean lltMissing; // LLT 매칭 0건 (사전 검증 실패)
     public String error;
   }
 
@@ -972,14 +927,18 @@ public with sharing class GdMigrationUtil {
     try {
       // 1. 사전 검증: PM=81 TJ Id 직접 매칭 + SubType 필터
       List<LoyaltyLedgerTraceability> llts = [
-        SELECT Id, Points, ActionType,
-               CreditLoyaltyLedger.TransactionJournalId,
-               CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId,
-               CreditLoyaltyLedger.LoyaltyPgmCrcySubtype.Name,
-               CreditLoyaltyLedger.LoyaltyPgmCrcySubtype.PointTypeCode__c,
-               CreditLoyaltyLedger.ExpiryDate
+        SELECT
+          Id,
+          Points,
+          ActionType,
+          CreditLoyaltyLedger.TransactionJournalId,
+          CreditLoyaltyLedger.LoyaltyPgmCrcySubtypeId,
+          CreditLoyaltyLedger.LoyaltyPgmCrcySubtype.Name,
+          CreditLoyaltyLedger.LoyaltyPgmCrcySubtype.PointTypeCode__c,
+          CreditLoyaltyLedger.ExpiryDate
         FROM LoyaltyLedgerTraceability
-        WHERE DebitLoyaltyLedger.TransactionJournalId = :pm81Tj.Id
+        WHERE
+          DebitLoyaltyLedger.TransactionJournalId = :pm81Tj.Id
           AND DebitLoyaltyLedger.TransactionJournal.JournalSubType.Name = 'Point Debit'
           AND ActionType = 'Debit'
           AND Points > 0
@@ -1011,9 +970,7 @@ public with sharing class GdMigrationUtil {
         pm81Tj.LoyaltyProgramId,
         pm81Tj.OrderId,
         totalToRestore,
-        'OPTC_OLD_SALE_USAGE_RESTORE: pm81TjId=' + pm81Tj.Id +
-        ', amount=' + pm81Tj.TransactionAmount +
-        ', matchedLLT=' + llts.size()
+        'OPTC_OLD_SALE_USAGE_RESTORE: pm81TjId=' + pm81Tj.Id + ', amount=' + pm81Tj.TransactionAmount + ', matchedLLT=' + llts.size()
       );
       out.actualPoints = fc.actualPoints;
       out.unprocessed = fc.unprocessed;

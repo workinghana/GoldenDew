@@ -51,7 +51,7 @@ public interface GdPointService {
    * @version V1
    */
   List<PointDebitDTO> debitSpecificPoints(TransactionJournal tj, List<LoyaltyLedger> llList);
-  
+
   /**
    * 특정 포인트 차감 V2
    * @version V2
@@ -63,6 +63,11 @@ public interface GdPointService {
    * @version V3
    */
   List<PointDebitDTO> debitSpecificPointsV3(TransactionJournal tj, Map<Id, Decimal> requestedPointsByLedgerId);
+
+  /**
+   * LMS debitPoints 대체 후보 커스텀 차감 메서드.
+   */
+  List<GdSaleApiController.PointDebitDTO> debitPointsCustom(TransactionJournal tj);
 
   /**
    * (특정 등급의 비율에 따른) 구매 시 포인트 지급

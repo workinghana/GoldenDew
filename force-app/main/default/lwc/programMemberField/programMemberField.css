@@ -189,8 +189,11 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 6px;
-  font-size: 14px;
+  gap: 4px;
+  width: 100%;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
 }
 
 .update-time + .grade-money {
@@ -200,11 +203,13 @@
 .grade-value {
   font-size: 12px;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .grade-label {
   font-size: 12px;
   color: #6b7280;
+  white-space: nowrap;
 }
 
 /* ================= 보유 혜택 (세로 구조) ================= */

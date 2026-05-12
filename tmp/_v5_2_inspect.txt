@@ -1,0 +1,24 @@
+2026-05-10T17:06:21.000+0000  a12JO000000MjWSYA0  GdOrderApiControllerV1
+  url=/gd/v1/order
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST02009",      "OrderNo__c": "SOR04017",      "ActualPaymentAmount__c": 400000,      "OrderStatus__c": "01",      "Type": "01",      "PromotionNo__c": "PRO202604161041",      "OrderItem": [          {             
+  resp={   "success" : true,   "message" : "주문 등록 완료",   "data" : {     "DebitPointList" : [ {       "PT_USE" : 8480.0000,       "NO_SAL_RTN" : null,       "NO_SAL" : "SOR04017",       "NO_MBR" : "TEST02009"
+
+2026-05-10T17:12:26.000+0000  a12JO000000MkvUYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "AccountId": "GOLDENDEW",      "StoreCode__c": "99998",      "MemberNo__c": "TEST02009",      "SaleNo__c": "SAL04071",      "EndDate": "20260511",      "ActualPaymentAmount__c": 400000.0,      "SaleStatus__c": "01",      "PromotionNo__c": "PRO202604161041",      "OrderItem": [           {   
+  resp={   "success" : true,   "message" : "판매 등록 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|2.00",       "PT_TARGET" : 7000.0000,       "NO_SAL" : null,     
+
+2026-05-10T17:15:39.000+0000  a12JO000000Mkx3YAC  GdSaleDepositApiControllerV1
+  url={"DeposiSeqNo__c":"1","DepositNo__c":"DEP040024"}
+  req=
+  resp={   "success" : true,   "message" : "판매 입금 삭제 삭제 완료",   "data" : {     "CancelCoupon" : null,     "CancelPointsCreditedList" : null,     "CancelPointList" : null   },   "code" : 200 }
+
+2026-05-10T17:15:53.000+0000  a12JO000000MkyfYAC  GdSaleDepositApiControllerV1
+  url={"DeposiSeqNo__c":"3","DepositNo__c":"DEP040026"}
+  req=
+  resp={   "success" : true,   "message" : "판매 입금 삭제 삭제 완료",   "data" : {     "CancelCoupon" : null,     "CancelPointsCreditedList" : null,     "CancelPointList" : null   },   "code" : 200 }
+
+2026-05-10T17:18:56.000+0000  a12JO000000Ml0IYAS  GdSaleApiControllerV1
+  url=/gd/v1/sale
+  req={     "SaleNo__c": "SAL04071",      "ActualPaymentAmount__c": 400000.0,      "SaleStatus__c": "01",      "OrderItem": [          {             "SaleSeqNo__c": "1",              "OrderNo__c": "SOR04017",              "ProductCode": "TEST-001",              "Quantity": 1,              "NetSalesUnitP
+  resp={   "success" : true,   "message" : "판매 수정 완료",   "data" : {     "CreditPointList" : [ {       "TX_REMARK" : "구매포인트|11cJO000001BAZlYAO|2.00",       "PT_TARGET" : 1000.0000,       "NO_SAL" : null,     

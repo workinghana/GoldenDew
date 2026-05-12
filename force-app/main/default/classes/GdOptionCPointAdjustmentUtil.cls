@@ -1,5 +1,7 @@
 public with sharing class GdOptionCPointAdjustmentUtil {
+  private static final Integer MAX_ADDITIONAL_NOTES_LENGTH = 255;
   private static final String LOYALTY_PROGRAM_CURRENCY_NAME = '포인트';
+  private static final String JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL = 'Point Redeem Cancel';
 
   public class AccrualCancelResult {
     public Decimal requestedPoints = 0;
@@ -34,16 +36,21 @@ public with sharing class GdOptionCPointAdjustmentUtil {
         new Map<String, Object>{ 'Name' => 'Cancel Purchase Accrual', 'JournalTypeId' => accrualReversalJtId },
         true
       );
-      Id loyaltyProgramCurrencyId = SObjectUtil.findIdByName(
-        LoyaltyProgramCurrency.SObjectType,
-        LOYALTY_PROGRAM_CURRENCY_NAME,
-        true
-      );
+      Id loyaltyProgramCurrencyId = SObjectUtil.findIdByName(LoyaltyProgramCurrency.SObjectType, LOYALTY_PROGRAM_CURRENCY_NAME, true);
 
       List<LoyaltyLedger> creditLedgers = [
-        SELECT Id, Points, LoyaltyPgmCrcySubtypeId, ExpiryDate, CreatedDate, TransactionJournal.OrderId
+        SELECT
+          Id,
+          Points,
+          LoyaltyPgmCrcySubtypeId,
+          ExpiryDate,
+          CreatedDate,
+          TransactionJournal.OrderId,
+          TransactionJournal.SaleId__c,
+          TransactionJournal.JournalSubType.Name
         FROM LoyaltyLedger
-        WHERE LoyaltyProgramMemberId = :memberId
+        WHERE
+          LoyaltyProgramMemberId = :memberId
           AND EventType = 'Credit'
           AND Points > 0
           AND ExpiryDate >= TODAY
@@ -51,6 +58,7 @@ public with sharing class GdOptionCPointAdjustmentUtil {
         ORDER BY CreatedDate ASC
         LIMIT 1000
       ];
+      creditLedgers = filterCancelableOptionCCreditLedgers(creditLedgers, returnOrderId);
       if (creditLedgers.isEmpty()) {
         result.error = 'no active option c etc credit ledger';
         return result;
@@ -63,9 +71,11 @@ public with sharing class GdOptionCPointAdjustmentUtil {
       for (AggregateResult ar : [
         SELECT CreditLoyaltyLedgerId creditId, ActionType actionType, SUM(Points) totalPoints
         FROM LoyaltyLedgerTraceability
-        WHERE CreditLoyaltyLedgerId IN :creditIds
+        WHERE
+          CreditLoyaltyLedgerId IN :creditIds
           AND ActionType IN ('Debit', 'DebitCancellation', 'CreditCancellation')
-          AND (DebitLoyaltyLedgerId = NULL OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
+          AND (DebitLoyaltyLedgerId = NULL
+          OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
         GROUP BY CreditLoyaltyLedgerId, ActionType
       ]) {
         Id creditId = (Id) ar.get('creditId');
@@ -94,7 +104,8 @@ public with sharing class GdOptionCPointAdjustmentUtil {
           if (remainingRequest <= 0) {
             break;
           }
-          Boolean sameOriginalOrder = originalOrderId != null &&
+          Boolean sameOriginalOrder =
+            originalOrderId != null &&
             credit.TransactionJournal != null &&
             credit.TransactionJournal.OrderId == originalOrderId;
           if ((pass == 0 && !sameOriginalOrder) || (pass == 1 && sameOriginalOrder)) {
@@ -150,11 +161,7 @@ public with sharing class GdOptionCPointAdjustmentUtil {
       reversalTj.JournalReason__c = '6';
       reversalTj.TransactionAmount = actual;
       reversalTj.Status = 'Processed';
-      String safeReason = String.isBlank(reason) ? '' : reason;
-      if (safeReason.length() > 30000) {
-        safeReason = safeReason.substring(0, 30000);
-      }
-      reversalTj.AdditionalNotes__c = 'OPTC_OLD_SALE_ETC_ACCRUAL_CANCEL: ' + safeReason;
+      reversalTj.AdditionalNotes__c = buildAdditionalNotes('OPTC_OLD_SALE_ETC_ACCRUAL_CANCEL', returnOrderId, actual);
       insert reversalTj;
       result.reversalTjId = reversalTj.Id;
 
@@ -180,8 +187,7 @@ public with sharing class GdOptionCPointAdjustmentUtil {
       List<LoyaltyMemberCurrency> lmcList = [
         SELECT Id, TotalPointsRedeemed
         FROM LoyaltyMemberCurrency
-        WHERE LoyaltyMemberId = :memberId
-          AND LoyaltyProgramCurrency.Name = :LOYALTY_PROGRAM_CURRENCY_NAME
+        WHERE LoyaltyMemberId = :memberId AND LoyaltyProgramCurrency.Name = :LOYALTY_PROGRAM_CURRENCY_NAME
         LIMIT 1
       ];
       if (!lmcList.isEmpty()) {
@@ -204,5 +210,41 @@ public with sharing class GdOptionCPointAdjustmentUtil {
       result.error = e.getMessage();
       return result;
     }
+  }
+
+  private static List<LoyaltyLedger> filterCancelableOptionCCreditLedgers(List<LoyaltyLedger> creditLedgers, Id currentReturnOrderId) {
+    List<LoyaltyLedger> result = new List<LoyaltyLedger>();
+    if (creditLedgers == null) {
+      return result;
+    }
+
+    for (LoyaltyLedger credit : creditLedgers) {
+      String journalSubTypeName = credit.TransactionJournal != null &&
+        credit.TransactionJournal.JournalSubType != null
+        ? credit.TransactionJournal.JournalSubType.Name
+        : null;
+      Boolean isPointRedeemCancel = journalSubTypeName == JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL;
+      Boolean isCurrentReturnRestore =
+        isPointRedeemCancel &&
+        currentReturnOrderId != null &&
+        credit.TransactionJournal != null &&
+        credit.TransactionJournal.SaleId__c == currentReturnOrderId;
+      if (isPointRedeemCancel && !isCurrentReturnRestore) {
+        continue;
+      }
+      result.add(credit);
+    }
+    return result;
+  }
+
+  private static String buildAdditionalNotes(String marker, Id returnOrderId, Decimal points) {
+    String note = String.isBlank(marker) ? 'OPTC' : marker;
+    if (returnOrderId != null) {
+      note += ':returnOrderId=' + String.valueOf(returnOrderId);
+    }
+    if (points != null) {
+      note += ';points=' + points.setScale(0, RoundingMode.HALF_UP).toPlainString();
+    }
+    return note.length() > MAX_ADDITIONAL_NOTES_LENGTH ? note.substring(0, MAX_ADDITIONAL_NOTES_LENGTH) : note;
   }
 }
