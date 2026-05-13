@@ -1,6 +1,11 @@
-trigger PromotionTrigger on Promotion(after insert, after delete, after update) {
+trigger VoucherDefinitionTrigger on VoucherDefinition(before insert, after insert, after delete, after update) {
+  if (Trigger.isBefore && Trigger.isInsert) {
+    CouponSequenceService.assignCouponCodes(Trigger.new);
+    return;
+  }
+
   ApexLogger logger = new ApexLogger(ApexLogger.JobType.ACTION);
-  logger.logging('PromotionTrigger');
+  logger.logging('VoucherDefinitionTrigger');
   logger.setRequestDatetime(Datetime.now());
 
   try {
@@ -8,8 +13,8 @@ trigger PromotionTrigger on Promotion(after insert, after delete, after update) 
       logger.setScopedIds((List<SObject>) Trigger.new, 'Id');
     }
 
-    System.debug('PromotionTrigger 진입');
-    PromotionTriggerHandler handler = new PromotionTriggerHandler();
+    System.debug('VoucherDefinitionTrigger 진입');
+    VoucherDefinitionTriggerHandler handler = new VoucherDefinitionTriggerHandler();
     handler.run();
 
     logger.setStatus('SUCCESS');

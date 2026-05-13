@@ -137,6 +137,19 @@ private class GdMigrationUtilTest {
     insert migTj;
   }
 
+  @IsTest
+  static void fallbackConstants_areExposedForTests() {
+    Test.startTest();
+    Date openDate = GdMigrationUtil.getDefaultOpenDate();
+    Set<String> migrationInsertIds = GdMigrationUtil.getMigrationInsertIds();
+    Set<String> excludedPaymentMethods = GdMigrationUtil.getPaymentMethodsNotAccrualEligible();
+    Test.stopTest();
+
+    System.assertEquals(Date.newInstance(2026, 5, 15), openDate);
+    System.assertEquals(new Set<String>{ 'MIG_OPTC_CREDIT', 'MIG_OPTC_CANCEL' }, migrationInsertIds);
+    System.assertEquals(new Set<String>{ '20', '81', '90', '93' }, excludedPaymentMethods);
+  }
+
   // ============================================================
   // 헬퍼 — Custom Setting 설정
   // ============================================================
@@ -289,6 +302,30 @@ private class GdMigrationUtilTest {
     Test.stopTest();
 
     System.assertEquals(true, result, '마이그레이션 마커 (InsertId__c=MIG_OPTC_CREDIT) → true');
+  }
+
+  @IsTest
+  static void shouldApplyByDepositNo_noOrderUsesActivityDateFallback() {
+    setBranchEnabled(true, OPEN_DATE);
+    LoyaltyProgramMember lpm = [SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
+
+    TransactionJournal tj = new TransactionJournal(
+      MemberId = lpm.Id,
+      DepositNo__c = 'DEP-OPTC-ACTIVITY-FALLBACK',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      TransactionAmount = 10000,
+      ActivityDate = PRE_OPEN_DATE,
+      Status = 'Processed',
+      InsertId__c = 'tester'
+    );
+    insert tj;
+
+    Test.startTest();
+    Boolean result = GdMigrationUtil.shouldApplyOptionCBranchByDepositNo('DEP-OPTC-ACTIVITY-FALLBACK');
+    Test.stopTest();
+
+    System.assertEquals(true, result);
   }
 
   // ============================================================
@@ -665,7 +702,12 @@ private class GdMigrationUtilTest {
     LoyaltyTier tier = new LoyaltyTier(Name = 'TestExcludedTier_' + suffix, LoyaltyTierGroupId = tierGroup.Id);
     insert tier;
 
-    insert new LoyaltyMemberTier(Name = 'TestExcludedMemberTier_' + suffix, LoyaltyMemberId = lpm.Id, LoyaltyTierId = tier.Id, EffectiveDate = Date.today());
+    insert new LoyaltyMemberTier(
+      Name = 'TestExcludedMemberTier_' + suffix,
+      LoyaltyMemberId = lpm.Id,
+      LoyaltyTierId = tier.Id,
+      EffectiveDate = Date.today()
+    );
 
     BenefitType benefitType = new BenefitType(
       Name = 'TestExcludedBenefitType_' + suffix,
