@@ -197,6 +197,84 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     return returnEffectiveDate != null && returnEffectiveDate > queryDate;
   }
 
+  private static Boolean isActivePointHelpTransaction(TransactionJournal tj) {
+    if (tj == null) {
+      return true;
+    }
+    if (tj.IsDeleted__c == true) {
+      return false;
+    }
+    if (tj.Order != null && tj.Order.IsDeleted__c == true) {
+      return false;
+    }
+    if (tj.SaleId__r != null && tj.SaleId__r.IsDeleted__c == true) {
+      return false;
+    }
+    return true;
+  }
+
+  private static String resolvePointHelpSaleNo(TransactionJournal tj) {
+    if (tj == null) {
+      return null;
+    }
+    if (tj.Order != null && String.isNotBlank(tj.Order.SaleNo__c)) {
+      return tj.Order.SaleNo__c;
+    }
+    if (tj.SaleId__r != null && String.isNotBlank(tj.SaleId__r.SaleNo__c)) {
+      return tj.SaleId__r.SaleNo__c;
+    }
+    return null;
+  }
+
+  private static Boolean isOriginCreditExcludedForPointHelp(
+    Id originCreditLedgerId,
+    String currentSaleNo,
+    Map<Id, LoyaltyLedger> originCreditLedgerMap
+  ) {
+    if (originCreditLedgerId == null || originCreditLedgerMap == null || !originCreditLedgerMap.containsKey(originCreditLedgerId)) {
+      return false;
+    }
+
+    LoyaltyLedger originCreditLedger = originCreditLedgerMap.get(originCreditLedgerId);
+    if (originCreditLedger == null || !isActivePointHelpTransaction(originCreditLedger.TransactionJournal)) {
+      return true;
+    }
+
+    String originSaleNo = resolvePointHelpSaleNo(originCreditLedger.TransactionJournal);
+    return String.isNotBlank(currentSaleNo) && String.isNotBlank(originSaleNo) && currentSaleNo == originSaleNo;
+  }
+
+  private static Map<Id, LoyaltyLedger> loadOriginCreditLedgersForPointHelp(List<LoyaltyLedger> creditLedgerList) {
+    Set<Id> originCreditLedgerIdSet = new Set<Id>();
+    if (creditLedgerList != null) {
+      for (LoyaltyLedger creditLedger : creditLedgerList) {
+        Id originCreditLedgerId = extractOriginCreditLedgerId(creditLedger == null ? null : creditLedger.AdditionalNotes);
+        if (originCreditLedgerId != null) {
+          originCreditLedgerIdSet.add(originCreditLedgerId);
+        }
+      }
+    }
+
+    if (originCreditLedgerIdSet.isEmpty()) {
+      return new Map<Id, LoyaltyLedger>();
+    }
+
+    return new Map<Id, LoyaltyLedger>(
+      [
+        SELECT
+          Id,
+          TransactionJournal.Id,
+          TransactionJournal.IsDeleted__c,
+          TransactionJournal.Order.SaleNo__c,
+          TransactionJournal.Order.IsDeleted__c,
+          TransactionJournal.SaleId__r.SaleNo__c,
+          TransactionJournal.SaleId__r.IsDeleted__c
+        FROM LoyaltyLedger
+        WHERE Id IN :originCreditLedgerIdSet
+      ]
+    );
+  }
+
   private static Datetime resolvePurchaseAccrualDatetime(Id orderId) {
     if (orderId == null) {
       return Datetime.now();
@@ -425,6 +503,8 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       return new List<AvailableCreditBalance>();
     }
 
+    Map<Id, OriginRestoreCreditState> originRestoreCreditStateByOriginId = buildOriginRestoreCreditStateMap(creditLedgerList);
+
     List<LoyaltyLedger> filteredCreditLedgerList = new List<LoyaltyLedger>();
     Set<Id> creditLedgerIdSet = new Set<Id>();
     Set<Id> subtypeIdSet = new Set<Id>();
@@ -445,6 +525,10 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         creditLedger.TransactionJournal.RelatedJournal.JournalType != null
         ? creditLedger.TransactionJournal.RelatedJournal.JournalType.Name
         : null;
+      Id originCreditLedgerId = extractOriginCreditLedgerId(creditLedger.AdditionalNotes);
+      if (shouldExcludeRestoreCreditByOrigin(originCreditLedgerId, originRestoreCreditStateByOriginId)) {
+        continue;
+      }
 
       if (
         creditLedger.AdditionalNotes == RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE ||
@@ -696,6 +780,19 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         continue;
       }
 
+      Id originCreditLedgerId = extractOriginCreditLedgerId(creditLedger.AdditionalNotes);
+      if (originCreditLedgerId != null) {
+        OriginRestoreCreditState originState = originRestoreCreditStateByOriginId.get(originCreditLedgerId);
+        if (originState == null || originState.isInvalid == true || originState.remainingCap == null || originState.remainingCap <= 0) {
+          continue;
+        }
+        remaining = Math.min(remaining, originState.remainingCap);
+        originState.remainingCap = Math.max(0, originState.remainingCap - remaining);
+        if (remaining <= 0) {
+          continue;
+        }
+      }
+
       result.add(
         new AvailableCreditBalance(
           creditLedger.Id,
@@ -775,6 +872,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           LoyaltyPgmCrcySubtype.Name,
           LoyaltyPgmCrcySubtype.PointTypeCode__c,
           TransactionJournal.Id,
+          TransactionJournal.IsDeleted__c,
           TransactionJournal.CreatedDate,
           TransactionJournal.ActivityDate,
           TransactionJournal.JournalType.Name,
@@ -783,8 +881,10 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           TransactionJournal.RelatedJournalId,
           TransactionJournal.RelatedJournal.JournalType.Name,
           TransactionJournal.Order.SaleNo__c,
+          TransactionJournal.Order.IsDeleted__c,
           TransactionJournal.Order.EffectiveDate,
           TransactionJournal.SaleId__r.SaleNo__c,
+          TransactionJournal.SaleId__r.IsDeleted__c,
           TransactionJournal.SaleId__r.EffectiveDate
         FROM LoyaltyLedger
         WHERE
@@ -792,6 +892,14 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           AND EventType = 'Credit'
           AND Points > 0
           AND LoyaltyPgmCrcySubtype.PointTypeCode__c != NULL
+          AND (TransactionJournal.IsDeleted__c = FALSE
+          OR TransactionJournal.IsDeleted__c = NULL)
+          AND (TransactionJournal.OrderId = NULL
+          OR TransactionJournal.Order.IsDeleted__c = FALSE
+          OR TransactionJournal.Order.IsDeleted__c = NULL)
+          AND (TransactionJournal.SaleId__c = NULL
+          OR TransactionJournal.SaleId__r.IsDeleted__c = FALSE
+          OR TransactionJournal.SaleId__r.IsDeleted__c = NULL)
           // (1) 삭제 보조 LL: CreatedDate 기준
           AND ((TransactionJournal.AdditionalNotes__c IN :RESTORE_NOTES
           AND CreatedDate <= :effectiveCutoff)
@@ -821,6 +929,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           LoyaltyPgmCrcySubtype.Name,
           LoyaltyPgmCrcySubtype.PointTypeCode__c,
           TransactionJournal.Id,
+          TransactionJournal.IsDeleted__c,
           TransactionJournal.CreatedDate,
           TransactionJournal.ActivityDate,
           TransactionJournal.JournalType.Name,
@@ -829,8 +938,10 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           TransactionJournal.RelatedJournalId,
           TransactionJournal.RelatedJournal.JournalType.Name,
           TransactionJournal.Order.SaleNo__c,
+          TransactionJournal.Order.IsDeleted__c,
           TransactionJournal.Order.EffectiveDate,
           TransactionJournal.SaleId__r.SaleNo__c,
+          TransactionJournal.SaleId__r.IsDeleted__c,
           TransactionJournal.SaleId__r.EffectiveDate
         FROM LoyaltyLedger
         WHERE
@@ -838,6 +949,14 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           AND EventType = 'Credit'
           AND Points > 0
           AND LoyaltyPgmCrcySubtype.PointTypeCode__c != NULL
+          AND (TransactionJournal.IsDeleted__c = FALSE
+          OR TransactionJournal.IsDeleted__c = NULL)
+          AND (TransactionJournal.OrderId = NULL
+          OR TransactionJournal.Order.IsDeleted__c = FALSE
+          OR TransactionJournal.Order.IsDeleted__c = NULL)
+          AND (TransactionJournal.SaleId__c = NULL
+          OR TransactionJournal.SaleId__r.IsDeleted__c = FALSE
+          OR TransactionJournal.SaleId__r.IsDeleted__c = NULL)
           // (1) 삭제 보조 LL: CreatedDate 기준
           AND ((TransactionJournal.AdditionalNotes__c IN :RESTORE_NOTES
           AND CreatedDate <= :effectiveCutoff)
@@ -867,6 +986,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           LoyaltyPgmCrcySubtype.Name,
           LoyaltyPgmCrcySubtype.PointTypeCode__c,
           TransactionJournal.Id,
+          TransactionJournal.IsDeleted__c,
           TransactionJournal.CreatedDate,
           TransactionJournal.ActivityDate,
           TransactionJournal.JournalType.Name,
@@ -875,11 +995,25 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           TransactionJournal.RelatedJournalId,
           TransactionJournal.RelatedJournal.JournalType.Name,
           TransactionJournal.Order.SaleNo__c,
+          TransactionJournal.Order.IsDeleted__c,
           TransactionJournal.Order.EffectiveDate,
           TransactionJournal.SaleId__r.SaleNo__c,
+          TransactionJournal.SaleId__r.IsDeleted__c,
           TransactionJournal.SaleId__r.EffectiveDate
         FROM LoyaltyLedger
-        WHERE LoyaltyProgramMemberId = :memberId AND EventType = 'Credit' AND Points > 0 AND LoyaltyPgmCrcySubtype.PointTypeCode__c != NULL
+        WHERE
+          LoyaltyProgramMemberId = :memberId
+          AND EventType = 'Credit'
+          AND Points > 0
+          AND LoyaltyPgmCrcySubtype.PointTypeCode__c != NULL
+          AND (TransactionJournal.IsDeleted__c = FALSE
+          OR TransactionJournal.IsDeleted__c = NULL)
+          AND (TransactionJournal.OrderId = NULL
+          OR TransactionJournal.Order.IsDeleted__c = FALSE
+          OR TransactionJournal.Order.IsDeleted__c = NULL)
+          AND (TransactionJournal.SaleId__c = NULL
+          OR TransactionJournal.SaleId__r.IsDeleted__c = FALSE
+          OR TransactionJournal.SaleId__r.IsDeleted__c = NULL)
         ORDER BY ActivityDate ASC, CreatedDate ASC, Id ASC
         LIMIT 50000
       ];
@@ -888,6 +1022,9 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     if (creditLedgerList.isEmpty()) {
       return new List<AvailableCreditBalance>();
     }
+
+    Map<Id, LoyaltyLedger> originCreditLedgerMap = loadOriginCreditLedgersForPointHelp(creditLedgerList);
+    Map<Id, OriginRestoreCreditState> originRestoreCreditStateByOriginId = buildOriginRestoreCreditStateMap(creditLedgerList);
 
     Set<Id> optionCForceCreditReturnOrderIdSet = new Set<Id>();
     for (LoyaltyLedger creditLedger : creditLedgerList) {
@@ -921,6 +1058,18 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         creditLedger.TransactionJournal.RelatedJournal.JournalType != null
         ? creditLedger.TransactionJournal.RelatedJournal.JournalType.Name
         : null;
+
+      if (!isActivePointHelpTransaction(creditLedger.TransactionJournal)) {
+        continue;
+      }
+
+      Id originCreditLedgerId = extractOriginCreditLedgerId(creditLedger.AdditionalNotes);
+      if (isOriginCreditExcludedForPointHelp(originCreditLedgerId, currentSaleNo, originCreditLedgerMap)) {
+        continue;
+      }
+      if (shouldExcludeRestoreCreditByOrigin(originCreditLedgerId, originRestoreCreditStateByOriginId)) {
+        continue;
+      }
 
       if (shouldExcludeOptionCForceCreditByReturnDate(creditJournalAdditionalNotes, queryDate, optionCForceCreditReturnEffectiveDateMap)) {
         continue;
@@ -1045,6 +1194,14 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           // [Time-Symmetric + Effective Date Hierarchy] 컷오프 시점 이후의 차감(미래 반품/취소) 은 시뮬레이션에서 제외.
           //   Debit LL 측 TJ 의 AdditionalNotes 가 RESTORE_NOTES 이면 CreatedDate, 아니면 Sale/Order/ActivityDate hierarchy.
         )
+        AND (DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+        OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = NULL)
+        AND (DebitLoyaltyLedger.TransactionJournal.OrderId = NULL
+        OR DebitLoyaltyLedger.TransactionJournal.Order.IsDeleted__c = FALSE
+        OR DebitLoyaltyLedger.TransactionJournal.Order.IsDeleted__c = NULL)
+        AND (DebitLoyaltyLedger.TransactionJournal.SaleId__c = NULL
+        OR DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsDeleted__c = FALSE
+        OR DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsDeleted__c = NULL)
         AND ((DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c IN :RESTORE_NOTES
         AND DebitLoyaltyLedger.CreatedDate <= :effectiveCutoff)
         OR ((DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
@@ -1201,6 +1358,19 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         continue;
       }
 
+      Id originCreditLedgerId = extractOriginCreditLedgerId(creditLedger.AdditionalNotes);
+      if (originCreditLedgerId != null) {
+        OriginRestoreCreditState originState = originRestoreCreditStateByOriginId.get(originCreditLedgerId);
+        if (originState == null || originState.isInvalid == true || originState.remainingCap == null || originState.remainingCap <= 0) {
+          continue;
+        }
+        remaining = Math.min(remaining, originState.remainingCap);
+        originState.remainingCap = Math.max(0, originState.remainingCap - remaining);
+        if (remaining <= 0) {
+          continue;
+        }
+      }
+
       includedCreditLedgerIdSet.add(creditLedger.Id);
       result.add(
         new AvailableCreditBalance(
@@ -1224,18 +1394,30 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           Id,
           Points,
           ExpiryDate,
+          AdditionalNotes,
           LoyaltyPgmCrcySubtypeId,
           LoyaltyPgmCrcySubtype.Name,
           LoyaltyPgmCrcySubtype.PointTypeCode__c,
           TransactionJournal.AdditionalNotes__c,
+          TransactionJournal.IsDeleted__c,
           TransactionJournal.Order.SaleNo__c,
-          TransactionJournal.SaleId__r.SaleNo__c
+          TransactionJournal.Order.IsDeleted__c,
+          TransactionJournal.SaleId__r.SaleNo__c,
+          TransactionJournal.SaleId__r.IsDeleted__c
         FROM LoyaltyLedger
         WHERE
           LoyaltyProgramMemberId = :memberId
           AND EventType = 'Credit'
           AND Points > 0
           AND LoyaltyPgmCrcySubtype.PointTypeCode__c != NULL
+          AND (TransactionJournal.IsDeleted__c = FALSE
+          OR TransactionJournal.IsDeleted__c = NULL)
+          AND (TransactionJournal.OrderId = NULL
+          OR TransactionJournal.Order.IsDeleted__c = FALSE
+          OR TransactionJournal.Order.IsDeleted__c = NULL)
+          AND (TransactionJournal.SaleId__c = NULL
+          OR TransactionJournal.SaleId__r.IsDeleted__c = FALSE
+          OR TransactionJournal.SaleId__r.IsDeleted__c = NULL)
           AND CreatedDate >= :startOfQueryDate
           AND CreatedDate < :startOfNextDay
           AND (TransactionJournal.AdditionalNotes__c = NULL
@@ -1263,6 +1445,11 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         }
       }
       Map<Id, Date> backdatedForceCreditReturnEffectiveDateMap = loadOrderEffectiveDateMap(backdatedForceCreditReturnOrderIdSet);
+      Map<Id, LoyaltyLedger> backdatedOriginCreditLedgerMap = loadOriginCreditLedgersForPointHelp(backdatedCreditLedgers);
+      Map<Id, OriginRestoreCreditState> backdatedOriginRestoreCreditStateByOriginId = buildOriginRestoreCreditStateMap(backdatedCreditLedgers);
+      for (Id originCreditLedgerId : originRestoreCreditStateByOriginId.keySet()) {
+        backdatedOriginRestoreCreditStateByOriginId.put(originCreditLedgerId, originRestoreCreditStateByOriginId.get(originCreditLedgerId));
+      }
 
       Set<Id> backdatedCreditLedgerIdSet = new Set<Id>();
       for (LoyaltyLedger backdatedLL : backdatedCreditLedgers) {
@@ -1281,6 +1468,14 @@ public with sharing class GdPointServiceImpl implements GdPointService {
             LoyaltyProgramMemberId = :memberId
             AND CreditLoyaltyLedgerId IN :backdatedCreditLedgerIdSet
             AND ActionType IN ('Debit', 'DebitCancellation', 'CreditCancellation')
+            AND (DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+            OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = NULL)
+            AND (DebitLoyaltyLedger.TransactionJournal.OrderId = NULL
+            OR DebitLoyaltyLedger.TransactionJournal.Order.IsDeleted__c = FALSE
+            OR DebitLoyaltyLedger.TransactionJournal.Order.IsDeleted__c = NULL)
+            AND (DebitLoyaltyLedger.TransactionJournal.SaleId__c = NULL
+            OR DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsDeleted__c = FALSE
+            OR DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsDeleted__c = NULL)
             AND ((DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c IN :RESTORE_NOTES
             AND DebitLoyaltyLedger.CreatedDate <= :effectiveCutoff)
             OR ((DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
@@ -1316,6 +1511,16 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         if (shouldExcludeOptionCForceCreditByReturnDate(backdatedNotes, queryDate, backdatedForceCreditReturnEffectiveDateMap)) {
           continue;
         }
+        if (!isActivePointHelpTransaction(backdatedLL.TransactionJournal)) {
+          continue;
+        }
+        Id backdatedOriginCreditLedgerId = extractOriginCreditLedgerId(backdatedLL.AdditionalNotes);
+        if (isOriginCreditExcludedForPointHelp(backdatedOriginCreditLedgerId, currentSaleNo, backdatedOriginCreditLedgerMap)) {
+          continue;
+        }
+        if (shouldExcludeRestoreCreditByOrigin(backdatedOriginCreditLedgerId, backdatedOriginRestoreCreditStateByOriginId)) {
+          continue;
+        }
         if (creditLedgerIdSet.contains(backdatedLL.Id)) {
           continue;
         }
@@ -1344,6 +1549,20 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         Integer addPoints = Math.max(0, credited - reduced);
         if (addPoints <= 0) {
           continue;
+        }
+        if (backdatedOriginCreditLedgerId != null) {
+          OriginRestoreCreditState backdatedOriginState = backdatedOriginRestoreCreditStateByOriginId.get(backdatedOriginCreditLedgerId);
+          if (backdatedOriginState == null ||
+              backdatedOriginState.isInvalid == true ||
+              backdatedOriginState.remainingCap == null ||
+              backdatedOriginState.remainingCap <= 0) {
+            continue;
+          }
+          addPoints = Math.min(addPoints, backdatedOriginState.remainingCap);
+          backdatedOriginState.remainingCap = Math.max(0, backdatedOriginState.remainingCap - addPoints);
+          if (addPoints <= 0) {
+            continue;
+          }
         }
 
         // 별도 AvailableCreditBalance 로 추가 (reduction 계산 우회 — 통째로 +가산)
@@ -3308,6 +3527,8 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         throw new CustomException(400, '포인트 잔액이 부족합니다. 사용 가능 금액: 0P (요청: ' + tj.TransactionAmount.intValue() + 'P)');
       }
 
+      Map<Id, OriginRestoreCreditState> originRestoreCreditStateByOriginId = buildOriginRestoreCreditStateMap(creditLedgers);
+
       Set<Id> creditLedgerIds = new Set<Id>();
       for (LoyaltyLedger creditLedger : creditLedgers) {
         creditLedgerIds.add(creditLedger.Id);
@@ -3372,8 +3593,22 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           continue;
         }
 
-        availableTotal += available;
         Id originCreditLedgerId = extractOriginCreditLedgerId(creditLedger.AdditionalNotes);
+        if (shouldExcludeRestoreCreditByOrigin(originCreditLedgerId, originRestoreCreditStateByOriginId)) {
+          continue;
+        }
+
+        OriginRestoreCreditState originState = originCreditLedgerId == null ? null : originRestoreCreditStateByOriginId.get(originCreditLedgerId);
+        if (originState != null) {
+          Integer availableByOrigin = Math.min(available.intValue(), originState.remainingCap);
+          originState.remainingCap = Math.max(0, originState.remainingCap - availableByOrigin);
+          available = availableByOrigin;
+          if (available <= 0) {
+            continue;
+          }
+        }
+
+        availableTotal += available;
         LoyaltyLedger originLedger = originCreditLedgerId == null ? null : originCreditLedgerById.get(originCreditLedgerId);
         candidates.add(new CustomDebitCandidate(creditLedger, originLedger, available));
       }
@@ -5925,6 +6160,173 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     }
   }
 
+  private static Map<Id, OriginRestoreCreditState> buildOriginRestoreCreditStateMap(List<LoyaltyLedger> creditLedgerList) {
+    Set<Id> originCreditLedgerIds = new Set<Id>();
+    if (creditLedgerList != null) {
+      for (LoyaltyLedger creditLedger : creditLedgerList) {
+        Id originCreditLedgerId = extractOriginCreditLedgerId(creditLedger == null ? null : creditLedger.AdditionalNotes);
+        if (originCreditLedgerId != null) {
+          originCreditLedgerIds.add(originCreditLedgerId);
+        }
+      }
+    }
+
+    if (originCreditLedgerIds.isEmpty()) {
+      return new Map<Id, OriginRestoreCreditState>();
+    }
+
+    Map<Id, OriginRestoreCreditState> stateByOriginCreditLedgerId = new Map<Id, OriginRestoreCreditState>();
+    for (Id originCreditLedgerId : originCreditLedgerIds) {
+      stateByOriginCreditLedgerId.put(originCreditLedgerId, new OriginRestoreCreditState(0, true));
+    }
+
+    for (LoyaltyLedger originLedger : [
+      SELECT
+        Id,
+        Points,
+        TransactionJournal.IsDeleted__c,
+        TransactionJournal.Order.IsDeleted__c,
+        TransactionJournal.SaleId__r.IsDeleted__c
+      FROM LoyaltyLedger
+      WHERE Id IN :originCreditLedgerIds
+    ]) {
+      Boolean isInvalid =
+        originLedger.TransactionJournal == null ||
+        originLedger.TransactionJournal.IsDeleted__c == true ||
+        (originLedger.TransactionJournal.Order != null && originLedger.TransactionJournal.Order.IsDeleted__c == true) ||
+        (originLedger.TransactionJournal.SaleId__r != null && originLedger.TransactionJournal.SaleId__r.IsDeleted__c == true);
+      Integer originPoints = originLedger.Points == null ? 0 : originLedger.Points.abs().intValue();
+      stateByOriginCreditLedgerId.put(originLedger.Id, new OriginRestoreCreditState(originPoints, isInvalid));
+    }
+
+    for (AggregateResult ar : [
+      SELECT CreditLoyaltyLedgerId creditLedgerId, SUM(Points) totalPoints
+      FROM LoyaltyLedgerTraceability
+      WHERE CreditLoyaltyLedgerId IN :originCreditLedgerIds
+        AND ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION
+      GROUP BY CreditLoyaltyLedgerId
+    ]) {
+      Id originCreditLedgerId = (Id) ar.get('creditLedgerId');
+      OriginRestoreCreditState state = stateByOriginCreditLedgerId.get(originCreditLedgerId);
+      if (state == null) {
+        continue;
+      }
+      Integer canceledPoints = ar.get('totalPoints') == null ? 0 : ((Decimal) ar.get('totalPoints')).abs().intValue();
+      state.remainingCap = Math.max(0, state.remainingCap - canceledPoints);
+      if (state.remainingCap <= 0) {
+        state.isInvalid = true;
+      }
+    }
+
+    return stateByOriginCreditLedgerId;
+  }
+
+  private static Boolean shouldExcludeRestoreCreditByOrigin(Id originCreditLedgerId, Map<Id, OriginRestoreCreditState> stateByOriginCreditLedgerId) {
+    if (originCreditLedgerId == null) {
+      return false;
+    }
+    if (stateByOriginCreditLedgerId == null || !stateByOriginCreditLedgerId.containsKey(originCreditLedgerId)) {
+      return true;
+    }
+    OriginRestoreCreditState state = stateByOriginCreditLedgerId.get(originCreditLedgerId);
+    return state == null || state.isInvalid == true || state.remainingCap == null || state.remainingCap <= 0;
+  }
+
+  private static void assertOriginRestoreCreditsNotUsedByActiveDebit(List<LoyaltyLedger> originalAccrualLedgerList, TransactionJournal sourceTj) {
+    if (originalAccrualLedgerList == null || originalAccrualLedgerList.isEmpty() || sourceTj == null || sourceTj.MemberId == null) {
+      return;
+    }
+
+    Set<Id> originCreditLedgerIds = new Set<Id>();
+    for (LoyaltyLedger originalAccrualLedger : originalAccrualLedgerList) {
+      if (originalAccrualLedger != null && originalAccrualLedger.Id != null) {
+        originCreditLedgerIds.add(originalAccrualLedger.Id);
+      }
+    }
+    if (originCreditLedgerIds.isEmpty()) {
+      return;
+    }
+
+    List<LoyaltyLedger> restoreCreditLedgers = [
+      SELECT Id, AdditionalNotes
+      FROM LoyaltyLedger
+      WHERE LoyaltyProgramMemberId = :sourceTj.MemberId
+        AND EventType = 'Credit'
+        AND Points > 0
+        AND AdditionalNotes LIKE '%ORIGIN_CREDIT_LL=%'
+      LIMIT 50000
+    ];
+
+    Map<Id, Id> originCreditLedgerIdByRestoreCreditLedgerId = new Map<Id, Id>();
+    for (LoyaltyLedger restoreCreditLedger : restoreCreditLedgers) {
+      Id originCreditLedgerId = extractOriginCreditLedgerId(restoreCreditLedger.AdditionalNotes);
+      if (originCreditLedgerId != null && originCreditLedgerIds.contains(originCreditLedgerId)) {
+        originCreditLedgerIdByRestoreCreditLedgerId.put(restoreCreditLedger.Id, originCreditLedgerId);
+      }
+    }
+    if (originCreditLedgerIdByRestoreCreditLedgerId.isEmpty()) {
+      return;
+    }
+
+    Set<String> activeUseSaleNos = new Set<String>();
+    for (LoyaltyLedgerTraceability activeUse : [
+      SELECT
+        Id,
+        Points,
+        DebitLoyaltyLedger.TransactionJournal.OrderId,
+        DebitLoyaltyLedger.TransactionJournal.SaleId__c,
+        DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
+        DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
+        DebitLoyaltyLedger.TransactionJournal.SaleId__r.SaleNo__c
+      FROM LoyaltyLedgerTraceability
+      WHERE LoyaltyProgramMemberId = :sourceTj.MemberId
+        AND CreditLoyaltyLedgerId IN :originCreditLedgerIdByRestoreCreditLedgerId.keySet()
+        AND ActionType = 'Debit'
+        AND Points > 0
+        AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+        AND (DebitLoyaltyLedger.TransactionJournal.OrderId = NULL
+          OR DebitLoyaltyLedger.TransactionJournal.Order.IsDeleted__c = FALSE
+          OR DebitLoyaltyLedger.TransactionJournal.Order.IsDeleted__c = NULL)
+        AND (DebitLoyaltyLedger.TransactionJournal.SaleId__c = NULL
+          OR DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsDeleted__c = FALSE
+          OR DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsDeleted__c = NULL)
+      LIMIT 1000
+    ]) {
+      TransactionJournal debitTj = activeUse.DebitLoyaltyLedger == null ? null : activeUse.DebitLoyaltyLedger.TransactionJournal;
+      if (debitTj == null) {
+        continue;
+      }
+      if (sourceTj.OrderId != null && debitTj.OrderId == sourceTj.OrderId) {
+        continue;
+      }
+      if (sourceTj.SaleId__c != null && debitTj.SaleId__c == sourceTj.SaleId__c) {
+        continue;
+      }
+      String saleNo = debitTj.Order != null && String.isNotBlank(debitTj.Order.SaleNo__c)
+        ? debitTj.Order.SaleNo__c
+        : null;
+      if (String.isBlank(saleNo) && debitTj.Order != null && String.isNotBlank(debitTj.Order.OrderNo__c)) {
+        saleNo = debitTj.Order.OrderNo__c;
+      }
+      if (String.isBlank(saleNo) && debitTj.SaleId__r != null) {
+        saleNo = debitTj.SaleId__r.SaleNo__c;
+      }
+      if (String.isNotBlank(saleNo)) {
+        activeUseSaleNos.add(saleNo);
+      }
+    }
+
+    if (!activeUseSaleNos.isEmpty()) {
+      List<String> sortedSaleNos = new List<String>(activeUseSaleNos);
+      sortedSaleNos.sort();
+      throw new CustomException(
+        400,
+        '해당 판매에서 적립된 포인트의 사용 취소 복원분이 이미 다른 주문/판매에서 사용되어 적립 취소할 수 없습니다. 먼저 사용 건을 취소한 뒤 다시 처리해 주세요. 사용 주문/판매: ' +
+        String.join(sortedSaleNos, ', ')
+      );
+    }
+  }
+
   public Map<String, Object> cancelPointRedemption(TransactionJournal tj) {
     // === v3 Phase 2 신규 추가: Feature Flag 최우선 분기 (2026-04-24) ===
     // v3 Flag ON -> Trace 보존 모델. Bug 2, Bug 3 근본 해결.
@@ -7569,6 +7971,8 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     }
     // 신규 로직 End 2026-04-19
 
+    assertOriginRestoreCreditsNotUsedByActiveDebit(originalAccrualLedgerList, data[0]);
+
     LoyaltyPointService.debitPoints(reqList);
 
     // System.debug('step 01. 진입');
@@ -7827,32 +8231,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       //   해결: Accrual Credit LL 만 조회하여 합산 + 별도 LLT (CreditCancellation) 조회로 차감.
       //         가드: DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
       //         → 살아있는 reversal 만 net 차감 → 반품 삭제/재반품 시나리오 안전.
-      List<LoyaltyLedger> llList;
-      if (data[0].OrderId__c != null) {
-        llList = [
-          SELECT Points, AdditionalNotes, LoyaltyPgmCrcySubtype.Name, LoyaltyPgmCrcySubtypeId, EventType, CreatedDate, Id
-          FROM LoyaltyLedger
-          WHERE
-            TransactionJournal.SaleId__c = :data[0].SaleId__c
-            AND TransactionJournal.JournalTypeId = :accrualJtId
-            AND TransactionJournal.JournalSubTypeId = :accrualJstId
-            AND EventType = 'Credit'
-          ORDER BY CreatedDate ASC
-          LIMIT 1000
-        ];
-      } else {
-        llList = [
-          SELECT Points, AdditionalNotes, LoyaltyPgmCrcySubtype.Name, LoyaltyPgmCrcySubtypeId, EventType, CreatedDate, Id
-          FROM LoyaltyLedger
-          WHERE
-            TransactionJournal.OrderId = :data[0].OrderId
-            AND TransactionJournal.JournalTypeId = :accrualJtId
-            AND TransactionJournal.JournalSubTypeId = :accrualJstId
-            AND EventType = 'Credit'
-          ORDER BY CreatedDate ASC
-          LIMIT 1000
-        ];
-      }
+      List<LoyaltyLedger> llList = findCancelableAccrualCreditLedgers(data[0], accrualJtId, accrualJstId);
 
       if (llList.isEmpty()) {
         return null;
@@ -7970,34 +8349,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
       // [Step 6] originalAccrualLedgerList 조회 (ExpiryDate 포함 — 신규 메서드의 핵심 입력)
       // 만료된 포인트는 차감 대상에서 제외 (ExpiryDate < TODAY)
-      List<LoyaltyLedger> originalAccrualLedgerList;
-      if (data[0].OrderId__c != null) {
-        originalAccrualLedgerList = [
-          SELECT Id, Points, LoyaltyPgmCrcySubtypeId, LoyaltyPgmCrcySubtype.Name, ExpiryDate, ActivityDate, CreatedDate
-          FROM LoyaltyLedger
-          WHERE
-            TransactionJournal.SaleId__c = :data[0].SaleId__c
-            AND TransactionJournal.JournalTypeId = :accrualJtId
-            AND TransactionJournal.JournalSubTypeId = :accrualJstId
-            AND EventType = 'Credit'
-            AND ExpiryDate >= :Date.today()
-          ORDER BY CreatedDate ASC
-          LIMIT 1000
-        ];
-      } else {
-        originalAccrualLedgerList = [
-          SELECT Id, Points, LoyaltyPgmCrcySubtypeId, LoyaltyPgmCrcySubtype.Name, ExpiryDate, ActivityDate, CreatedDate
-          FROM LoyaltyLedger
-          WHERE
-            TransactionJournal.SaleId__c = :data[0].OrderId
-            AND TransactionJournal.JournalTypeId = :accrualJtId
-            AND TransactionJournal.JournalSubTypeId = :accrualJstId
-            AND EventType = 'Credit'
-            AND ExpiryDate >= :Date.today()
-          ORDER BY CreatedDate ASC
-          LIMIT 1000
-        ];
-      }
+      List<LoyaltyLedger> originalAccrualLedgerList = llList;
 
       if (originalAccrualLedgerList.isEmpty()) {
         Database.rollback(sp);
@@ -8866,6 +9218,61 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       this.loyaltyProgramCurrencyId = loyaltyProgramCurrencyId;
       this.points = points;
     }
+  }
+
+  private class OriginRestoreCreditState {
+    public Integer remainingCap;
+    public Boolean isInvalid;
+
+    public OriginRestoreCreditState(Integer remainingCap, Boolean isInvalid) {
+      this.remainingCap = remainingCap == null ? 0 : remainingCap;
+      this.isInvalid = isInvalid == true;
+    }
+  }
+
+  @TestVisible
+  private static List<LoyaltyLedger> findCancelableAccrualCreditLedgers(TransactionJournal sourceTj, Id accrualJtId, Id accrualJstId) {
+    if (sourceTj == null || accrualJtId == null || accrualJstId == null) {
+      return new List<LoyaltyLedger>();
+    }
+
+    String originCreditLedgerNoteLike = '%ORIGIN_CREDIT_LL=%';
+
+    if (sourceTj.OrderId__c != null) {
+      return [
+        SELECT Id, Points, AdditionalNotes, LoyaltyPgmCrcySubtype.Name, LoyaltyPgmCrcySubtypeId, EventType, ExpiryDate, ActivityDate, CreatedDate
+        FROM LoyaltyLedger
+        WHERE
+          TransactionJournal.SaleId__c = :sourceTj.SaleId__c
+          AND TransactionJournal.JournalTypeId = :accrualJtId
+          AND TransactionJournal.JournalSubTypeId = :accrualJstId
+          AND EventType = 'Credit'
+          AND ExpiryDate >= :Date.today()
+          AND (TransactionJournal.AdditionalNotes__c = NULL
+          OR TransactionJournal.AdditionalNotes__c NOT IN :RESTORE_NOTES)
+          AND (AdditionalNotes = NULL
+          OR (NOT AdditionalNotes LIKE :originCreditLedgerNoteLike))
+        ORDER BY CreatedDate ASC
+        LIMIT 1000
+      ];
+    }
+
+    return [
+      SELECT Id, Points, AdditionalNotes, LoyaltyPgmCrcySubtype.Name, LoyaltyPgmCrcySubtypeId, EventType, ExpiryDate, ActivityDate, CreatedDate
+      FROM LoyaltyLedger
+      WHERE
+        TransactionJournal.OrderId = :sourceTj.OrderId
+        AND TransactionJournal.JournalTypeId = :accrualJtId
+        AND TransactionJournal.JournalSubTypeId = :accrualJstId
+        AND EventType = 'Credit'
+        AND ExpiryDate >= :Date.today()
+        AND (TransactionJournal.AdditionalNotes__c = NULL
+        OR TransactionJournal.AdditionalNotes__c NOT IN :RESTORE_NOTES)
+        AND (AdditionalNotes = NULL
+        OR (NOT AdditionalNotes LIKE :originCreditLedgerNoteLike))
+      ORDER BY CreatedDate ASC
+      LIMIT 1000
+    ];
   }
 
   public Boolean isAccrualEligible(TransactionJournal tj) {

@@ -2251,10 +2251,6 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       Integer allocatable = availableExpiredByKey.containsKey(key) ? availableExpiredByKey.get(key) : 0;
       Integer expiredPoints = Math.min(remaining, allocatable);
       Integer returnCancelledPoints = returnCancelByCreditLedgerId.containsKey(credit.Id) ? returnCancelByCreditLedgerId.get(credit.Id) : 0;
-      Integer restoredPoints = restoredPointsByOriginCreditLLId.containsKey(credit.Id)
-          ? restoredPointsByOriginCreditLLId.get(credit.Id)
-          : 0;
-      returnCancelledPoints = Math.max(0, returnCancelledPoints - restoredPoints);
       Integer transferredReturnCancelledPoints = returnCancelTransferredFromRestoreByOriginCreditLLId.containsKey(credit.Id)
           ? returnCancelTransferredFromRestoreByOriginCreditLLId.get(credit.Id)
           : 0;
@@ -2769,7 +2765,7 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
     List<AggregateResult> totalPointResult = [
       SELECT SUM(AvailablePoints__c) totalPointsBalance
       FROM LoyaltyAggrSubPointExprLedger__c
-      WHERE AvailablePoints__c > 0 AND ExpiryDate__c >= :Date.today() AND LoyaltyProgramMemberId__c = :lpm.Id
+      WHERE ExpiryDate__c >= :Date.today() AND LoyaltyProgramMemberId__c = :lpm.Id
     ];
     Decimal totalPointsBalance = 0;
     if (!totalPointResult.isEmpty() && totalPointResult[0].get('totalPointsBalance') != null) {
@@ -3585,18 +3581,6 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
         PointResDto.DebitPointResponse response = new PointResDto.DebitPointResponse(llt);
         if ((llt.ActionType == 'DebitCancellation' || llt.ActionType == 'CreditCancellation') && llt.Points != null) {
           response.PT_USE = Integer.valueOf(llt.Points.abs());
-        }
-        if (llt.ActionType == 'CreditCancellation'
-            && llt.CreditLoyaltyLedgerId != null
-            && activeRestoreRemainingByOriginCreditLLId.containsKey(llt.CreditLoyaltyLedgerId)) {
-          Integer restoreRemaining = activeRestoreRemainingByOriginCreditLLId.get(llt.CreditLoyaltyLedgerId);
-          Integer currentUse = response.PT_USE == null ? 0 : response.PT_USE;
-          Integer restored = Math.min(restoreRemaining, currentUse);
-          response.PT_USE = currentUse - restored;
-          activeRestoreRemainingByOriginCreditLLId.put(llt.CreditLoyaltyLedgerId, restoreRemaining - restored);
-          if (response.PT_USE <= 0) {
-            continue;
-          }
         }
         if (llt.ActionType == 'CreditCancellation') {
           response.NO_SAL = '';

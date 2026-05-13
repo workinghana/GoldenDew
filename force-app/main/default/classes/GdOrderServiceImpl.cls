@@ -34,6 +34,7 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       String type = ValidationUtil.stringValidation(reqData.get('Type'), 'Type', false); // 주문 구분 코드
       String orderStatus = ValidationUtil.stringValidation(reqData.get('OrderStatus__c'), 'OrderStatus__c', false); // 주문 상태 코드
       String insertId = ValidationUtil.stringValidationEx(reqData.get('InsertId__c'), 'InsertId__c', false, true); // 등록자
+      Date poDate = ValidationUtil.dateValidation(reqData.get('PoDate'), 'PoDate', false); // 주문 일자
 
       // 주문번호(OrderNo__c) 중복 체크
       if ([SELECT COUNT() FROM Order WHERE OrderNo__c = :orderNo] > 0) {
@@ -75,6 +76,7 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       o.OrderStatus__c = orderStatus;
       o.Pricebook2Id = standardPricebookId;
       o.InsertId__c = insertId;
+      o.PoDate = poDate == null ? Date.today() : poDate;
 
       Database.SaveResult result = Database.insert(o);
 

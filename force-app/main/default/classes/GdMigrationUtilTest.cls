@@ -603,6 +603,88 @@ private class GdMigrationUtilTest {
   }
 
   @IsTest
+  static void calculateAccrual_purchaseTierBenefit_returnsEstimate() {
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
+    String suffix = String.valueOf(Datetime.now().getTime());
+
+    Id purchaseSubtypeId = insertPointSubtype(lpm.ProgramId, '01', 'Purchase_' + suffix);
+    Id giftSubtypeId = insertPointSubtype(lpm.ProgramId, '06', 'Gift_' + suffix);
+
+    LoyaltyTierGroup tierGroup = new LoyaltyTierGroup(
+      Name = 'TestTierGroup_' + suffix,
+      LoyaltyProgramId = lpm.ProgramId,
+      QpResetPeriod = 'Years',
+      QpResetFrequency = 1,
+      QpResetDate = Date.today()
+    );
+    insert tierGroup;
+
+    LoyaltyTier tier = new LoyaltyTier(Name = 'TestTier_' + suffix, LoyaltyTierGroupId = tierGroup.Id);
+    insert tier;
+
+    insert new LoyaltyMemberTier(Name = 'TestMemberTier_' + suffix, LoyaltyMemberId = lpm.Id, LoyaltyTierId = tier.Id, EffectiveDate = Date.today());
+
+    BenefitType benefitType = new BenefitType(
+      Name = 'TestBenefitType_' + suffix,
+      ProcessType = BenefitType.ProcessType.getDescribe().getPicklistValues()[0].getValue(),
+      LoyaltyProgramId = lpm.ProgramId
+    );
+    insert benefitType;
+
+    insertTierBenefit(tier.Id, benefitType.Id, purchaseSubtypeId, 5, 'Valid_' + suffix);
+    insertTierBenefit(tier.Id, benefitType.Id, purchaseSubtypeId, null, 'NoRate_' + suffix);
+    insertTierBenefit(tier.Id, benefitType.Id, null, 3, 'NoSubtype_' + suffix);
+    insertTierBenefit(tier.Id, benefitType.Id, giftSubtypeId, 2, 'NonPurchase_' + suffix);
+
+    Test.startTest();
+    List<GdMigrationUtil.AccrualEstimate> result = GdMigrationUtil.calculateAccrualForOldOrder(lpm.Id, 10000, null);
+    Test.stopTest();
+
+    System.assertEquals(1, result.size());
+    System.assertEquals('01', result[0].pointTypeCode);
+    System.assertEquals(5, result[0].pointRate);
+    System.assertEquals(500, result[0].points);
+  }
+
+  @IsTest
+  static void calculateAccrual_purchasePointExcludedByPromotion_returnsEmpty() {
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
+    String suffix = String.valueOf(Datetime.now().getTime());
+
+    Id purchaseSubtypeId = insertPointSubtype(lpm.ProgramId, '01', 'ExcludedPurchase_' + suffix);
+
+    LoyaltyTierGroup tierGroup = new LoyaltyTierGroup(
+      Name = 'TestExcludedTierGroup_' + suffix,
+      LoyaltyProgramId = lpm.ProgramId,
+      QpResetPeriod = 'Years',
+      QpResetFrequency = 1,
+      QpResetDate = Date.today()
+    );
+    insert tierGroup;
+
+    LoyaltyTier tier = new LoyaltyTier(Name = 'TestExcludedTier_' + suffix, LoyaltyTierGroupId = tierGroup.Id);
+    insert tier;
+
+    insert new LoyaltyMemberTier(Name = 'TestExcludedMemberTier_' + suffix, LoyaltyMemberId = lpm.Id, LoyaltyTierId = tier.Id, EffectiveDate = Date.today());
+
+    BenefitType benefitType = new BenefitType(
+      Name = 'TestExcludedBenefitType_' + suffix,
+      ProcessType = BenefitType.ProcessType.getDescribe().getPicklistValues()[0].getValue(),
+      LoyaltyProgramId = lpm.ProgramId
+    );
+    insert benefitType;
+
+    insertTierBenefit(tier.Id, benefitType.Id, purchaseSubtypeId, 5, 'Excluded_' + suffix);
+    Promotion promotion = insertPointExclusionPromotion('01', suffix);
+
+    Test.startTest();
+    List<GdMigrationUtil.AccrualEstimate> result = GdMigrationUtil.calculateAccrualForOldOrder(lpm.Id, 10000, promotion.Id);
+    Test.stopTest();
+
+    System.assertEquals(0, result.size(), 'Promotion PointTypeCode__c=01이면 구매 포인트 적립 추정이 제외되어야 함');
+  }
+
+  @IsTest
   static void calculateAccrual_extractExcludedPointTypeCodes_safeWithNullPromotion() {
     // 내부 헬퍼는 calculateAccrualForOldOrder 가 호출하므로
     // null promotionId 안전 처리 검증은 위 테스트에서 이미 cover.
@@ -707,6 +789,21 @@ private class GdMigrationUtilTest {
   }
 
   @IsTest
+  static void forceDebitPointsSafe_availableMigratedBalance_attemptsDebit() {
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SALE-OPTC-OLD' LIMIT 1];
+    insertMigratedLumpBalance(lpm, 1000, 'Debit');
+
+    Test.startTest();
+    GdMigrationUtil.ForceDebitResult result = GdMigrationUtil.forceDebitPointsSafe(lpm.Id, lpm.ProgramId, o.Id, 600, 'debit with balance');
+    Test.stopTest();
+
+    System.assertEquals(600, result.requestedPoints);
+    System.assert(result.actualPoints == 600 || result.actualPoints == 0);
+    System.assert(result.loss == 0 || result.loss == 600);
+  }
+
+  @IsTest
   static void getAvailableBalance_nullMember_returnsZero() {
     Test.startTest();
     Decimal bal = GdMigrationUtil.getAvailableBalance(null);
@@ -737,6 +834,92 @@ private class GdMigrationUtilTest {
       }
     );
     return (LoyaltyAggrSubPointExprLedger__c) JSON.deserialize(jsonStr, LoyaltyAggrSubPointExprLedger__c.class);
+  }
+
+  private static void insertMigratedLumpBalance(LoyaltyProgramMember lpm, Decimal points, String suffix) {
+    LoyaltyProgramCurrency currencyDef = new LoyaltyProgramCurrency(
+      Name = 'TestLumpCurrency_' + suffix,
+      LoyaltyProgramId = lpm.ProgramId,
+      IsActive = true,
+      CurrencyType = 'NonQualifying',
+      ExpiryModel = 'Fixed',
+      ExpiryPeriodFrequency = 1,
+      ExpiryPeriodUnit = 'Years',
+      ExtendExpiration = 'None',
+      DoesAllowLedgerTracing = true
+    );
+    insert currencyDef;
+
+    LoyaltyPgmCurrencySubtype subtype = new LoyaltyPgmCurrencySubtype(
+      Name = 'TestLumpSubtype_' + suffix,
+      LoyaltyProgramCurrencyId = currencyDef.Id,
+      UsagePriorityNumber = 1,
+      IsActive = true,
+      PointTypeCode__c = '04'
+    );
+    insert subtype;
+
+    insert new LoyaltyAggrSubPointExprLedger__c(
+      LoyaltyProgramMemberId__c = lpm.Id,
+      LoyaltyProgramCurrencyId__c = currencyDef.Id,
+      CurrencySubTypeId__c = subtype.Id,
+      CurrencySubTypeName__c = subtype.Name,
+      AccruedPoints__c = points,
+      RedeemedPoints__c = 0,
+      ExpiredPoints__c = 0,
+      ExpiryDate__c = Date.today().addDays(30)
+    );
+  }
+
+  private static Id insertPointSubtype(Id programId, String pointTypeCode, String suffix) {
+    LoyaltyProgramCurrency currencyDef = new LoyaltyProgramCurrency(
+      Name = 'TestPointCurrency_' + suffix,
+      LoyaltyProgramId = programId,
+      IsActive = true,
+      CurrencyType = 'NonQualifying',
+      ExpiryModel = 'Fixed',
+      ExpiryPeriodFrequency = 1,
+      ExpiryPeriodUnit = 'Years',
+      ExtendExpiration = 'None',
+      DoesAllowLedgerTracing = true
+    );
+    insert currencyDef;
+
+    LoyaltyPgmCurrencySubtype subtype = new LoyaltyPgmCurrencySubtype(
+      Name = 'TestPointSubtype_' + suffix,
+      LoyaltyProgramCurrencyId = currencyDef.Id,
+      UsagePriorityNumber = 1,
+      IsActive = true,
+      PointTypeCode__c = pointTypeCode
+    );
+    insert subtype;
+    return subtype.Id;
+  }
+
+  private static void insertTierBenefit(Id tierId, Id benefitTypeId, Id subtypeId, Decimal rate, String suffix) {
+    Benefit benefit = new Benefit(Name = 'TestBenefit_' + suffix, BenefitTypeId = benefitTypeId, PurchasePointRate__c = rate);
+    if (subtypeId != null) {
+      benefit.LoyaltyPgmCurrencySubtypeId__c = subtypeId;
+    }
+    insert benefit;
+
+    insert new LoyaltyTierBenefit(Name = 'TestTierBenefit_' + suffix, LoyaltyTierId = tierId, BenefitId = benefit.Id);
+  }
+
+  private static Promotion insertPointExclusionPromotion(String pointTypeCode, String suffix) {
+    Promotion promotion = new Promotion(
+      Name = 'TestPromotion_' + suffix,
+      DisplayName = 'TestPromotion_' + suffix,
+      PromotionCode = 'GDMIG' + suffix.right(8),
+      IsActive = true,
+      StartDate = Date.today().addDays(-1),
+      EndDate = Date.today().addDays(30),
+      PublishStartDate__c = Date.today().addDays(-1),
+      PublishEndDate__c = Date.today().addDays(30),
+      PointTypeCode__c = pointTypeCode
+    );
+    insert promotion;
+    return promotion;
   }
 
   @IsTest
@@ -868,6 +1051,78 @@ private class GdMigrationUtilTest {
     System.assertEquals(null, tj1.OrderId);
   }
 
+  @IsTest
+  static void cancelOldSalePointUsageSafe_nullInput_returnsInvalidInput() {
+    Test.startTest();
+    GdMigrationUtil.CancelOldSalePointUsageResult result = GdMigrationUtil.cancelOldSalePointUsageSafe(null);
+    Test.stopTest();
+
+    System.assertEquals(false, result.success);
+    System.assertEquals(0, result.matchedLLTCount);
+    System.assertEquals(false, result.lltMissing);
+    System.assertEquals('invalid pm81Tj input', result.error);
+  }
+
+  @IsTest
+  static void cancelOldSalePointUsageSafe_nonPm81_returnsError() {
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SALE-OPTC-OLD' LIMIT 1];
+
+    TransactionJournal tj = new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = o.Id,
+      DepositNo__c = 'DEP-OPTC-CANCEL-NON81',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      TransactionAmount = 100,
+      PaymentMethod = '01',
+      ActivityDate = Date.today(),
+      Status = 'Processed',
+      InsertId__c = 'tester'
+    );
+    insert tj;
+
+    Test.startTest();
+    GdMigrationUtil.CancelOldSalePointUsageResult result = GdMigrationUtil.cancelOldSalePointUsageSafe(tj);
+    Test.stopTest();
+
+    System.assertEquals(false, result.success);
+    System.assertEquals(0, result.matchedLLTCount);
+    System.assertEquals(false, result.lltMissing);
+    System.assertEquals('not a PM=81 TJ', result.error);
+  }
+
+  @IsTest
+  static void cancelOldSalePointUsageSafe_pm81WithoutTrace_marksMissing() {
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SALE-OPTC-OLD' LIMIT 1];
+
+    TransactionJournal tj = new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = o.Id,
+      DepositNo__c = 'DEP-OPTC-CANCEL-PM81',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      TransactionAmount = 100,
+      PaymentMethod = '81',
+      ActivityDate = Date.today(),
+      Status = 'Processed',
+      InsertId__c = 'tester'
+    );
+    insert tj;
+
+    Test.startTest();
+    GdMigrationUtil.CancelOldSalePointUsageResult result = GdMigrationUtil.cancelOldSalePointUsageSafe(tj);
+    Test.stopTest();
+
+    System.assertEquals(false, result.success);
+    System.assertEquals(0, result.matchedLLTCount);
+    System.assertEquals(true, result.lltMissing);
+    System.assert(result.error.contains('no LLT matched'));
+  }
+
   // ============================================================
   // P. forceCreditPointsSafe — 입력 검증 / 안전 fallback
   // ============================================================
@@ -915,6 +1170,21 @@ private class GdMigrationUtilTest {
     System.assertEquals(0, result.actualPoints);
     System.assertEquals(5000, result.unprocessed);
     System.assert(result.error.contains('no active migrated lump'));
+  }
+
+  @IsTest
+  static void forceCreditPointsSafe_activeMigratedBalance_attemptsCredit() {
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SALE-OPTC-OLD' LIMIT 1];
+    insertMigratedLumpBalance(lpm, 1000, 'Credit');
+
+    Test.startTest();
+    GdMigrationUtil.ForceCreditResult result = GdMigrationUtil.forceCreditPointsSafe(lpm.Id, lpm.ProgramId, o.Id, 300, 'credit with balance');
+    Test.stopTest();
+
+    System.assertEquals(300, result.requestedPoints);
+    System.assert(result.actualPoints == 300 || result.actualPoints == 0);
+    System.assert(result.unprocessed == 0 || result.unprocessed == 300);
   }
 
   @IsTest

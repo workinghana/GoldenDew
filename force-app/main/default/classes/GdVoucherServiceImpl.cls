@@ -2658,26 +2658,28 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
     System.debug(LoggingLevel.WARN, '[GDV][reissueUnlimitedVoucherIfNeeded] issue request=' + JSON.serialize(req));
 
     List<LoyaltyManagement.IssueVoucherOutput> resList = LoyaltyVoucherService.issueVoucher(new List<Map<String, Object>>{ req });
-    System.debug(LoggingLevel.WARN, '[GDV][reissueUnlimitedVoucherIfNeeded] issue result count=' + (resList == null ? 0 : resList.size()));
-    Set<Id> issuedVoucherIds = new Set<Id>();
-    for (LoyaltyManagement.IssueVoucherOutput res : resList) {
-      System.debug(
-        LoggingLevel.WARN,
-        '[GDV][reissueUnlimitedVoucherIfNeeded] issue result success=' +
-          (res == null ? null : res.isSuccess()) +
-          ', voucherId=' +
-          (res == null ? null : res.getVoucherId()) +
-          ', raw=' +
-          (res == null ? null : JSON.serialize(res))
-      );
-      if (res != null && res.isSuccess() && res.getVoucherId() != null) {
-        issuedVoucherIds.add(res.getVoucherId());
-      }
-    }
+
+    // System.debug(LoggingLevel.WARN, '[GDV][reissueUnlimitedVoucherIfNeeded] issue result count=' + (resList == null ? 0 : resList.size()));
+    // Set<Id> issuedVoucherIds = new Set<Id>();
+
+    // for (LoyaltyManagement.IssueVoucherOutput res : resList) {
+    //   System.debug(
+    //     LoggingLevel.WARN,
+    //     '[GDV][reissueUnlimitedVoucherIfNeeded] issue result success=' +
+    //       (res == null ? null : res.isSuccess()) +
+    //       ', voucherId=' +
+    //       (res == null ? null : res.getVoucherId()) +
+    //       ', raw=' +
+    //       (res == null ? null : JSON.serialize(res))
+    //   );
+    //   if (res != null && res.isSuccess() && res.getVoucherId() != null) {
+    //     issuedVoucherIds.add(res.getVoucherId());
+    //   }
+    // }
 
     // 재발급된 쿠폰도 일반 지급과 동일하게 ERP 쿠폰 발급 연동을 수행한다.
-    System.debug(LoggingLevel.WARN, '[GDV][reissueUnlimitedVoucherIfNeeded] enqueue issuedVoucherIds=' + issuedVoucherIds);
-    enqueueCouponIssueJob(issuedVoucherIds);
+    // System.debug(LoggingLevel.WARN, '[GDV][reissueUnlimitedVoucherIfNeeded] enqueue issuedVoucherIds=' + issuedVoucherIds);
+    // enqueueCouponIssueJob(issuedVoucherIds); // (26.05.13 주석 처리 - CS)
   }
 
   // 테스트 전용 재발급 쿠폰 생성

@@ -204,6 +204,7 @@ public with sharing class OrderNumViewController {
         Account.StoreCode__c,
         Status,
         EffectiveDate,
+        PoDate,
         ActivatedDate,
         TotalAmount,
         ActualPaymentAmount__c,
@@ -308,6 +309,7 @@ public with sharing class OrderNumViewController {
         Account.StoreCode__c,
         Status,
         EffectiveDate,
+        PoDate,
         ActivatedDate,
         TotalAmount,
         ActualPaymentAmount__c,
@@ -341,6 +343,7 @@ public with sharing class OrderNumViewController {
         Status,
         EndDate,
         EffectiveDate,
+        PoDate,
         IsReductionOrder__c,
         TotalAmount,
         IsDeleted__c,
@@ -559,6 +562,7 @@ public with sharing class OrderNumViewController {
         Status,
         EndDate,
         EffectiveDate,
+        PoDate,
         ActualPaymentAmount__c,
         OriginalOrderId__c,
         StoreCode__c,
@@ -640,6 +644,7 @@ public with sharing class OrderNumViewController {
           Status,
           EndDate,
           EffectiveDate,
+          PoDate,
           ActualPaymentAmount__c,
           OriginalOrderId__c,
           StoreCode__c,
@@ -670,6 +675,7 @@ public with sharing class OrderNumViewController {
           Status,
           EndDate,
           EffectiveDate,
+          PoDate,
           ActualPaymentAmount__c,
           OriginalOrderId__c,
           StoreCode__c,
@@ -1178,7 +1184,7 @@ public with sharing class OrderNumViewController {
               relatedOrder.Id,
               relatedOrder.OrderNo__c,
               getPicklistLabel(Order.OrderStatus__c, relatedOrder.OrderStatus__c),
-              relatedOrder.EffectiveDate,
+              getOrderPoDateTime(relatedOrder),
               resolveStoreCode(relatedOrder, displayOrder),
               getDisplayOrderTotalAmount(relatedOrder, null, getQueriedDecimalValue(relatedOrder, 'ActualPaymentAmount__c'))
             )
@@ -1367,15 +1373,26 @@ public with sharing class OrderNumViewController {
 
   @TestVisible
   private static Datetime getDisplayOrderDate(Order displayOrder, Order saleOrder) {
-    if (displayOrder != null && displayOrder.EffectiveDate != null) {
-      return displayOrder.EffectiveDate;
+    Datetime displayOrderDate = getOrderPoDateTime(displayOrder);
+    if (displayOrderDate != null) {
+      return displayOrderDate;
     }
 
-    if (saleOrder != null && saleOrder.EffectiveDate != null) {
-      return saleOrder.EffectiveDate;
+    Datetime saleOrderDate = getOrderPoDateTime(saleOrder);
+    if (saleOrderDate != null) {
+      return saleOrderDate;
     }
 
     return null;
+  }
+
+  private static Datetime getOrderPoDateTime(Order orderRecord) {
+    Object orderDate = getQueriedValue(orderRecord, 'PoDate');
+    return orderDate instanceof Date ? toOrderDateTime((Date) orderDate) : null;
+  }
+
+  private static Datetime toOrderDateTime(Date orderDate) {
+    return orderDate == null ? null : Datetime.newInstance(orderDate, Time.newInstance(0, 0, 0, 0));
   }
 
   @TestVisible

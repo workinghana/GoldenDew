@@ -244,13 +244,7 @@ public with sharing class GdTransactionJournalTriggerHandler extends TriggerHand
       return;
     }
 
-    createLoyaltyAggrSubPointExprLedgerBulk(
-      targetTjById,
-      new AggrConfig(subTypeIdByName, pointCurrencyId),
-      null,
-      false,
-      false
-    );
+    createLoyaltyAggrSubPointExprLedgerBulk(targetTjById, new AggrConfig(subTypeIdByName, pointCurrencyId), null, false, false);
   }
 
   // =========================

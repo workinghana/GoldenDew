@@ -1,5 +1,21 @@
 @IsTest
 private class BirthdayCouponIssueBatchTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"success":true,"message":"ok","data":{}}');
+      return res;
+    }
+  }
+
+  private static void executeBatchWithMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+  }
+
   @TestSetup
   static void setupData() {
     // 1. Journal Types (배치에서 조회하는 저널 타입)
@@ -42,7 +58,8 @@ private class BirthdayCouponIssueBatchTest {
       IsActive = true,
       Description = 'Test Voucher',
       ProductId = prod.Id,
-      Type = 'ProductOrService',
+      Type = 'FixedValue',
+      FaceValue = 1000,
       ExpirationType = 'FixedDate',
       ExpirationDate = Date.today().addDays(30),
       EffectiveDate = Date.today(),
@@ -104,7 +121,7 @@ private class BirthdayCouponIssueBatchTest {
     createMember(true);
 
     Test.startTest();
-    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    executeBatchWithMock();
     Test.stopTest();
 
     System.assert(true);
@@ -116,7 +133,7 @@ private class BirthdayCouponIssueBatchTest {
     createMember(false);
 
     Test.startTest();
-    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    executeBatchWithMock();
     Test.stopTest();
 
     System.assert(true);
@@ -126,7 +143,7 @@ private class BirthdayCouponIssueBatchTest {
   @IsTest
   static void test_execute_noData() {
     Test.startTest();
-    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    executeBatchWithMock();
     Test.stopTest();
 
     System.assert(true);
@@ -139,7 +156,7 @@ private class BirthdayCouponIssueBatchTest {
     delete [SELECT Id FROM VoucherCategory__c];
 
     Test.startTest();
-    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    executeBatchWithMock();
     Test.stopTest();
 
     System.assert(true);
@@ -152,7 +169,7 @@ private class BirthdayCouponIssueBatchTest {
     delete [SELECT Id FROM VoucherDefinition];
 
     Test.startTest();
-    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    executeBatchWithMock();
     Test.stopTest();
 
     System.assert(true);
@@ -167,7 +184,7 @@ private class BirthdayCouponIssueBatchTest {
     update c;
 
     Test.startTest();
-    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    executeBatchWithMock();
     Test.stopTest();
 
     System.assert(true);
@@ -210,7 +227,7 @@ private class BirthdayCouponIssueBatchTest {
     insert new VoucherLimit__c(VoucherDefinitionId__c = upgradeVd.Id, Type__c = 'GradeIncludeList', Value__c = tierId, IsActive__c = true);
 
     Test.startTest();
-    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    executeBatchWithMock();
     Test.stopTest();
 
     List<Voucher> issuedVoucherList = [
@@ -260,7 +277,7 @@ private class BirthdayCouponIssueBatchTest {
     insert new LoyaltyMemberTier(Name = 'Excluded LMT', LoyaltyMemberId = lpm.Id, LoyaltyTierId = excludedTier.Id, EffectiveDate = today);
 
     Test.startTest();
-    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    executeBatchWithMock();
     Test.stopTest();
 
     List<Voucher> issued = [SELECT Id FROM Voucher WHERE LoyaltyProgramMemberId = :lpm.Id];
@@ -303,7 +320,7 @@ private class BirthdayCouponIssueBatchTest {
     insert new LoyaltyMemberTier(Name = 'No MemberNo LMT', LoyaltyMemberId = lpm2.Id, LoyaltyTierId = tier.Id, EffectiveDate = today);
 
     Test.startTest();
-    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    executeBatchWithMock();
     Test.stopTest();
 
     System.assert(true);
@@ -354,7 +371,7 @@ private class BirthdayCouponIssueBatchTest {
     insert lmts;
 
     Test.startTest();
-    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    executeBatchWithMock();
     Test.stopTest();
 
     System.assert(true);
@@ -369,7 +386,7 @@ private class BirthdayCouponIssueBatchTest {
     createMember(true);
 
     Test.startTest();
-    Database.executeBatch(new BirthdayCouponIssueBatch(), 200);
+    executeBatchWithMock();
     Test.stopTest();
 
     System.assert(true);

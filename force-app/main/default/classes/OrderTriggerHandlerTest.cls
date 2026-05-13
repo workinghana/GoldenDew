@@ -2,6 +2,21 @@
 private class OrderTriggerHandlerTest {
   private static Integer seq = 0;
 
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"success":true,"message":"ok","data":{}}');
+      return res;
+    }
+  }
+
+  private static void setMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
+
   private static Account createStoreAccount() {
     seq++;
     Account acc = new Account(Name = 'OrderTrigger Store ' + seq, StoreCode__c = 'OT-ST-' + seq, StoreType__c = '11', StoreTypeFour__c = '01');
@@ -84,6 +99,7 @@ private class OrderTriggerHandlerTest {
   @IsTest
   static void updateTierQualifyingSpend3Y_applies_all_status_deltas() {
     ApexLogger.disableLogging();
+    setMock();
 
     Account store = createStoreAccount();
     Id pbId = ensurePricebook();
@@ -158,6 +174,7 @@ private class OrderTriggerHandlerTest {
   @IsTest
   static void updateTierQualifyingSpend3Y_ignores_unknown_status_and_missing_rows() {
     ApexLogger.disableLogging();
+    setMock();
 
     Account store = createStoreAccount();
     Id pbId = ensurePricebook();
@@ -181,6 +198,7 @@ private class OrderTriggerHandlerTest {
   @IsTest
   static void trigger_afterUpdate_updates_contact_for_transition() {
     ApexLogger.disableLogging();
+    setMock();
 
     Account store = createStoreAccount();
     Id pbId = ensurePricebook();
@@ -242,6 +260,7 @@ private class OrderTriggerHandlerTest {
   @IsTest
   static void updateTierQualifyingSpend3Y_delta_branch_focus() {
     ApexLogger.disableLogging();
+    setMock();
 
     Account store = createStoreAccount();
     Id pbId = ensurePricebook();
