@@ -2,9 +2,24 @@
 private class GdTransactionJournalTriggerHandlerTest {
   private static Integer seq = 0;
 
+  // TransactionJournal Create 시 발화하는 RTF_Purchase_Point_Award 등 Salesforce Loyalty 플로우가
+  // creditPoints invocable action 을 호출하면서 콜아웃을 발생시키므로 HttpCalloutMock 필수.
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
+
   @TestSetup
   static void setup() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
     ApexLogger.disableLogging();
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
 
     LoyaltyProgram lp = new LoyaltyProgram(Name = 'TJTrig-LP', IsPrimary = true);
     insert lp;
@@ -118,12 +133,14 @@ private class GdTransactionJournalTriggerHandlerTest {
   @IsTest
   static void constructor_createsInstance() {
     ApexLogger.disableLogging();
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
     System.assertNotEquals(null, new GdTransactionJournalTriggerHandler());
   }
 
   @IsTest
   static void afterUpdate_outsideTriggerContext_alwaysPass() {
     ApexLogger.disableLogging();
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
 
     try {
       new GdTransactionJournalTriggerHandler().afterUpdate();
@@ -138,6 +155,7 @@ private class GdTransactionJournalTriggerHandlerTest {
   @IsTest
   static void trigger_afterUpdate_credit_insertPath_alwaysPass() {
     ApexLogger.disableLogging();
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
 
     LoyaltyProgramMember lpm = getMember();
     Id currencyId = getCurrencyId();
@@ -157,6 +175,7 @@ private class GdTransactionJournalTriggerHandlerTest {
   @IsTest
   static void trigger_afterUpdate_debit_branch_alwaysPass() {
     ApexLogger.disableLogging();
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
 
     LoyaltyProgramMember lpm = getMember();
     Id currencyId = getCurrencyId();
@@ -187,6 +206,7 @@ private class GdTransactionJournalTriggerHandlerTest {
   @IsTest
   static void trigger_afterUpdate_expiry_and_loggerPath_alwaysPass() {
     ApexLogger.disableLogging();
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
 
     LoyaltyProgramMember lpm = getMember();
     Id currencyId = getCurrencyId();
@@ -210,6 +230,7 @@ private class GdTransactionJournalTriggerHandlerTest {
   @IsTest
   static void trigger_afterUpdate_existingAggregate_updatePath_alwaysPass() {
     ApexLogger.disableLogging();
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
 
     LoyaltyProgramMember lpm = getMember();
     Id currencyId = getCurrencyId();
@@ -241,6 +262,7 @@ private class GdTransactionJournalTriggerHandlerTest {
   @IsTest
   static void trigger_afterUpdate_earlyReturnPaths_alwaysPass() {
     ApexLogger.disableLogging();
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
 
     TransactionJournal pendingNoSubtype = createTj('Pending', null);
     TransactionJournal alreadyProcessed = createTj('Processed', 'Purchase Accrual');

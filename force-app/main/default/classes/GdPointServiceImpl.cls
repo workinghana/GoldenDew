@@ -1255,7 +1255,36 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
     Map<String, Integer> accrualReversalPointByKey = new Map<String, Integer>();
     Map<Id, Integer> accrualReversalPointBySubtypeId = new Map<Id, Integer>();
+    Set<Id> tracedAccrualReversalDebitLedgerIdSet = new Set<Id>();
     if (!subtypeIdSet.isEmpty()) {
+      for (LoyaltyLedgerTraceability llt : [
+        SELECT DebitLoyaltyLedgerId
+        FROM LoyaltyLedgerTraceability
+        WHERE
+          LoyaltyProgramMemberId = :memberId
+          AND ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION
+          AND DebitLoyaltyLedgerId != NULL
+          AND DebitLoyaltyLedger.EventType = 'Debit'
+          AND DebitLoyaltyLedger.TransactionJournal.JournalType.Name = :JOURNAL_TYPE_NAME_ACCRUAL_REVERSAL
+          AND DebitLoyaltyLedger.LoyaltyPgmCrcySubtypeId IN :subtypeIdSet
+          AND (DebitLoyaltyLedger.ExpiryDate IN :expiryDateSet
+          OR DebitLoyaltyLedger.ExpiryDate = NULL)
+          AND ((DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c IN :RESTORE_NOTES
+          AND DebitLoyaltyLedger.CreatedDate <= :effectiveCutoff)
+          OR ((DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
+          OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c NOT IN :RESTORE_NOTES)
+          AND ((DebitLoyaltyLedger.TransactionJournal.SaleId__r.EffectiveDate != NULL
+          AND DebitLoyaltyLedger.TransactionJournal.SaleId__r.EffectiveDate <= :queryDate)
+          OR (DebitLoyaltyLedger.TransactionJournal.SaleId__r.EffectiveDate = NULL
+          AND DebitLoyaltyLedger.TransactionJournal.Order.EffectiveDate != NULL
+          AND DebitLoyaltyLedger.TransactionJournal.Order.EffectiveDate <= :queryDate)
+          OR (DebitLoyaltyLedger.TransactionJournal.SaleId__r.EffectiveDate = NULL
+          AND DebitLoyaltyLedger.TransactionJournal.Order.EffectiveDate = NULL
+          AND DebitLoyaltyLedger.TransactionJournal.ActivityDate <= :effectiveCutoff))))
+      ]) {
+        tracedAccrualReversalDebitLedgerIdSet.add(llt.DebitLoyaltyLedgerId);
+      }
+
       for (AggregateResult ar : [
         SELECT LoyaltyPgmCrcySubtypeId subtypeId, ExpiryDate expiryDate, SUM(Points) totalPoints
         FROM LoyaltyLedger
@@ -1264,6 +1293,13 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           AND EventType = 'Debit'
           AND TransactionJournal.JournalType.Name = :JOURNAL_TYPE_NAME_ACCRUAL_REVERSAL
           AND LoyaltyPgmCrcySubtypeId IN :subtypeIdSet
+          AND Id NOT IN :tracedAccrualReversalDebitLedgerIdSet
+          AND (TransactionJournal.OrderId = NULL
+          OR TransactionJournal.Order.IsDeleted__c = FALSE
+          OR TransactionJournal.Order.IsDeleted__c = NULL)
+          AND (TransactionJournal.SaleId__c = NULL
+          OR TransactionJournal.SaleId__r.IsDeleted__c = FALSE
+          OR TransactionJournal.SaleId__r.IsDeleted__c = NULL)
           // [Time-Symmetric + Effective Date Hierarchy] 컷오프 시점 이후의 적립취소(미래 반품) 는 시뮬레이션에서 제외.
           //   AdditionalNotes 가 RESTORE_NOTES 이면 CreatedDate, 아니면 Sale/Order/ActivityDate hierarchy.
           AND ((TransactionJournal.AdditionalNotes__c IN :RESTORE_NOTES
@@ -1296,29 +1332,6 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           }
           accrualReversalPointByKey.put(reversalKey, accrualReversalPointByKey.get(reversalKey) + totalPoints);
         }
-      }
-    }
-
-    for (LoyaltyLedger creditLedger : filteredCreditLedgerList) {
-      Integer traceCreditCancellationPoints = traceCreditCancellationPointMap.containsKey(creditLedger.Id)
-        ? traceCreditCancellationPointMap.get(creditLedger.Id)
-        : 0;
-      if (traceCreditCancellationPoints <= 0) {
-        continue;
-      }
-
-      String reversalKey = String.valueOf(creditLedger.LoyaltyPgmCrcySubtypeId) + '|' + String.valueOf(creditLedger.ExpiryDate);
-      if (accrualReversalPointByKey.containsKey(reversalKey)) {
-        Integer remainingTracePoints = Math.max(0, traceCreditCancellationPoints - accrualReversalPointByKey.get(reversalKey));
-        accrualReversalPointByKey.put(reversalKey, Math.max(0, accrualReversalPointByKey.get(reversalKey) - traceCreditCancellationPoints));
-        traceCreditCancellationPoints = remainingTracePoints;
-      }
-
-      if (traceCreditCancellationPoints > 0 && accrualReversalPointBySubtypeId.containsKey(creditLedger.LoyaltyPgmCrcySubtypeId)) {
-        accrualReversalPointBySubtypeId.put(
-          creditLedger.LoyaltyPgmCrcySubtypeId,
-          Math.max(0, accrualReversalPointBySubtypeId.get(creditLedger.LoyaltyPgmCrcySubtypeId) - traceCreditCancellationPoints)
-        );
       }
     }
 
@@ -1610,7 +1623,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
     Datetime nextDayStart = TimeUtil.dateToUtcStartOfDay(usageDate.addDays(1));
     Map<Id, Integer> currentAvailableByCreditLedgerId = new Map<Id, Integer>();
-    for (AvailableCreditBalance currentBalance : buildAvailableCreditBalances(tj.MemberId, null, null, saleNo)) {
+    for (AvailableCreditBalance currentBalance : buildAvailableCreditBalancesForDebitValidation(tj.MemberId, null, null, saleNo)) {
       if (currentBalance.creditLedgerId == null || currentBalance.availablePoints == null || currentBalance.availablePoints <= 0) {
         continue;
       }
@@ -1618,7 +1631,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     }
 
     Integer available = 0;
-    for (AvailableCreditBalance historicalBalance : buildAvailableCreditBalances(tj.MemberId, null, nextDayStart, saleNo)) {
+    for (AvailableCreditBalance historicalBalance : buildAvailableCreditBalancesForDebitValidation(tj.MemberId, null, nextDayStart, saleNo)) {
       if (historicalBalance.creditLedgerId == null || historicalBalance.availablePoints == null || historicalBalance.availablePoints <= 0) {
         continue;
       }
@@ -1630,6 +1643,15 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       }
     }
     return available;
+  }
+
+  private static List<AvailableCreditBalance> buildAvailableCreditBalancesForDebitValidation(
+    Id memberId,
+    SaleSequenceCutoff cutoff,
+    Datetime nextDayStart,
+    String currentSaleNo
+  ) {
+    return buildAvailableCreditBalancesForHelp(memberId, cutoff, nextDayStart, currentSaleNo);
   }
 
   /**

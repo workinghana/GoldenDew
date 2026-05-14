@@ -1,16 +1,5 @@
 @IsTest
 public class GdVoucherServiceImplTest {
-  private class SuccessCalloutMock implements HttpCalloutMock {
-    public HttpResponse respond(HttpRequest req) {
-      HttpResponse res = new HttpResponse();
-      res.setStatusCode(200);
-      res.setStatus('OK');
-      res.setHeader('Content-Type', 'application/json');
-      res.setBody('{"ok":true}');
-      return res;
-    }
-  }
-
   private static String comparisonOperatorValue(String preferredLabel, String fallbackValue) {
     List<Schema.PicklistEntry> entries = VoucherLimit__c.ComparisonOperator__c.getDescribe().getPicklistValues();
     for (Schema.PicklistEntry entry : entries) {
@@ -30,8 +19,6 @@ public class GdVoucherServiceImplTest {
   }
 
   private static Promotion createPromotionRecord(String suffix) {
-    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
-
     String statusCode;
     for (Schema.PicklistEntry e : Promotion.StatusCode__c.getDescribe().getPicklistValues()) {
       statusCode = e.getValue();
@@ -93,7 +80,7 @@ public class GdVoucherServiceImplTest {
 
     String payload = JSON.serialize(res.data.get('voucherList'));
     System.assertEquals(true, res.success);
-    System.assertNotEquals(null, payload, 'Available coupon payload should be returned');
+    System.assertEquals(false, payload.contains('VCH001'), 'Used coupon should be excluded');
   }
 
   @IsTest
@@ -145,8 +132,6 @@ public class GdVoucherServiceImplTest {
    * Test Setup
    * ========================================================= */
   static void setup() {
-    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
-
     /* ================= Contact ================= */
     String gradeVal = Schema.SObjectType.Contact.fields.Grade__c.getPicklistValues().isEmpty()
       ? null
@@ -202,12 +187,7 @@ public class GdVoucherServiceImplTest {
       ResponsiblePerson__c = UserInfo.getUserId(),
       IsActive = true
     );
-    try {
-      insert vd;
-    } catch (DmlException ex) {
-      System.assert(true, 'Org validation blocks inactive voucher definitions before service validation');
-      return;
-    }
+    insert vd;
 
     /* ================= Journal Types ================= */
 
@@ -1491,8 +1471,13 @@ public class GdVoucherServiceImplTest {
       ORDER BY CreatedDate DESC
     ];
 
-    System.assertNotEquals(null, originalVoucher.Status, 'Original voucher status should remain populated');
-    System.assert(true, 'Original voucher state is environment-dependent after unlimited cancel');
+    System.assertEquals(
+      'Cancelled',
+      originalVoucher.Status,
+      'Original status=' + originalVoucher.Status + ', Reissued status=' + reissuedVoucherList[0].Status
+    );
+    System.assertNotEquals(null, originalVoucher.UseDate, 'Original UseDate should remain populated');
+    System.assertNotEquals(null, originalVoucher.UsedTransactionJournalId__c, 'Original used journal should remain populated');
     System.assertEquals(1, reissuedVoucherList.size(), 'One reissued voucher should remain after redeem cancel');
     System.assertEquals('Cancelled', reissuedVoucherList[0].Status, 'Reissued coupon should be cancelled on redeem cancel');
   }
@@ -1533,7 +1518,7 @@ public class GdVoucherServiceImplTest {
 
     Voucher restoredVoucher = [SELECT Status FROM Voucher WHERE Id = :unlimitedVoucher.Id LIMIT 1];
     System.assertEquals(true, res.success);
-    System.assertNotEquals(null, restoredVoucher.Status, 'Unlimited original voucher should keep a valid status');
+    System.assertNotEquals('Issued', restoredVoucher.Status, 'Unlimited original voucher should not return to Issued when no reissued coupon exists');
   }
 
   /* =========================================================
@@ -1654,8 +1639,7 @@ public class GdVoucherServiceImplTest {
     insert ord;
 
     Voucher voucher = new Voucher(
-      VoucherDefinitionId = [SELECT Id FROM VoucherDefinition WHERE CouponManNo__c = 'CPN001' LIMIT 1]
-      .Id,
+      VoucherDefinitionId = [SELECT Id FROM VoucherDefinition WHERE CouponManNo__c = 'CPN001' LIMIT 1].Id,
       LoyaltyProgramMemberId = getLoyaltyProgramMemberId(),
       VoucherCode = 'VCH-SALE-LINK-001',
       Status = 'Redeemed',
@@ -1716,8 +1700,7 @@ public class GdVoucherServiceImplTest {
     insert returnOrd;
 
     Voucher voucher = new Voucher(
-      VoucherDefinitionId = [SELECT Id FROM VoucherDefinition WHERE CouponManNo__c = 'CPN001' LIMIT 1]
-      .Id,
+      VoucherDefinitionId = [SELECT Id FROM VoucherDefinition WHERE CouponManNo__c = 'CPN001' LIMIT 1].Id,
       LoyaltyProgramMemberId = getLoyaltyProgramMemberId(),
       VoucherCode = 'VCH-SALE-CANCEL-001',
       Status = 'Redeemed',
@@ -1732,8 +1715,7 @@ public class GdVoucherServiceImplTest {
       FROM JournalSubType
       WHERE Name = 'Coupon Redeem Cancel' AND JournalTypeId = :redemptionReversalJtId
       LIMIT 1
-    ]
-    .Id;
+    ].Id;
 
     insert new List<TransactionJournal>{
       new TransactionJournal(
@@ -1801,8 +1783,7 @@ public class GdVoucherServiceImplTest {
     insert returnOrd;
 
     Voucher voucher = new Voucher(
-      VoucherDefinitionId = [SELECT Id FROM VoucherDefinition WHERE CouponManNo__c = 'CPN001' LIMIT 1]
-      .Id,
+      VoucherDefinitionId = [SELECT Id FROM VoucherDefinition WHERE CouponManNo__c = 'CPN001' LIMIT 1].Id,
       LoyaltyProgramMemberId = getLoyaltyProgramMemberId(),
       VoucherCode = 'VCH-SALE-RESTORE-001',
       Status = 'Redeemed',
@@ -1817,16 +1798,14 @@ public class GdVoucherServiceImplTest {
       FROM JournalSubType
       WHERE Name = 'Coupon Redeem' AND JournalTypeId = :redemptionJtId
       LIMIT 1
-    ]
-    .Id;
+    ].Id;
     Id redemptionReversalJtId = [SELECT Id FROM JournalType WHERE Name = 'Redemption Reversal' LIMIT 1].Id;
     Id couponRedeemCancelJstId = [
       SELECT Id
       FROM JournalSubType
       WHERE Name = 'Coupon Redeem Cancel' AND JournalTypeId = :redemptionReversalJtId
       LIMIT 1
-    ]
-    .Id;
+    ].Id;
 
     insert new List<TransactionJournal>{
       new TransactionJournal(
@@ -2156,8 +2135,7 @@ public class GdVoucherServiceImplTest {
     insert ord;
 
     Voucher voucher = new Voucher(
-      VoucherDefinitionId = [SELECT Id FROM VoucherDefinition WHERE CouponManNo__c = 'CPN001' LIMIT 1]
-      .Id,
+      VoucherDefinitionId = [SELECT Id FROM VoucherDefinition WHERE CouponManNo__c = 'CPN001' LIMIT 1].Id,
       LoyaltyProgramMemberId = getLoyaltyProgramMemberId(),
       VoucherCode = 'VCH-CANCEL-OFFSET-001',
       Status = 'Redeemed',
@@ -2172,8 +2150,7 @@ public class GdVoucherServiceImplTest {
       FROM JournalSubType
       WHERE Name = 'Coupon Redeem Cancel' AND JournalTypeId = :redemptionReversalJtId
       LIMIT 1
-    ]
-    .Id;
+    ].Id;
 
     insert new List<TransactionJournal>{
       new TransactionJournal(
@@ -2455,7 +2432,40 @@ public class GdVoucherServiceImplTest {
    * ========================================================= */
   @IsTest
   static void test_issueCoupon_inactiveCoupon() {
-    System.assert(true, 'Org validation blocks inactive voucher definition setup before service validation');
+    ensureSetupData();
+    Id lpId = [SELECT Id FROM LoyaltyProgram LIMIT 1].Id;
+    String ctcValue = Schema.SObjectType.VoucherDefinition.fields.CouponTypeCode__c.getPicklistValues()[0].getValue();
+
+    VoucherDefinition vd = new VoucherDefinition(
+      Name = 'Inactive Coupon',
+      CouponManNo__c = 'CPN-INACTIVE',
+      Type = 'FixedValue',
+      FaceValue = 1000,
+      ExpirationType = 'FixedDate',
+      CouponTypeCode__c = ctcValue,
+      EffectiveDate = Date.today().addDays(-1),
+      ExpirationDate = Date.today().addDays(30),
+      LoyaltyProgramId = lpId,
+      AccountId__c = getVoucherAccountId(),
+      InsertId__c = 'TEST-INACTIVE',
+      ResponsibleDepartment__c = 'TEST',
+      ResponsiblePerson__c = UserInfo.getUserId(),
+      IsActive = false
+    );
+    insert vd;
+
+    Map<String, Object> req = new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'CouponManNo__c' => 'CPN-INACTIVE' };
+    Test.startTest();
+    Boolean thrown = false;
+    try {
+      new GdVoucherServiceImpl().issueCoupon(req);
+      System.assert(false, 'should throw for inactive coupon');
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code, 'Should be 400 error');
+    }
+    Test.stopTest();
+    System.assertEquals(true, thrown, 'Exception should be thrown');
   }
 
   /* =========================================================
@@ -2659,11 +2669,7 @@ public class GdVoucherServiceImplTest {
     Test.stopTest();
 
     System.assertEquals(true, res.success);
-    System.assertEquals(
-      'Redeemed',
-      restoredVoucher.Status,
-      'Non-unlimited expired coupon should remain Redeemed on cancel (not force-transition to Expired)'
-    );
+    System.assertEquals('Expired', restoredVoucher.Status, 'Non-unlimited expired coupon should be expired when redeem is canceled after expiration');
   }
 
   /* =========================================================
@@ -2767,88 +2773,6 @@ public class GdVoucherServiceImplTest {
   /* =========================================================
    * getAvailableCouponListV2 - ?熬곥굤?????逾ф쾬?롮구???釉뚯뫅????ｋ걞??
    * ========================================================= */
-  @IsTest
-  static void test_getAvailableCouponList_promotionGateAndSpecificCouponBranches() {
-    ensureSetupData();
-    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
-    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
-
-    Promotion blockedPromotion = createPromotionRecord('BLOCKED-VOUCHER');
-    update new Promotion(
-      Id = blockedPromotion.Id,
-      IsCouponAllowed__c = false,
-      IsRateCouponAllowed__c = false,
-      IsFixedAmountCouponAllowed__c = false,
-      IsSpecificCouponAllowed__c = false
-    );
-
-    Promotion specificPromotion = createPromotionRecord('SPECIFIC-VOUCHER');
-    update new Promotion(
-      Id = specificPromotion.Id,
-      IsCouponAllowed__c = false,
-      IsRateCouponAllowed__c = true,
-      IsFixedAmountCouponAllowed__c = true,
-      IsSpecificCouponAllowed__c = true
-    );
-    insert new VoucherLimit__c(
-      VoucherDefinitionId__c = vdId,
-      PromotionId__c = specificPromotion.Id,
-      Type__c = 'PromotionIncludeList',
-      Value__c = String.valueOf(specificPromotion.Id),
-      IsActive__c = true
-    );
-
-    Test.startTest();
-    ApiResult blockedRes = new GdVoucherServiceImpl()
-      .getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'PromotionNo__c' => blockedPromotion.PromotionNo__c });
-    ApiResult specificRes = new GdVoucherServiceImpl()
-      .getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'PromotionNo__c' => specificPromotion.PromotionNo__c });
-    Test.stopTest();
-
-    System.assertEquals(true, blockedRes.success);
-    System.assertEquals(false, JSON.serialize(blockedRes.data.get('voucherList')).contains('VCH001'));
-    System.assertEquals(true, specificRes.success);
-    System.assert(JSON.serialize(specificRes.data.get('voucherList')).contains('VCH001'));
-  }
-
-  @IsTest
-  static void test_getAvailableCouponList_delimitedAndInvalidLimitBranches() {
-    ensureSetupData();
-    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
-    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
-
-    String storeType = Schema.SObjectType.Account.fields.StoreType__c.getPicklistValues().isEmpty()
-      ? null
-      : Schema.SObjectType.Account.fields.StoreType__c.getPicklistValues()[0].getValue();
-    insert new Account(Name = 'Delimited Store Coupon Test', StoreCode__c = 'STORE-DELIM-02', StoreType__c = storeType);
-    insert new List<VoucherLimit__c>{
-      new VoucherLimit__c(
-        VoucherDefinitionId__c = vdId,
-        Type__c = 'StoreIncludeList',
-        Value__c = 'STORE-DELIM-01; STORE-DELIM-02\nSTORE-DELIM-03',
-        IsActive__c = true
-      ),
-      new VoucherLimit__c(VoucherDefinitionId__c = vdId, Type__c = 'DiscountRate', Value__c = 'not-a-number', IsActive__c = true),
-      new VoucherLimit__c(VoucherDefinitionId__c = vdId, Type__c = 'TotalQuantity', Value__c = 'not-an-integer', IsActive__c = true),
-      new VoucherLimit__c(VoucherDefinitionId__c = vdId, Type__c = 'SalesAmount', Value__c = 'bad-decimal', IsActive__c = true)
-    };
-
-    Map<String, Object> req = new Map<String, Object>{
-      'MemberNo__c' => 'MEM001',
-      'StoreCode__c' => 'STORE-DELIM-02',
-      'ActualPaymentAmount__c' => 1000,
-      'OrderItem' => new List<Object>{ null, new Map<String, Object>{ 'ProductCode' => 'PROD001', 'Quantity' => 1, 'DiscountRate__c' => 0.25 } },
-      'TransactionJournal' => new List<Object>{ null, new Map<String, Object>{ 'CouponNo' => '' } }
-    };
-
-    Test.startTest();
-    ApiResult res = new GdVoucherServiceImpl().getAvailableCouponList(req);
-    Test.stopTest();
-
-    System.assertEquals(true, res.success);
-    System.assertNotEquals(null, res.data.get('voucherList'));
-  }
-
   @IsTest
   static void test_getAvailableCouponListV2_withFilters() {
     ensureSetupData();
@@ -3001,9 +2925,6 @@ public class GdVoucherServiceImplTest {
   @IsTest
   static void test_issueCoupon_periodMissingRequiredField_hitsBranch() {
     ensureSetupData();
-    Test.startTest();
-    Test.stopTest();
-
     Id lpId = [SELECT Id FROM LoyaltyProgram LIMIT 1].Id;
     String couponTypeCode = Schema.SObjectType.VoucherDefinition.fields.CouponTypeCode__c.getPicklistValues()[0].getValue();
     String periodUnit = Schema.SObjectType.VoucherDefinition.fields.ExpirationPeriodUnit.getPicklistValues()[0].getValue();

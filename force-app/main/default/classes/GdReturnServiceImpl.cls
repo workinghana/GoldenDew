@@ -28,6 +28,7 @@ public with sharing class GdReturnServiceImpl implements GdReturnService {
       String originalOrderId = ValidationUtil.stringValidation(reqData.get('OriginalOrderId'), 'OriginalOrderId', true); // 원판매 번호
       Decimal actualPaymentAmount = ValidationUtil.decimalValidation(reqData.get('ActualPaymentAmount__c'), 'ActualPaymentAmount__c', false); // 판매 금액
       String insertId = ValidationUtil.stringValidationEx(reqData.get('InsertId__c'), 'InsertId__c', false, true); // 등록자
+      Date returnDate = ValidationUtil.dateValidation(reqData.get('EndDate'), 'EndDate', false); // 반품 일자 // 신규 (26.05.13 CS)
 
       // 판매번호(SaleNo__c) 중복 체크
       if ([SELECT COUNT() FROM Order WHERE SaleNo__c = :saleNo] > 0) {
@@ -35,9 +36,22 @@ public with sharing class GdReturnServiceImpl implements GdReturnService {
       }
 
       // 원판매 번호 조회
-      List<Order> originalOrderList = [SELECT Id, AccountId, StoreCode__c, MemberNo__c FROM Order WHERE SaleNo__c = :originalOrderId LIMIT 1];
+      List<Order> originalOrderList = [
+        SELECT Id, AccountId, StoreCode__c, MemberNo__c, EndDate
+        FROM Order
+        WHERE SaleNo__c = :originalOrderId
+        LIMIT 1
+      ];
       if (originalOrderList.isEmpty()) {
         throw new CustomException(400, '존재하지 않는 원판매 번호입니다. ' + originalOrderId);
+      }
+      if (returnDate != null && originalOrderList[0].EndDate != null) {
+        if (originalOrderList[0].EndDate > returnDate) {
+          throw new CustomException(
+            400,
+            '반품일자는 원판매일자보다 과거일 수 없습니다. 원판매일자: ' + originalOrderList[0].EndDate + ', 반품일자: ' + returnDate
+          );
+        }
       }
 
       // Standard Pricebook 조회
@@ -49,7 +63,9 @@ public with sharing class GdReturnServiceImpl implements GdReturnService {
       o.StoreCode__c = originalOrderList[0].StoreCode__c;
       o.SaleStatus__c = '03';
       o.Status = String.valueOf(Status.Draft);
-      o.EffectiveDate = Date.today();
+      // o.EffectiveDate = Date.today();  // 기존
+      o.EffectiveDate = returnDate == null ? Date.today() : returnDate; // 신규 (26.05.13 CS)
+      o.EndDate = returnDate == null ? Date.today() : returnDate; // 신규 (26.05.13 CS)
       o.MemberNo__c = originalOrderList[0].MemberNo__c;
       o.SaleNo__c = saleNo;
       if (actualPaymentAmount != null) {

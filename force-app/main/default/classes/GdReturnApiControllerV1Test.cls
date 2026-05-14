@@ -102,6 +102,28 @@ private class GdReturnApiControllerV1Test {
     }
   }
 
+  private class MockReturnServiceOrderNotFound implements GdReturnService {
+    public ApiResult createReturn(Map<String, Object> reqData) {
+      Id nonOrderId = [SELECT Id FROM Account LIMIT 1].Id;
+      return ApiResult.ok(200, 'ok', new Map<String, Object>{ 'orderId' => nonOrderId, 'originalOrderId' => getOriginalOrderId() });
+    }
+
+    public ApiResult deleteReturn(String saleNo) {
+      Id nonOrderId = [SELECT Id FROM Account LIMIT 1].Id;
+      return ApiResult.ok(200, 'ok', new Map<String, Object>{ 'orderId' => nonOrderId });
+    }
+  }
+
+  private class MockReturnServiceFailure implements GdReturnService {
+    public ApiResult createReturn(Map<String, Object> reqData) {
+      throw new CustomException(409, 'create failed');
+    }
+
+    public ApiResult deleteReturn(String saleNo) {
+      throw new CustomException(409, 'delete failed');
+    }
+  }
+
   private class MockReturnItemService implements GdReturnItemService {
     public ApiResult createReturnItem(Map<String, Object> reqData) {
       return ApiResult.ok(200, 'ok', null);
@@ -176,6 +198,18 @@ private class GdReturnApiControllerV1Test {
       return new List<PointDebitDTO>();
     }
 
+    public List<PointDebitDTO> debitSpecificPointsV2(TransactionJournal tj, List<LoyaltyLedger> llList) {
+      return new List<PointDebitDTO>();
+    }
+
+    public List<PointDebitDTO> debitSpecificPointsV3(TransactionJournal tj, Map<Id, Decimal> requestedPointsByLedgerId) {
+      return new List<PointDebitDTO>();
+    }
+
+    public List<GdSaleApiController.PointDebitDTO> debitPointsCustom(TransactionJournal tj) {
+      return new List<GdSaleApiController.PointDebitDTO>();
+    }
+
     public List<PointCreditDTO> creditPointsOnPurchaseByGrade(Map<String, Object> reqData) {
       return new List<PointCreditDTO>();
     }
@@ -236,6 +270,13 @@ private class GdReturnApiControllerV1Test {
     GdReturnApiControllerV1.setPointService(new MockPointService());
   }
 
+  private static void setMockServices(GdReturnService returnService) {
+    GdReturnApiControllerV1.setReturnService(returnService);
+    GdReturnApiControllerV1.setReturnItemService(new MockReturnItemService());
+    GdReturnApiControllerV1.setReturnDepositService(new MockReturnDepositService());
+    GdReturnApiControllerV1.setPointService(new MockPointService());
+  }
+
   @IsTest
   static void createReturn_emptyBody_returns400() {
     setupRestContext('POST', '/services/apexrest/gd/v1/return', null, null);
@@ -276,6 +317,45 @@ private class GdReturnApiControllerV1Test {
   }
 
   @IsTest
+  static void createReturn_success_withoutOptionalBlocks_updatesOrderStatus() {
+    setMockServices();
+    setupRestContext('POST', '/services/apexrest/gd/v1/return', '{"OriginalOrderId":"RET-API-ORIGINAL-SALE"}', null);
+
+    Test.startTest();
+    GdReturnApiControllerV1.createReturn();
+    Test.stopTest();
+
+    System.assertEquals(200, RestContext.response.statusCode);
+    System.assertEquals(true, parseResponseBody().get('success'));
+  }
+
+  @IsTest
+  static void createReturn_orderNotFound_returns400() {
+    setMockServices(new MockReturnServiceOrderNotFound());
+    setupRestContext('POST', '/services/apexrest/gd/v1/return', '{"OrderItem":[]}', null);
+
+    Test.startTest();
+    GdReturnApiControllerV1.createReturn();
+    Test.stopTest();
+
+    System.assertEquals(400, RestContext.response.statusCode);
+    System.assertEquals(false, parseResponseBody().get('success'));
+  }
+
+  @IsTest
+  static void createReturn_serviceCustomException_returns409() {
+    setMockServices(new MockReturnServiceFailure());
+    setupRestContext('POST', '/services/apexrest/gd/v1/return', '{"OrderItem":[]}', null);
+
+    Test.startTest();
+    GdReturnApiControllerV1.createReturn();
+    Test.stopTest();
+
+    System.assertEquals(409, RestContext.response.statusCode);
+    System.assertEquals(false, parseResponseBody().get('success'));
+  }
+
+  @IsTest
   static void deleteReturn_success_updatesOrderStatus() {
     setMockServices();
     setupRestContext('DELETE', '/services/apexrest/gd/v1/return', null, new Map<String, String>{ 'SaleNo__c' => 'RET-API-RETURN-SALE' });
@@ -288,6 +368,45 @@ private class GdReturnApiControllerV1Test {
     Id returnOrderId = getReturnOrderId();
     System.assertEquals('returnDeleted', [SELECT Status FROM Order WHERE Id = :returnOrderId LIMIT 1].Status);
     System.assertEquals(true, parseResponseBody().get('success'));
+  }
+
+  @IsTest
+  static void deleteReturn_missingSaleNo_returns400() {
+    setMockServices();
+    setupRestContext('DELETE', '/services/apexrest/gd/v1/return', null, new Map<String, String>());
+
+    Test.startTest();
+    GdReturnApiControllerV1.deleteReturn();
+    Test.stopTest();
+
+    System.assertEquals(400, RestContext.response.statusCode);
+    System.assertEquals(false, parseResponseBody().get('success'));
+  }
+
+  @IsTest
+  static void deleteReturn_orderNotFound_returns400() {
+    setMockServices(new MockReturnServiceOrderNotFound());
+    setupRestContext('DELETE', '/services/apexrest/gd/v1/return', null, new Map<String, String>{ 'SaleNo__c' => 'RET-API-RETURN-SALE' });
+
+    Test.startTest();
+    GdReturnApiControllerV1.deleteReturn();
+    Test.stopTest();
+
+    System.assertEquals(400, RestContext.response.statusCode);
+    System.assertEquals(false, parseResponseBody().get('success'));
+  }
+
+  @IsTest
+  static void deleteReturn_serviceCustomException_returns409() {
+    setMockServices(new MockReturnServiceFailure());
+    setupRestContext('DELETE', '/services/apexrest/gd/v1/return', null, new Map<String, String>{ 'SaleNo__c' => 'RET-API-RETURN-SALE' });
+
+    Test.startTest();
+    GdReturnApiControllerV1.deleteReturn();
+    Test.stopTest();
+
+    System.assertEquals(409, RestContext.response.statusCode);
+    System.assertEquals(false, parseResponseBody().get('success'));
   }
 
   @IsTest
@@ -323,6 +442,18 @@ private class GdReturnApiControllerV1Test {
     Test.stopTest();
 
     System.assertEquals(500, RestContext.response.statusCode);
+    System.assertEquals(false, parseResponseBody().get('success'));
+  }
+
+  @IsTest
+  static void doGet_missingSaleNo_returns400() {
+    setupRestContext('GET', '/services/apexrest/gd/v1/return/coupon', null, new Map<String, String>());
+
+    Test.startTest();
+    GdReturnApiControllerV1.doGet();
+    Test.stopTest();
+
+    System.assertEquals(400, RestContext.response.statusCode);
     System.assertEquals(false, parseResponseBody().get('success'));
   }
 }

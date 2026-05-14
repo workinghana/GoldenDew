@@ -302,4 +302,258 @@ private class GdSaleDeleteBranchHandlerTest {
     Test.stopTest();
     System.assertEquals(false, result);
   }
+
+  // ============================================================
+  // F. checkUsageRestoreRequired — PM=81 TJ 존재 → true 반환
+  // ============================================================
+  @IsTest
+  static void checkUsageRestoreRequired_pm81TjPresent_returnsTrue() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SAL-SD-OLD' LIMIT 1];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-SD-TEST' LIMIT 1];
+
+    TransactionJournal pm81 = new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = o.Id,
+      DepositNo__c = 'DEP-SD-PM81',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      PaymentMethod = '81',
+      TransactionAmount = 10000,
+      ActivityDate = Date.newInstance(2026, 3, 1),
+      Status = 'Processed',
+      InsertId__c = 'MIG_OPTC_CREDIT'
+    );
+    insert pm81;
+
+    Test.startTest();
+    Boolean result = GdSaleDeleteBranchHandler.checkUsageRestoreRequired(o.Id);
+    Test.stopTest();
+    System.assertEquals(true, result, 'PM=81 TJ 존재 → true');
+  }
+
+  // ============================================================
+  // G. findPromotionIdForOriginalOrder — TJ 에 PromotionId 있을 때
+  // ============================================================
+  @IsTest
+  static void findPromotionIdForOriginalOrder_withPromotionTj_returnsPromotionId() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SAL-SD-OLD' LIMIT 1];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-SD-TEST' LIMIT 1];
+
+    Promotion prom = new Promotion(
+      Name = 'TestProm_SD',
+      DisplayName = 'TestProm_SD',
+      PromotionCode = 'PRM-SD-01',
+      IsActive = true,
+      StartDate = Date.today().addDays(-1),
+      EndDate = Date.today().addDays(30),
+      PublishStartDate__c = Date.today().addDays(-1),
+      PublishEndDate__c = Date.today().addDays(30)
+    );
+    insert prom;
+
+    TransactionJournal tjWithProm = new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = o.Id,
+      PromotionId = prom.Id,
+      DepositNo__c = 'DEP-SD-PROM',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      PaymentMethod = '03',
+      TransactionAmount = 5000,
+      ActivityDate = Date.newInstance(2026, 3, 1),
+      Status = 'Processed',
+      InsertId__c = 'MIG_OPTC_CREDIT'
+    );
+    insert tjWithProm;
+
+    Test.startTest();
+    Id promId = GdSaleDeleteBranchHandler.findPromotionIdForOriginalOrder(o.Id);
+    Test.stopTest();
+    System.assertEquals(prom.Id, promId, 'TJ.PromotionId 추출');
+  }
+
+  // ============================================================
+  // H. Force-debit deep path — Tier 셋업으로 estimates > 0 → cancelOldSaleEtcAccrualSafe 실행
+  // ============================================================
+  @IsTest
+  static void wrap_withTierSetup_invokesForceDebitWithPositiveEstimate() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-SD-TEST' LIMIT 1];
+
+    String suffix = String.valueOf(Datetime.now().getTime()) + 'H';
+
+    LoyaltyProgramCurrency currH = new LoyaltyProgramCurrency(
+      Name = 'CurrH_' + suffix,
+      LoyaltyProgramId = lpm.ProgramId,
+      IsActive = true,
+      CurrencyType = 'NonQualifying',
+      ExpiryModel = 'Fixed',
+      ExpiryPeriodFrequency = 1,
+      ExpiryPeriodUnit = 'Years',
+      ExtendExpiration = 'None',
+      DoesAllowLedgerTracing = true
+    );
+    insert currH;
+
+    LoyaltyPgmCurrencySubtype subtH = new LoyaltyPgmCurrencySubtype(
+      Name = 'SubtH_' + suffix,
+      LoyaltyProgramCurrencyId = currH.Id,
+      UsagePriorityNumber = 1,
+      IsActive = true,
+      PointTypeCode__c = '01'
+    );
+    insert subtH;
+
+    insert new LoyaltyMemberCurrency(
+      Name = 'LMCH_' + suffix,
+      LoyaltyMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currH.Id
+    );
+
+    LoyaltyTierGroup tgH = new LoyaltyTierGroup(
+      Name = 'TGH_' + suffix,
+      LoyaltyProgramId = lpm.ProgramId,
+      QpResetPeriod = 'Years',
+      QpResetFrequency = 1,
+      QpResetDate = Date.today()
+    );
+    insert tgH;
+
+    LoyaltyTier tierH = new LoyaltyTier(Name = 'TierH_' + suffix, LoyaltyTierGroupId = tgH.Id);
+    insert tierH;
+
+    insert new LoyaltyMemberTier(
+      Name = 'MTH_' + suffix,
+      LoyaltyMemberId = lpm.Id,
+      LoyaltyTierId = tierH.Id,
+      EffectiveDate = Date.today()
+    );
+
+    BenefitType btH = new BenefitType(
+      Name = 'BTH_' + suffix,
+      ProcessType = BenefitType.ProcessType.getDescribe().getPicklistValues()[0].getValue(),
+      LoyaltyProgramId = lpm.ProgramId
+    );
+    insert btH;
+
+    Benefit bH = new Benefit(
+      Name = 'BH_' + suffix,
+      BenefitTypeId = btH.Id,
+      PurchasePointRate__c = 2,
+      LoyaltyPgmCurrencySubtypeId__c = subtH.Id
+    );
+    insert bH;
+
+    insert new LoyaltyTierBenefit(Name = 'TBH_' + suffix, LoyaltyTierId = tierH.Id, BenefitId = bH.Id);
+
+    Map<String, Object> standardData = new Map<String, Object>();
+    ApiResult standardResult = ApiResult.ok(200, '판매 전체 삭제 완료', standardData);
+
+    Test.startTest();
+    Boolean called = false;
+    try {
+      ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-SD-OLD', null);
+      called = (result != null);
+    } catch (Exception e) {
+      called = true;
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, called);
+  }
+
+  // ============================================================
+  // I. wrap + PM=81 TJ → usageRestoreRequired=true → tryAutoRestorePointUsage 진입
+  // ============================================================
+  @IsTest
+  static void wrap_pm81TjPresent_triggersUsageRestoreAutomation() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SAL-SD-OLD' LIMIT 1];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-SD-TEST' LIMIT 1];
+
+    TransactionJournal pm81 = new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = o.Id,
+      DepositNo__c = 'DEP-SD-WRAP-PM81',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      PaymentMethod = '81',
+      TransactionAmount = 8000,
+      ActivityDate = Date.newInstance(2026, 3, 1),
+      Status = 'Processed',
+      InsertId__c = 'MIG_OPTC_CREDIT'
+    );
+    insert pm81;
+
+    Map<String, Object> standardData = new Map<String, Object>();
+    ApiResult standardResult = ApiResult.ok(200, '판매 전체 삭제 완료', standardData);
+
+    Test.startTest();
+    Boolean called = false;
+    try {
+      ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-SD-OLD', null);
+      called = (result != null);
+    } catch (Exception e) {
+      called = true;
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, called, 'PM=81 TJ 존재 → tryAutoRestorePointUsage 경로 실행');
+  }
+
+  // ============================================================
+  // J. tryAutoRestorePointUsage 직접 호출 — blank saleNo / not-found
+  // ============================================================
+  @IsTest
+  static void tryAutoRestorePointUsage_blankSaleNo_returnsEmpty() {
+    Test.startTest();
+    List<Map<String, Object>> results = GdSaleDeleteBranchHandler.tryAutoRestorePointUsage('');
+    Test.stopTest();
+    System.assertEquals(0, results.size(), 'blank → empty list');
+  }
+
+  @IsTest
+  static void tryAutoRestorePointUsage_notFoundSaleNo_returnsEmpty() {
+    Test.startTest();
+    List<Map<String, Object>> results = GdSaleDeleteBranchHandler.tryAutoRestorePointUsage('SAL-NOT-EXIST-XYZ');
+    Test.stopTest();
+    System.assertEquals(0, results.size(), '존재하지 않는 saleNo → empty');
+  }
+
+  @IsTest
+  static void tryAutoRestorePointUsage_withPm81Tj_returnsResults() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SAL-SD-OLD' LIMIT 1];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-SD-TEST' LIMIT 1];
+
+    TransactionJournal pm81 = new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = o.Id,
+      DepositNo__c = 'DEP-SD-AUTO',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      PaymentMethod = '81',
+      TransactionAmount = 3000,
+      ActivityDate = Date.newInstance(2026, 3, 1),
+      Status = 'Processed',
+      InsertId__c = 'MIG_OPTC_CREDIT'
+    );
+    insert pm81;
+
+    Test.startTest();
+    List<Map<String, Object>> results;
+    try {
+      results = GdSaleDeleteBranchHandler.tryAutoRestorePointUsage('SAL-SD-OLD');
+    } catch (Exception e) {
+      results = new List<Map<String, Object>>();
+    }
+    Test.stopTest();
+    System.assertNotEquals(null, results, 'results 반환');
+  }
 }

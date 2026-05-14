@@ -28,6 +28,9 @@ public with sharing class GdReturnDepositBranchHandler {
   private static final String OPTION_C_RETURN_DEPOSIT_DELETE_FORCE_CREDIT_PREFIX = 'OPTC_FORCE_CREDIT: OPTC_RETURN_DEPOSIT_DELETE_FORCE_CREDIT:%';
   private static final String OPTION_C_OLD_SALE_ETC_CANCEL_PREFIX = 'OPTC_OLD_SALE_ETC_ACCRUAL_CANCEL%';
   private static final Set<String> NON_ACCRUAL_PAYMENT_METHODS = new Set<String>{ '20', '81', '90', '93' };
+  private static final String JOURNAL_TYPE_NAME_REDEMPTION = 'Redemption';
+  private static final String JOURNAL_SUB_TYPE_NAME_COUPON_REDEEM = 'Coupon Redeem';
+  private static final String JOURNAL_SUB_TYPE_NAME_COUPON_REDEEM_CANCEL = 'Coupon Redeem Cancel';
 
   // 운영자에게 보여줄 메시지
   @TestVisible
@@ -66,7 +69,8 @@ public with sharing class GdReturnDepositBranchHandler {
         SaleId__c,
         ActivityDate,
         DepositNo__c,
-        DeposiSeqNo__c
+        DeposiSeqNo__c,
+        VoucherCode
       FROM TransactionJournal
       WHERE DepositNo__c = :depositNo AND IsDeleted__c = FALSE
       LIMIT 1
@@ -110,6 +114,7 @@ public with sharing class GdReturnDepositBranchHandler {
     //    PaymentMethod='81' (포인트 결제) 는 사용 환원 영역 (시스템 한계) → 안내만
     //    외 결제 (현금/카드 등) 는 환불 시 차감했던 적립을 복원
     ForceCreditOutcome outcome = computeAndForceCreditForDepositDelete(tj);
+    CouponRestoreOutcome couponOutcome = restoreCouponUsageForReturnDepositDelete(tj, subTypeName);
 
     // 5. MigrationAdjustmentLog 기록 (실 force 결과 반영)
     Id logId = GdMigrationUtil.recordAdjustmentLog(
@@ -131,6 +136,8 @@ public with sharing class GdReturnDepositBranchHandler {
         outcome.success +
         ', usageRestoreRequired=' +
         outcome.usageRestoreRequired +
+        ', couponRestoreSuccess=' +
+        couponOutcome.success +
         (String.isBlank(outcome.error) ? '' : ', forceCreditError=' + outcome.error),
       tj.SaleId__c
     );
@@ -162,6 +169,15 @@ public with sharing class GdReturnDepositBranchHandler {
       data.put('usage_restore_required', true);
       data.put('usage_restore_note', '포인트 결제 환불 입금 → 사용 환원은 운영자 수동 처리 필요');
     }
+    if (couponOutcome.processed) {
+      data.put('coupon_processing', couponOutcome.success ? 'redeem_restored' : 'failed');
+      if (couponOutcome.redeemTjId != null) {
+        data.put('coupon_restore_tj_id', couponOutcome.redeemTjId);
+      }
+      if (String.isNotBlank(couponOutcome.error)) {
+        data.put('coupon_restore_error', couponOutcome.error);
+      }
+    }
     if (logId != null) {
       data.put('adjustment_log_id', logId);
     }
@@ -182,6 +198,64 @@ public with sharing class GdReturnDepositBranchHandler {
     Id debitTjId;
     String error;
     Boolean usageRestoreRequired = false;
+  }
+
+  private class CouponRestoreOutcome {
+    Boolean processed = false;
+    Boolean success = false;
+    Id redeemTjId;
+    String error;
+  }
+
+  private static CouponRestoreOutcome restoreCouponUsageForReturnDepositDelete(TransactionJournal sourceTj, String subTypeName) {
+    CouponRestoreOutcome out = new CouponRestoreOutcome();
+    if (sourceTj == null || subTypeName != JOURNAL_SUB_TYPE_NAME_COUPON_REDEEM_CANCEL) {
+      return out;
+    }
+
+    out.processed = true;
+    if (String.isBlank(sourceTj.VoucherCode) || sourceTj.MemberId == null) {
+      out.error = 'missing voucher/member information';
+      return out;
+    }
+
+    try {
+      TransactionJournal restoreTj = new TransactionJournal();
+      restoreTj.LoyaltyProgramId = sourceTj.LoyaltyProgramId;
+      restoreTj.MemberId = sourceTj.MemberId;
+      restoreTj.OrderId = sourceTj.OrderId;
+      restoreTj.OrderId__c = sourceTj.OrderId;
+      restoreTj.SaleId__c = sourceTj.SaleId__c;
+      restoreTj.ActivityDate = sourceTj.ActivityDate != null ? sourceTj.ActivityDate : Datetime.now();
+      restoreTj.TransactionAmount = sourceTj.TransactionAmount;
+      restoreTj.PaymentMethod = sourceTj.PaymentMethod;
+      restoreTj.DepositType__c = '02';
+      restoreTj.DepositNo__c = 'del_' + (String.isBlank(sourceTj.DepositNo__c) ? String.valueOf(sourceTj.Id) : sourceTj.DepositNo__c);
+      restoreTj.DeposiSeqNo__c = sourceTj.DeposiSeqNo__c;
+      restoreTj.VoucherCode = sourceTj.VoucherCode;
+      restoreTj.Status = 'Processed';
+      restoreTj.JournalTypeId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_REDEMPTION, true);
+      restoreTj.JournalSubTypeId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_COUPON_REDEEM, true);
+      restoreTj.AdditionalNotes__c = 'OPTC_RETURN_DEPOSIT_DELETE_COUPON_RESTORE: sourceTjId=' + sourceTj.Id;
+
+      new GdVoucherServiceImpl().redeemVoucherV2(restoreTj);
+
+      List<TransactionJournal> insertedTjList = [
+        SELECT Id
+        FROM TransactionJournal
+        WHERE DepositNo__c = :restoreTj.DepositNo__c AND MemberId = :sourceTj.MemberId AND VoucherCode = :sourceTj.VoucherCode
+        ORDER BY CreatedDate DESC
+        LIMIT 1
+      ];
+      if (!insertedTjList.isEmpty()) {
+        out.redeemTjId = insertedTjList[0].Id;
+      }
+      out.success = true;
+      return out;
+    } catch (Exception e) {
+      out.error = e.getMessage();
+      throw e;
+    }
   }
 
   /**

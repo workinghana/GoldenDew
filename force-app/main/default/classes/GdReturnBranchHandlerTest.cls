@@ -687,4 +687,182 @@ private class GdReturnBranchHandlerTest {
     Test.stopTest();
     System.assertEquals(null, promId);
   }
+
+  @IsTest
+  static void computeNonAccrualPMAmountFromTjPayload_sumsOnlyExcludedPaymentMethods() {
+    Map<String, Object> reqData = new Map<String, Object>{
+      'TransactionJournal' => new List<Object>{
+        new Map<String, Object>{ 'PaymentMethod' => '20', 'TransactionAmount' => 1000 },
+        new Map<String, Object>{ 'PaymentMethod' => '81', 'TransactionAmount' => '2000' },
+        new Map<String, Object>{ 'PaymentMethod' => '90', 'TransactionAmount' => 3000.0 },
+        new Map<String, Object>{ 'PaymentMethod' => '93', 'TransactionAmount' => 4000 },
+        new Map<String, Object>{ 'PaymentMethod' => '10', 'TransactionAmount' => 9999 },
+        new Map<String, Object>{ 'PaymentMethod' => '20', 'TransactionAmount' => 0 },
+        'not-a-map'
+      }
+    };
+
+    Test.startTest();
+    Decimal total = GdReturnBranchHandler.computeNonAccrualPMAmountFromTjPayload(reqData);
+    Decimal nullTotal = GdReturnBranchHandler.computeNonAccrualPMAmountFromTjPayload(null);
+    Decimal invalidTotal = GdReturnBranchHandler.computeNonAccrualPMAmountFromTjPayload(
+      new Map<String, Object>{ 'TransactionJournal' => 'not-a-list' }
+    );
+    Test.stopTest();
+
+    System.assertEquals(10000, total);
+    System.assertEquals(0, nullTotal);
+    System.assertEquals(0, invalidTotal);
+  }
+
+  @IsTest
+  static void computeExcludedItemAmountForReturn_matchesByIdAndSaleSeq() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+
+    Account accountRecord = [SELECT Id FROM Account WHERE Name = 'Co_RB' LIMIT 1];
+    Id stdPbId = Test.getStandardPricebookId();
+    Product2 product = new Product2(Name = 'RB Excluded Product', ProductCode = 'RB-EXCL-1', IsActive = true);
+    insert product;
+    PricebookEntry pbe = new PricebookEntry(Pricebook2Id = stdPbId, Product2Id = product.Id, UnitPrice = 1000, IsActive = true);
+    insert pbe;
+
+    Order originalOrder = new Order(
+      AccountId = accountRecord.Id,
+      EffectiveDate = Date.today(),
+      Status = 'Draft',
+      Pricebook2Id = stdPbId,
+      SaleNo__c = 'SALE-RB-EXCL',
+      ActualPaymentAmount__c = 50000
+    );
+    insert originalOrder;
+
+    OrderItem excludedById = new OrderItem(
+      OrderId = originalOrder.Id,
+      PricebookEntryId = pbe.Id,
+      Quantity = 1,
+      UnitPrice = 1000,
+      SaleSeqNo__c = 'EX-1',
+      IsExclude__c = true,
+      NetSalesUnitPrice__c = 12000
+    );
+    OrderItem excludedBySeqFallback = new OrderItem(
+      OrderId = originalOrder.Id,
+      PricebookEntryId = pbe.Id,
+      Quantity = 2,
+      UnitPrice = 1000,
+      SaleSeqNo__c = 'EX-2',
+      IsExclude__c = true,
+      NetSalesUnitPrice__c = 7000
+    );
+    OrderItem includedItem = new OrderItem(
+      OrderId = originalOrder.Id,
+      PricebookEntryId = pbe.Id,
+      Quantity = 1,
+      UnitPrice = 1000,
+      SaleSeqNo__c = 'IN-1',
+      IsExclude__c = false,
+      NetSalesUnitPrice__c = 9000
+    );
+    insert new List<OrderItem>{ excludedById, excludedBySeqFallback, includedItem };
+
+    Map<String, Object> reqData = new Map<String, Object>{
+      'OrderItem' => new List<Object>{
+        new Map<String, Object>{ 'OriginalOrderItemId__c' => excludedById.Id, 'SaleSeqNo__c' => 'EX-1', 'NetSalesUnitPrice__c' => 5000 },
+        new Map<String, Object>{ 'SaleSeqNo__c' => 'EX-2' },
+        new Map<String, Object>{ 'OriginalOrderItemId__c' => includedItem.Id, 'NetSalesUnitPrice__c' => 9000 },
+        new Map<String, Object>{ 'SaleSeqNo__c' => 'UNKNOWN', 'NetSalesUnitPrice__c' => 3000 },
+        'not-a-map'
+      }
+    };
+
+    Test.startTest();
+    Decimal excluded = GdReturnBranchHandler.computeExcludedItemAmountForReturn(originalOrder.Id, reqData);
+    Decimal nullOrderExcluded = GdReturnBranchHandler.computeExcludedItemAmountForReturn(null, reqData);
+    Decimal invalidPayloadExcluded = GdReturnBranchHandler.computeExcludedItemAmountForReturn(
+      originalOrder.Id,
+      new Map<String, Object>{ 'OrderItem' => 'not-a-list' }
+    );
+    Test.stopTest();
+
+    System.assertEquals(19000, excluded);
+    System.assertEquals(0, nullOrderExcluded);
+    System.assertEquals(0, invalidPayloadExcluded);
+  }
+
+  @IsTest
+  static void wrap_silentFailWithMatchingDepositNo_updatesAdditionalNotesMarker() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+
+    Id saleDepositReversalJstId = ensureJournalSubType('Sale Deposit Reversal', 'Deposit Reversal');
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      WHERE MembershipNumber = 'M-RB-TEST'
+      LIMIT 1
+    ];
+    TransactionJournal returnDepositJournal = new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      JournalSubTypeId = saleDepositReversalJstId,
+      ActivityDate = Datetime.now(),
+      JournalDate = Datetime.now(),
+      Status = 'Processed',
+      DepositNo__c = 'DEP-RB-MARK-1',
+      AdditionalNotes__c = 'before marker'
+    );
+    insert returnDepositJournal;
+
+    Map<String, Object> standardData = new Map<String, Object>{ 'CancelPointsCreditedList' => null };
+    ApiResult standardResult = ApiResult.ok(200, 'return ok', standardData);
+    Map<String, Object> reqData = new Map<String, Object>{
+      'OriginalOrderId' => 'SALE-RB-ORIG',
+      'ActualPaymentAmount__c' => 'not-a-number',
+      'TransactionJournal' => new List<Object>{ new Map<String, Object>{ 'DepositNo__c' => 'DEP-RB-MARK', 'DeposiSeqNo__c' => '1' } }
+    };
+
+    Test.startTest();
+    ApiResult result = GdReturnBranchHandler.wrapResponseIfSilentFail(standardResult, reqData, null);
+    Test.stopTest();
+
+    TransactionJournal updatedJournal = [
+      SELECT AdditionalNotes__c
+      FROM TransactionJournal
+      WHERE Id = :returnDepositJournal.Id
+      LIMIT 1
+    ];
+    System.assertEquals(true, result.data.get('option_c_branch'));
+    System.assert(updatedJournal.AdditionalNotes__c.contains('before marker'));
+    System.assert(updatedJournal.AdditionalNotes__c.contains(GdReturnBranchHandler.MARKER));
+  }
+
+  private static Id ensureJournalSubType(String subTypeName, String typeName) {
+    List<JournalSubType> existingSubTypes = [
+      SELECT Id
+      FROM JournalSubType
+      WHERE Name = :subTypeName
+      LIMIT 1
+    ];
+    if (!existingSubTypes.isEmpty()) {
+      return existingSubTypes[0].Id;
+    }
+
+    List<JournalType> existingTypes = [
+      SELECT Id
+      FROM JournalType
+      WHERE Name = :typeName
+      LIMIT 1
+    ];
+    Id journalTypeId;
+    if (existingTypes.isEmpty()) {
+      JournalType journalType = new JournalType(Name = typeName, ProcessType = 'Loyalty');
+      insert journalType;
+      journalTypeId = journalType.Id;
+    } else {
+      journalTypeId = existingTypes[0].Id;
+    }
+
+    JournalSubType journalSubType = new JournalSubType(Name = subTypeName, JournalTypeId = journalTypeId);
+    insert journalSubType;
+    return journalSubType.Id;
+  }
 }

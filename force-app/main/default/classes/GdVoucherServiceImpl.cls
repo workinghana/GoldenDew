@@ -1209,12 +1209,14 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
         vList[0].Status = 'Issued';
         vList[0].UseDate = null;
         vList[0].UsedTransactionJournalId__c = null;
-      } else if (vList[0].ExpirationDate >= Date.today()) {
+      } else if (vList[0].ExpirationDate != null && vList[0].ExpirationDate >= Date.today()) {
         vList[0].Status = 'Issued';
         vList[0].UseDate = null;
         vList[0].UsedTransactionJournalId__c = null;
       } else {
-        voucherNeedsUpdate = false;
+        vList[0].Status = 'Expired';
+        vList[0].UseDate = null;
+        vList[0].UsedTransactionJournalId__c = null;
       }
 
       tj.JournalTypeId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_REDEMPTION_REVERSAL, true);
