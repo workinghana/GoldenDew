@@ -14,6 +14,12 @@ private class PromotionCouponTriggerTest {
     return prefix + '_' + String.valueOf(Datetime.now().getTime());
   }
 
+  private static LoyaltyProgram createLoyaltyProgram() {
+    LoyaltyProgram lp = new LoyaltyProgram(Name = uniq('CouponProgram'), IsPrimary = true, Status = 'Active');
+    insert lp;
+    return lp;
+  }
+
   private static Promotion createPromotion() {
     Promotion p = new Promotion(
       Name = uniq('Promo'),
@@ -34,11 +40,12 @@ private class PromotionCouponTriggerTest {
   }
 
   private static VoucherDefinition createVoucherDefinition() {
+    LoyaltyProgram lp = createLoyaltyProgram();
     String typeValue = VoucherDefinition.Type.getDescribe().getPicklistValues()[0].getValue();
     String expirationTypeValue = VoucherDefinition.ExpirationType.getDescribe().getPicklistValues()[0].getValue();
-
     VoucherDefinition vd = new VoucherDefinition(
       Name = uniq('VD'),
+      LoyaltyProgramId = lp.Id,
       IsActive = true,
       Type = typeValue,
       ExpirationType = expirationTypeValue,
@@ -106,8 +113,10 @@ private class PromotionCouponTriggerTest {
     Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
 
     Promotion p = createPromotion();
+    LoyaltyProgram lp = createLoyaltyProgram();
     VoucherDefinition vd = new VoucherDefinition(
       Name = uniq('VD'),
+      LoyaltyProgramId = lp.Id,
       IsActive = true,
       Type = 'FixedValue',
       ExpirationType = VoucherDefinition.ExpirationType.getDescribe().getPicklistValues()[0].getValue(),

@@ -15,18 +15,34 @@ private class GdPointServiceImplV3Test {
   // ============================================================
 
   @IsTest
-  static void v3_featureFlag_disabled_by_default() {
+  static void v3_featureFlag_unregistered_returnsFalse() {
     GdFeatureFlag.clearCacheForTest();
-    System.assertEquals(false, GdFeatureFlag.isEnabled('PointCancel_PreserveTrace'),
-      'v3 Flag 는 미등록 시 false 반환');
+    System.assertEquals(false, GdFeatureFlag.isEnabled('__NonExistent_Flag_For_Unit_Test__'), '미등록 Flag 는 false 반환');
+  }
+
+  @IsTest
+  static void v3_featureFlag_blankName_returnsFalse() {
+    GdFeatureFlag.clearCacheForTest();
+    System.assertEquals(false, GdFeatureFlag.isEnabled(null), 'null 이름은 false');
+    System.assertEquals(false, GdFeatureFlag.isEnabled(''), '빈 문자열은 false');
+    System.assertEquals(false, GdFeatureFlag.isEnabled('   '), '공백 문자열은 false');
+  }
+
+  @IsTest
+  static void v3_featureFlag_cacheHit_returnsCachedValue() {
+    GdFeatureFlag.clearCacheForTest();
+    GdFeatureFlag.setForTest('PointCancel_PreserveTrace', false);
+    // 첫 호출 캐시 적중 후 두 번째 호출도 동일 값
+    System.assertEquals(false, GdFeatureFlag.isEnabled('PointCancel_PreserveTrace'));
+    System.assertEquals(false, GdFeatureFlag.isEnabled('PointCancel_PreserveTrace'));
+    GdFeatureFlag.clearCacheForTest();
   }
 
   @IsTest
   static void v3_featureFlag_setForTest_on_controlsReturn() {
     GdFeatureFlag.clearCacheForTest();
     GdFeatureFlag.setForTest('PointCancel_PreserveTrace', true);
-    System.assertEquals(true, GdFeatureFlag.isEnabled('PointCancel_PreserveTrace'),
-      'setForTest 로 true 주입 시 true 반환');
+    System.assertEquals(true, GdFeatureFlag.isEnabled('PointCancel_PreserveTrace'), 'setForTest 로 true 주입 시 true 반환');
     GdFeatureFlag.clearCacheForTest();
   }
 
@@ -34,8 +50,7 @@ private class GdPointServiceImplV3Test {
   static void v3_featureFlag_setForTest_off_controlsReturn() {
     GdFeatureFlag.clearCacheForTest();
     GdFeatureFlag.setForTest('PointCancel_PreserveTrace', false);
-    System.assertEquals(false, GdFeatureFlag.isEnabled('PointCancel_PreserveTrace'),
-      'setForTest 로 false 주입 시 false 반환');
+    System.assertEquals(false, GdFeatureFlag.isEnabled('PointCancel_PreserveTrace'), 'setForTest 로 false 주입 시 false 반환');
     GdFeatureFlag.clearCacheForTest();
   }
 
@@ -45,7 +60,6 @@ private class GdPointServiceImplV3Test {
 
   @IsTest
   static void v3_invariant_flagOnAndOff_areExclusive() {
-    // Flag 값이 명확히 독립적으로 제어 가능한지 확인
     GdFeatureFlag.clearCacheForTest();
     GdFeatureFlag.setForTest('PointCancel_PreserveTrace', true);
     GdFeatureFlag.setForTest('CancelPointRedemption_UseFixedLogic', false);
@@ -56,21 +70,16 @@ private class GdPointServiceImplV3Test {
 
   @IsTest
   static void v3_invariant_flagOnPath_tjUsage() {
-    // v3 Flag ON 상태 확인 후 cancelPointRedemption dispatch 경로 의도 검증
     GdFeatureFlag.clearCacheForTest();
     GdFeatureFlag.setForTest('PointCancel_PreserveTrace', true);
     GdFeatureFlag.setForTest('CancelPointRedemption_UseFixedLogic', true);
 
-    // dispatch 로직상 v3 Flag 가 우선 → v3 경로 기대
-    // (실제 호출은 integration 에서 검증)
-    System.assertEquals(true, GdFeatureFlag.isEnabled('PointCancel_PreserveTrace'),
-      'v3 Flag ON');
+    System.assertEquals(true, GdFeatureFlag.isEnabled('PointCancel_PreserveTrace'), 'v3 Flag ON');
     GdFeatureFlag.clearCacheForTest();
   }
 
   @IsTest
   static void v3_invariant_nullTj_throwsInServiceCall() {
-    // v3 경로가 null TJ 입력 시 CustomException 던지는지 확인
     GdFeatureFlag.clearCacheForTest();
     GdFeatureFlag.setForTest('PointCancel_PreserveTrace', true);
 
@@ -87,12 +96,10 @@ private class GdPointServiceImplV3Test {
 
   @IsTest
   static void v3_flagInteraction_v3OverridesV2() {
-    // v3 ON + v2 ON 동시: v3 가 dispatch 우선순위
     GdFeatureFlag.clearCacheForTest();
     GdFeatureFlag.setForTest('PointCancel_PreserveTrace', true);
     GdFeatureFlag.setForTest('CancelPointRedemption_UseFixedLogic', true);
 
-    // 두 Flag 가 동시에 true 여도 v3 가 읽혀야 함
     Boolean v3On = GdFeatureFlag.isEnabled('PointCancel_PreserveTrace');
     Boolean v2On = GdFeatureFlag.isEnabled('CancelPointRedemption_UseFixedLogic');
     System.assertEquals(true, v3On && v2On, '두 Flag 동시 ON 가능');
@@ -101,7 +108,6 @@ private class GdPointServiceImplV3Test {
 
   @IsTest
   static void v3_flagOff_legacyBehaviorPreserved() {
-    // v3 Flag OFF 인 경우 기존 Bug 2 Flag 에 따라 v1/v2 경로 사용
     GdFeatureFlag.clearCacheForTest();
     GdFeatureFlag.setForTest('PointCancel_PreserveTrace', false);
     GdFeatureFlag.setForTest('CancelPointRedemption_UseFixedLogic', true);

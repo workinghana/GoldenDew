@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>IsFunctionCallback__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>작업이 함수 콜백인지 여부를 나타내는 플래그</description>
+    <label>IsFunctionCallback</label>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

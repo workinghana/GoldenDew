@@ -1,3 +1,5 @@
+//회원정보도움창 페이지
+//작성자 : 이하나
 public with sharing class TestMemberInfoHelpViewControllerV1 {
   public class MemberHelpView {
     @AuraEnabled

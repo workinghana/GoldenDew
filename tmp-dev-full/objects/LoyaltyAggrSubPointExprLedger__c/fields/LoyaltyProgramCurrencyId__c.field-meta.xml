@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>LoyaltyProgramCurrencyId__c</fullName>
+    <deleteConstraint>SetNull</deleteConstraint>
+    <label>포인트 정의</label>
+    <referenceTo>LoyaltyProgramCurrency</referenceTo>
+    <relationshipLabel>포인트(하위 유형) 만료 집계 원장</relationshipLabel>
+    <relationshipName>LoyaltyAggrSubPointExprLedger</relationshipName>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Lookup</type>
+</CustomField>

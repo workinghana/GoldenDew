@@ -48,7 +48,9 @@ private class PromotionResDTOTest {
         IsPointUsageAllowed__c,
         IsAllStore__c,
         IsAllItem__c,
-        IsDiscountRateApplicable__c
+        IsDiscountRateApplicable__c,
+        IsStoreSpecific__c,
+        HasTargetProductCondition__c
       FROM Promotion
       WHERE Id = :p.Id
       LIMIT 1

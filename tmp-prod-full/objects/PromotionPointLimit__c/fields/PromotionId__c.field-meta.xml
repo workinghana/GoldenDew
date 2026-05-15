@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>PromotionId__c</fullName>
+    <label>프로모션</label>
+    <referenceTo>Promotion</referenceTo>
+    <relationshipLabel>적용 가능 포인트</relationshipLabel>
+    <relationshipName>PromotionLimits</relationshipName>
+    <relationshipOrder>1</relationshipOrder>
+    <reparentableMasterDetail>false</reparentableMasterDetail>
+    <trackTrending>false</trackTrending>
+    <type>MasterDetail</type>
+    <writeRequiresMasterRead>false</writeRequiresMasterRead>
+</CustomField>

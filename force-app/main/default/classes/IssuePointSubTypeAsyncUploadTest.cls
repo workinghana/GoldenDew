@@ -1,5 +1,20 @@
 @IsTest
 private class IssuePointSubTypeAsyncUploadTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
+
+  private static void setupCalloutMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
+
   private static String uniq(String prefix) {
     return prefix + '_' + String.valueOf(Datetime.now().getTime()) + '_' + String.valueOf(Math.abs(Crypto.getRandomInteger()));
   }
@@ -84,6 +99,8 @@ private class IssuePointSubTypeAsyncUploadTest {
   }
 
   private static Contact createContact(String memberNo) {
+    setupCalloutMock();
+
     Contact contact = new Contact(LastName = uniq('Contact'), MemberNo__c = memberNo);
     insert contact;
     return contact;
@@ -125,7 +142,7 @@ private class IssuePointSubTypeAsyncUploadTest {
 
   @IsTest
   static void test_asyncValidationStatus_completed() {
-    System.assertEquals(300, IssuePointSubTypeControllerV1.VALIDATION_BATCH_SCOPE_SIZE);
+    System.assertEquals(200, IssuePointSubTypeControllerV1.VALIDATION_BATCH_SCOPE_SIZE);
 
     String memberNo = uniq('MBR');
     Contact contact = createContact(memberNo);

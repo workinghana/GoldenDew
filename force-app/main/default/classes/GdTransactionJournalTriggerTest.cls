@@ -1,16 +1,35 @@
 @IsTest
 private class GdTransactionJournalTriggerTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
+
+  private static void setupCalloutMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
 
   // ========================================================
   // @testSetup
   // ========================================================
   @testSetup
   static void setup() {
+    setupCalloutMock();
+    ApexLogger.disableLogging();
+
     LoyaltyProgram lp = new LoyaltyProgram(Name = 'TJTrig-LP', IsPrimary = true);
     insert lp;
 
     Contact c = new Contact(LastName = 'TJTrig-User');
+    Test.startTest();
     insert c;
+    Test.stopTest();
 
     LoyaltyProgramMember lpm = new LoyaltyProgramMember(
       MembershipNumber = 'TJ-TRIG-001',
@@ -31,15 +50,15 @@ private class GdTransactionJournalTriggerTest {
       insert new List<JournalType>{ jtAccrual, jtRedemption, jtRedemptionRev, jtAccrualRev };
 
       insert new List<JournalSubType>{
-        new JournalSubType(Name = 'Point Debit',               JournalTypeId = jtRedemption.Id),
-        new JournalSubType(Name = 'Point Redeem Cancel',       JournalTypeId = jtRedemptionRev.Id),
-        new JournalSubType(Name = 'Purchase Accrual',          JournalTypeId = jtAccrual.Id),
-        new JournalSubType(Name = 'Cancel Purchase Accrual',   JournalTypeId = jtAccrualRev.Id),
-        new JournalSubType(Name = 'Manual Points Credit',      JournalTypeId = jtAccrual.Id),
-        new JournalSubType(Name = 'Auto Expire',               JournalTypeId = jtAccrualRev.Id),
-        new JournalSubType(Name = 'Api Forced Expire',         JournalTypeId = jtAccrualRev.Id),
-        new JournalSubType(Name = 'Api Forced Debit',          JournalTypeId = jtRedemption.Id),
-        new JournalSubType(Name = 'Api Forced Credit',         JournalTypeId = jtAccrual.Id)
+        new JournalSubType(Name = 'Point Debit', JournalTypeId = jtRedemption.Id),
+        new JournalSubType(Name = 'Point Redeem Cancel', JournalTypeId = jtRedemptionRev.Id),
+        new JournalSubType(Name = 'Purchase Accrual', JournalTypeId = jtAccrual.Id),
+        new JournalSubType(Name = 'Cancel Purchase Accrual', JournalTypeId = jtAccrualRev.Id),
+        new JournalSubType(Name = 'Manual Points Credit', JournalTypeId = jtAccrual.Id),
+        new JournalSubType(Name = 'Auto Expire', JournalTypeId = jtAccrualRev.Id),
+        new JournalSubType(Name = 'Api Forced Expire', JournalTypeId = jtAccrualRev.Id),
+        new JournalSubType(Name = 'Api Forced Debit', JournalTypeId = jtRedemption.Id),
+        new JournalSubType(Name = 'Api Forced Credit', JournalTypeId = jtAccrual.Id)
       };
     } catch (Exception e) {
       System.debug('JournalSubType setup skipped: ' + e.getMessage());
@@ -58,6 +77,8 @@ private class GdTransactionJournalTriggerTest {
   // ========================================================
   @IsTest
   static void trigger_afterUpdate_pendingToProcessed() {
+    setupCalloutMock();
+
     LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'TJ-TRIG-001' LIMIT 1];
 
     TransactionJournal tj = new TransactionJournal();
@@ -67,10 +88,8 @@ private class GdTransactionJournalTriggerTest {
     tj.Status = 'Pending';
     insert tj;
 
-    Test.startTest();
     tj.Status = 'Processed';
     update tj;
-    Test.stopTest();
 
     System.assert(true);
   }
@@ -81,6 +100,8 @@ private class GdTransactionJournalTriggerTest {
   // ========================================================
   @IsTest
   static void trigger_afterUpdate_noPendingToProcessedChange() {
+    setupCalloutMock();
+
     LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'TJ-TRIG-001' LIMIT 1];
 
     TransactionJournal tj = new TransactionJournal();
@@ -90,10 +111,8 @@ private class GdTransactionJournalTriggerTest {
     tj.Status = 'Pending';
     insert tj;
 
-    Test.startTest();
-    tj.TransactionAmount = 500;  // Status 변경 없이 다른 필드만 변경
+    tj.TransactionAmount = 500; // Status 변경 없이 다른 필드만 변경
     update tj;
-    Test.stopTest();
 
     System.assert(true);
   }
@@ -103,6 +122,8 @@ private class GdTransactionJournalTriggerTest {
   // ========================================================
   @IsTest
   static void trigger_afterUpdate_processedToProcessed() {
+    setupCalloutMock();
+
     LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'TJ-TRIG-001' LIMIT 1];
 
     TransactionJournal tj = new TransactionJournal();
@@ -112,10 +133,8 @@ private class GdTransactionJournalTriggerTest {
     tj.Status = 'Processed';
     insert tj;
 
-    Test.startTest();
     tj.TransactionAmount = 1000;
     update tj;
-    Test.stopTest();
 
     System.assert(true);
   }
@@ -125,6 +144,8 @@ private class GdTransactionJournalTriggerTest {
   // ========================================================
   @IsTest
   static void trigger_afterUpdate_bulkPendingToProcessed() {
+    setupCalloutMock();
+
     LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'TJ-TRIG-001' LIMIT 1];
 
     List<TransactionJournal> tjList = new List<TransactionJournal>();
@@ -138,12 +159,10 @@ private class GdTransactionJournalTriggerTest {
     }
     insert tjList;
 
-    Test.startTest();
     for (TransactionJournal tj : tjList) {
       tj.Status = 'Processed';
     }
     update tjList;
-    Test.stopTest();
 
     System.assert(true);
   }
@@ -154,6 +173,8 @@ private class GdTransactionJournalTriggerTest {
   // ========================================================
   @IsTest
   static void trigger_afterUpdate_withMatchingSubType() {
+    setupCalloutMock();
+
     LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'TJ-TRIG-001' LIMIT 1];
 
     // JournalSubType 조회 (없으면 null로 진행)
@@ -173,10 +194,8 @@ private class GdTransactionJournalTriggerTest {
     }
     insert tj;
 
-    Test.startTest();
     tj.Status = 'Processed';
     update tj;
-    Test.stopTest();
 
     System.assert(true);
   }
@@ -186,6 +205,8 @@ private class GdTransactionJournalTriggerTest {
   // ========================================================
   @IsTest
   static void trigger_afterUpdate_mixedStatusChange() {
+    setupCalloutMock();
+
     LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'TJ-TRIG-001' LIMIT 1];
 
     TransactionJournal tj1 = new TransactionJournal();
@@ -201,11 +222,9 @@ private class GdTransactionJournalTriggerTest {
     tj2.Status = 'Processed'; // 처음부터 Processed
     insert new List<TransactionJournal>{ tj1, tj2 };
 
-    Test.startTest();
     tj1.Status = 'Processed'; // Pending→Processed
     tj2.TransactionAmount = 2000; // Status 변경 없음
     update new List<TransactionJournal>{ tj1, tj2 };
-    Test.stopTest();
 
     System.assert(true);
   }

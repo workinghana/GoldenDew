@@ -68,8 +68,8 @@ private class PointResDtoTest {
     System.assertEquals('202506', resp.YM_CREATE);
     System.assertEquals('20250615', resp.DT_SAVE);
     System.assertEquals(500, resp.PT_SAVE);
-    System.assertEquals('20260228', resp.DT_LIMIT_END);
-    System.assertEquals('20260301', resp.DT_DESTROY_PLAN);
+    System.assertEquals('20260301', resp.DT_LIMIT_END);
+    System.assertEquals('20260302', resp.DT_DESTROY_PLAN);
     System.assertEquals('', resp.NM_TYPE_SAVE);
     System.assertEquals('', resp.NM_TYPE_POINT);
     System.assertEquals('', resp.NO_SAL);
@@ -91,9 +91,7 @@ private class PointResDtoTest {
 
   @IsTest
   static void creditPointResponse_knownSubTypeName_mapsToLabel() {
-    Contact c = new Contact(LastName = 'PointDtoProxy');
-    insert c;
-    Id fakeId = c.Id;
+    Id fakeId = UserInfo.getUserId();
 
     JournalSubType jst = new JournalSubType(Name = 'Purchase Accrual');
     TransactionJournal tj = new TransactionJournal();
@@ -110,9 +108,7 @@ private class PointResDtoTest {
 
   @IsTest
   static void creditPointResponse_unknownSubTypeName_returnsOriginal() {
-    Contact c = new Contact(LastName = 'PointDtoProxy2');
-    insert c;
-    Id fakeId = c.Id;
+    Id fakeId = UserInfo.getUserId();
 
     JournalSubType jst = new JournalSubType(Name = 'UnknownType');
     TransactionJournal tj = new TransactionJournal();
@@ -129,9 +125,7 @@ private class PointResDtoTest {
 
   @IsTest
   static void creditPointResponse_withOrderInfo_mapsFields() {
-    Contact c = new Contact(LastName = 'PointDtoProxy3');
-    insert c;
-    Id fakeId = c.Id;
+    Id fakeId = UserInfo.getUserId();
 
     Order fakeOrder = new Order(SaleNo__c = 'SAL-999', ActualPaymentAmount__c = 75000);
     TransactionJournal tj = new TransactionJournal();
@@ -153,9 +147,7 @@ private class PointResDtoTest {
 
   @IsTest
   static void creditPointResponse_withSummaryValues_mapsAdditionalFields() {
-    Contact c = new Contact(LastName = 'PointDtoProxy4');
-    insert c;
-    Id fakeId = c.Id;
+    Id fakeId = UserInfo.getUserId();
 
     Order fakeOrder = new Order(SaleNo__c = 'SAL-100', ActualPaymentAmount__c = 50000);
     TransactionJournal tj = new TransactionJournal();

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>IsScheduled__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>스케쥴링 된 작업인지 여부를 나타내는 플래그</description>
+    <label>IsScheduled</label>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

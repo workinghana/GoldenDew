@@ -8,9 +8,21 @@
  */
 @IsTest
 private class GdSalePatchBranchHandlerTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
 
   @TestSetup
   static void setupData() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+
     Id stdPbId = Test.getStandardPricebookId();
     Account company = new Account(Name = 'Co_SP', CompanyCode__c = 'CMP-SP');
     Account store = new Account(Name = 'Store_SP', StoreCode__c = 'STR-SP');
@@ -23,28 +35,33 @@ private class GdSalePatchBranchHandlerTest {
     insert lp;
 
     LoyaltyProgramMember lpm = new LoyaltyProgramMember(
-      ProgramId = lp.Id, ContactId = c.Id, MemberStatus = 'Active',
-      MembershipNumber = 'M-SP-TEST', EnrollmentDate = Date.today()
+      ProgramId = lp.Id,
+      ContactId = c.Id,
+      MemberStatus = 'Active',
+      MembershipNumber = 'M-SP-TEST',
+      EnrollmentDate = Date.today()
     );
     insert lpm;
 
     // 등급 — 기존 sandbox 의 GIP tier 사용 (LoyaltyProgramId 는 read-only)
-    List<LoyaltyTier> tiers = [
-      SELECT Id FROM LoyaltyTier WHERE LoyaltyProgramId = '0lpJO0000000001YAA' AND Name = 'GIP' LIMIT 1
-    ];
+    List<LoyaltyTier> tiers = [SELECT Id FROM LoyaltyTier WHERE LoyaltyProgramId = '0lpJO0000000001YAA' AND Name = 'GIP' LIMIT 1];
     if (!tiers.isEmpty()) {
-      LoyaltyMemberTier lmt = new LoyaltyMemberTier(
-        Name = 'GIP_SP', LoyaltyMemberId = lpm.Id, LoyaltyTierId = tiers[0].Id
-      );
+      LoyaltyMemberTier lmt = new LoyaltyMemberTier(Name = 'GIP_SP', LoyaltyMemberId = lpm.Id, LoyaltyTierId = tiers[0].Id);
       insert lmt;
     }
 
     Order origOrder = new Order(
-      AccountId = company.Id, EffectiveDate = Date.newInstance(2026, 3, 1),
-      Status = 'saleSuccess', Pricebook2Id = stdPbId,
-      MemberNo__c = c.Id, StoreCode__c = store.Id,
-      SaleNo__c = 'SAL-SP-OLD', ActualPaymentAmount__c = 100000,
-      Type = 'Standard', SaleStatus__c = '01', InsertId__c = 'tester'
+      AccountId = company.Id,
+      EffectiveDate = Date.newInstance(2026, 3, 1),
+      Status = 'saleSuccess',
+      Pricebook2Id = stdPbId,
+      MemberNo__c = c.Id,
+      StoreCode__c = store.Id,
+      SaleNo__c = 'SAL-SP-OLD',
+      ActualPaymentAmount__c = 100000,
+      Type = 'Standard',
+      SaleStatus__c = '01',
+      InsertId__c = 'tester'
     );
     insert origOrder;
   }
@@ -55,17 +72,12 @@ private class GdSalePatchBranchHandlerTest {
     ApiResult standardResult = ApiResult.ok(200, '판매 수정 완료', standardData);
 
     Test.startTest();
-    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-OLD-PATCH', null
-    );
+    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-OLD-PATCH', null);
     Test.stopTest();
 
     System.assertEquals(true, result.success);
     System.assertEquals(200, result.code);
-    System.assert(
-      result.message.contains(GdSalePatchBranchHandler.WRAP_MESSAGE_SUFFIX),
-      'message 에 옵션 C 분기 표기 추가됨'
-    );
+    System.assert(result.message.contains(GdSalePatchBranchHandler.WRAP_MESSAGE_SUFFIX), 'message 에 옵션 C 분기 표기 추가됨');
     System.assertEquals(true, result.data.get('option_c_branch'));
     System.assertEquals('skipped_due_to_migration', result.data.get('point_processing'));
     System.assertEquals(GdSalePatchBranchHandler.WRAP_REASON, result.data.get('reason'));
@@ -86,9 +98,7 @@ private class GdSalePatchBranchHandlerTest {
     ApiResult standardResult = new ApiResult(true, 200, '판매 수정 완료', null);
 
     Test.startTest();
-    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-X', null
-    );
+    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-X', null);
     Test.stopTest();
 
     System.assertNotEquals(null, result.data);
@@ -101,9 +111,7 @@ private class GdSalePatchBranchHandlerTest {
     ApiResult standardResult = ApiResult.ok(200, 'msg', standardData);
 
     Test.startTest();
-    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-X', null
-    );
+    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-X', null);
     Test.stopTest();
 
     System.assertEquals(true, result.data.get('option_c_branch'));
@@ -118,9 +126,7 @@ private class GdSalePatchBranchHandlerTest {
     logger.logging('GdSalePatchBranchHandlerTest');
 
     Test.startTest();
-    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-X', logger
-    );
+    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-X', logger);
     Test.stopTest();
 
     System.assertEquals(true, result.data.get('option_c_branch'));
@@ -133,9 +139,7 @@ private class GdSalePatchBranchHandlerTest {
     ApiResult standardResult = ApiResult.ok(200, origMessage, standardData);
 
     Test.startTest();
-    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-X', null
-    );
+    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-X', null);
     Test.stopTest();
 
     System.assert(result.message.startsWith(origMessage));
@@ -153,9 +157,7 @@ private class GdSalePatchBranchHandlerTest {
     ApiResult standardResult = ApiResult.ok(200, '판매 수정 완료', standardData);
 
     Test.startTest();
-    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-SP-OLD', null
-    );
+    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-SP-OLD', null);
     Test.stopTest();
 
     System.assertEquals(true, result.data.get('option_c_branch'));
@@ -170,9 +172,7 @@ private class GdSalePatchBranchHandlerTest {
 
     // oldAmount=80,000 → 현재 100,000 (변경 후) → delta=+20,000 → force-credit
     Test.startTest();
-    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-SP-OLD', 80000, null
-    );
+    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-SP-OLD', 80000, null);
     Test.stopTest();
 
     System.assertEquals(true, result.data.get('option_c_branch'));
@@ -187,9 +187,7 @@ private class GdSalePatchBranchHandlerTest {
 
     // oldAmount=150,000 → 현재 100,000 → delta=-50,000 → force-debit
     Test.startTest();
-    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-SP-OLD', 150000, null
-    );
+    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-SP-OLD', 150000, null);
     Test.stopTest();
 
     System.assertEquals(true, result.data.get('option_c_branch'));
@@ -204,9 +202,7 @@ private class GdSalePatchBranchHandlerTest {
 
     // oldAmount=100,000 → 현재 100,000 → delta=0 → 조정 없음
     Test.startTest();
-    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-SP-OLD', 100000, null
-    );
+    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-SP-OLD', 100000, null);
     Test.stopTest();
 
     System.assertEquals(0, result.data.get('option_c_amount_delta'));
@@ -219,9 +215,7 @@ private class GdSalePatchBranchHandlerTest {
     ApiResult standardResult = ApiResult.ok(200, '판매 수정 완료', standardData);
 
     Test.startTest();
-    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-SP-NOTFOUND', 100000, null
-    );
+    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-SP-NOTFOUND', 100000, null);
     Test.stopTest();
 
     System.assertEquals(true, result.data.get('option_c_branch'));
@@ -251,9 +245,7 @@ private class GdSalePatchBranchHandlerTest {
     ApiResult standardResult = ApiResult.ok(200, '판매 수정 완료', standardData);
 
     Test.startTest();
-    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(
-      standardResult, '', 100000, null
-    );
+    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(standardResult, '', 100000, null);
     Test.stopTest();
 
     System.assertEquals(0, result.data.get('option_c_points_requested'));
@@ -268,9 +260,7 @@ private class GdSalePatchBranchHandlerTest {
     logger.logging('GdSalePatchBranchHandlerTest');
 
     Test.startTest();
-    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(
-      standardResult, 'SAL-SP-OLD', 80000, logger
-    );
+    ApiResult result = GdSalePatchBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-SP-OLD', 80000, logger);
     Test.stopTest();
 
     System.assertEquals(true, result.data.get('option_c_branch'));

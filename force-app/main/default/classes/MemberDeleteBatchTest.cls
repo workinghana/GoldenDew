@@ -1,9 +1,23 @@
 @IsTest
 private class MemberDeleteBatchTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
 
   // =========================================================
   // Helpers
   // =========================================================
+  private static void setupCalloutMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
+
   private static String uniq(String prefix) {
     return prefix + '_' + String.valueOf(Crypto.getRandomInteger()).substring(0, 6);
   }
@@ -15,6 +29,8 @@ private class MemberDeleteBatchTest {
    * Order 경로 테스트는 별도 메서드에서 c.Id를 직접 사용.
    */
   private static Contact makeWithdrawnContact() {
+    setupCalloutMock();
+
     Contact c = new Contact();
     c.LastName = uniq('Member');
     c.put('IsWithdrawn__c', true);
@@ -24,6 +40,8 @@ private class MemberDeleteBatchTest {
   }
 
   private static LoyaltyProgram createProgram() {
+    setupCalloutMock();
+
     LoyaltyProgram lp = new LoyaltyProgram(Name = uniq('Prog'), IsPrimary = true);
     insert lp;
     return lp;
@@ -41,8 +59,17 @@ private class MemberDeleteBatchTest {
   }
 
   private static VoucherDefinition createVoucherDefinition(Id programId) {
+    setupCalloutMock();
+    TriggerHandler.bypass('VoucherDefinitionTriggerHandler');
+
     Product2 prod = new Product2(Name = uniq('Prod'), IsActive = true);
     insert prod;
+
+    VoucherCategory__c category = new VoucherCategory__c(Name = uniq('Category'), Code__c = uniq('CAT'));
+    insert category;
+
+    Account companyAccount = new Account(Name = uniq('Company'), CompanyCode__c = '1000');
+    insert companyAccount;
 
     VoucherDefinition vd = new VoucherDefinition(
       Name = uniq('VD'),
@@ -50,10 +77,13 @@ private class MemberDeleteBatchTest {
       IsActive = true,
       Description = 'MemberDeleteBatch test',
       ProductId = prod.Id,
-      Type = 'ProductOrService',
+      Type = 'FixedValue',
+      FaceValue = 1000,
       ExpirationType = 'FixedDate',
       EffectiveDate = Date.today(),
       ExpirationDate = Date.today().addDays(30),
+      VoucherCategoryId__c = category.Id,
+      AccountId__c = companyAccount.Id,
       CouponManNo__c = uniq('CPN'),
       CouponTypeCode__c = '01',
       ResponsibleDepartment__c = 'Marketing',
@@ -61,6 +91,7 @@ private class MemberDeleteBatchTest {
       ResponsiblePerson__c = 'Manager'
     );
     insert vd;
+    TriggerHandler.clearBypass('VoucherDefinitionTriggerHandler');
     return vd;
   }
 
@@ -69,6 +100,8 @@ private class MemberDeleteBatchTest {
   // =========================================================
   @IsTest
   static void test_batch_deletes_contact_only() {
+    setupCalloutMock();
+
     Contact c = makeWithdrawnContact();
     Id contactId = c.Id;
 
@@ -85,6 +118,8 @@ private class MemberDeleteBatchTest {
   // =========================================================
   @IsTest
   static void test_batch_deletes_lpm_and_voucher() {
+    setupCalloutMock();
+
     LoyaltyProgram lp = createProgram();
     Contact c = makeWithdrawnContact();
 
@@ -124,6 +159,8 @@ private class MemberDeleteBatchTest {
   // =========================================================
   @IsTest
   static void test_batch_deletes_transaction_journal() {
+    setupCalloutMock();
+
     LoyaltyProgram lp = createProgram();
     Contact c = makeWithdrawnContact();
 
@@ -166,6 +203,8 @@ private class MemberDeleteBatchTest {
   // =========================================================
   @IsTest
   static void test_batch_deletes_matching_order() {
+    setupCalloutMock();
+
     Contact c = makeWithdrawnContact();
 
     // Order.MemberNo__c가 Id 타입이므로 Contact.MemberNo__c에도 유효한 Id 사용
@@ -177,12 +216,7 @@ private class MemberDeleteBatchTest {
 
     Id ordId;
     try {
-      Order ord = new Order(
-        AccountId = acc.Id,
-        Status = 'Draft',
-        EffectiveDate = Date.today(),
-        Pricebook2Id = Test.getStandardPricebookId()
-      );
+      Order ord = new Order(AccountId = acc.Id, Status = 'Draft', EffectiveDate = Date.today(), Pricebook2Id = Test.getStandardPricebookId());
       ord.put('MemberNo__c', c.Id); // 유효한 Salesforce Id
       insert ord;
       ordId = ord.Id;
@@ -210,6 +244,8 @@ private class MemberDeleteBatchTest {
   // =========================================================
   @IsTest
   static void test_batch_skips_recent_withdrawal() {
+    setupCalloutMock();
+
     Contact c = new Contact(LastName = uniq('Recent'));
     c.put('IsWithdrawn__c', true);
     c.put('MemberDropDate__c', Date.today().addDays(-10)); // 10일 전 → 대상 아님
@@ -229,6 +265,8 @@ private class MemberDeleteBatchTest {
   // =========================================================
   @IsTest
   static void test_batch_skips_contact_without_dropDate() {
+    setupCalloutMock();
+
     Contact c = new Contact(LastName = uniq('NoDrop'));
     c.put('IsWithdrawn__c', true);
     // MemberDropDate__c 미설정
@@ -248,6 +286,8 @@ private class MemberDeleteBatchTest {
   // =========================================================
   @IsTest
   static void test_batch_contact_without_memberNo() {
+    setupCalloutMock();
+
     Contact c = makeWithdrawnContact(); // MemberNo__c = null
     Id contactId = c.Id;
 
@@ -264,6 +304,8 @@ private class MemberDeleteBatchTest {
   // =========================================================
   @IsTest
   static void test_batch_no_qualifying_contact() {
+    setupCalloutMock();
+
     Contact c = new Contact(LastName = 'Active');
     c.put('IsWithdrawn__c', false);
     insert c;
@@ -280,6 +322,8 @@ private class MemberDeleteBatchTest {
   // =========================================================
   @IsTest
   static void test_finish_runs_without_exception() {
+    setupCalloutMock();
+
     Test.startTest();
     Database.executeBatch(new MemberDeleteBatch(), 5);
     Test.stopTest();

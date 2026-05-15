@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>LoyaltyProgramMemberId__c</fullName>
+    <label>회원 정보</label>
+    <referenceTo>LoyaltyProgramMember</referenceTo>
+    <relationshipLabel>포인트(하위 유형) 만료 집계 원장</relationshipLabel>
+    <relationshipName>LoyaltyAggrSubPointExprLedger</relationshipName>
+    <relationshipOrder>0</relationshipOrder>
+    <reparentableMasterDetail>true</reparentableMasterDetail>
+    <trackTrending>false</trackTrending>
+    <type>MasterDetail</type>
+    <writeRequiresMasterRead>false</writeRequiresMasterRead>
+</CustomField>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>AdjustType__c</fullName>
+    <description>처리 종류. 예: ACCRUAL_REVERSAL (적립 취소), USE_REVERSAL (사용 환원), SALE_MODIFY (판매 수정), REVERSAL_RESTORE (반품 삭제)</description>
+    <externalId>false</externalId>
+    <label>Adjust Type</label>
+    <length>50</length>
+    <required>true</required>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

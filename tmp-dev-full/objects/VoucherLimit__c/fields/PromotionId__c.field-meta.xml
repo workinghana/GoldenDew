@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>PromotionId__c</fullName>
+    <deleteConstraint>SetNull</deleteConstraint>
+    <label>프로모션 ID</label>
+    <referenceTo>Promotion</referenceTo>
+    <relationshipLabel>적용 가능 쿠폰</relationshipLabel>
+    <relationshipName>VoucherLimitId</relationshipName>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Lookup</type>
+</CustomField>

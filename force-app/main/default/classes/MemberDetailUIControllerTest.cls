@@ -1,7 +1,24 @@
 @IsTest
 private class MemberDetailUIControllerTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
+
+  private static void setupCalloutMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
+
   /* ============================= */
   private static Contact createContact() {
+    setupCalloutMock();
+
     Contact c = new Contact(
       LastName = 'TEST',
       Phone = '010',

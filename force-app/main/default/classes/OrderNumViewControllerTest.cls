@@ -952,6 +952,81 @@ private class OrderNumViewControllerTest {
   }
 
   @IsTest
+  static void test_getOrderNumView_orderPageIncludesSalesLinkedByOrderItem() {
+    setMock();
+
+    Account storeAccount = [SELECT Id FROM Account LIMIT 1];
+    Contact contact = [SELECT Id FROM Contact LIMIT 1];
+    LoyaltyProgramMember loyaltyProgramMember = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id standardPricebookId = Test.getStandardPricebookId();
+
+    Order originalOrder = new Order(
+      Name = 'ORDER-WITH-ITEM-LINKED-SALES',
+      AccountId = storeAccount.Id,
+      Pricebook2Id = standardPricebookId,
+      Status = pick(Order.Status, 'Draft'),
+      EffectiveDate = Date.today(),
+      EndDate = Date.today(),
+      OrderNo__c = uniq('ORD-ITEM-LINK'),
+      MemberNo__c = contact.Id,
+      IsReductionOrder__c = false
+    );
+    applyOrderDefaults(originalOrder, storeAccount.Id, 1000, uniq('ITEMLINK'));
+    insert originalOrder;
+
+    Order tjLinkedSaleOrder = createSaleOrder(storeAccount.Id, standardPricebookId, contact.Id, 500, uniq('ORD-TJ-SALE'), uniq('SALE-TJ-LINK'));
+    Order itemLinkedSaleOrder = createSaleOrder(storeAccount.Id, standardPricebookId, contact.Id, 700, uniq('ORD-ITEM-SALE'), uniq('SALE-ITEM-LINK'));
+
+    createTJByTypeAndSubtypeName(
+      tjLinkedSaleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Sale Deposit',
+      '01',
+      500,
+      'Processed',
+      null,
+      tjLinkedSaleOrder.Id,
+      originalOrder.Id
+    );
+
+    PricebookEntry pricebookEntry = [
+      SELECT Id, UnitPrice
+      FROM PricebookEntry
+      WHERE Pricebook2Id = :standardPricebookId AND IsActive = TRUE
+      LIMIT 1
+    ];
+    OrderItem itemLinkedSaleItem = new OrderItem(
+      OrderId = itemLinkedSaleOrder.Id,
+      PricebookEntryId = pricebookEntry.Id,
+      Quantity = 1,
+      UnitPrice = pricebookEntry.UnitPrice == null ? 1000 : pricebookEntry.UnitPrice,
+      OrderId__c = originalOrder.Id
+    );
+    insert itemLinkedSaleItem;
+
+    Test.startTest();
+    OrderNumViewController.OrderDetailDto dto = OrderNumViewController.getOrderNumView(originalOrder.Id);
+    Test.stopTest();
+
+    Set<String> saleNos = new Set<String>();
+    for (OrderNumViewController.SaleRecordDto saleRecord : dto.saleRecords) {
+      saleNos.add(saleRecord.saleNo);
+    }
+
+    Integer linkedItemCount = [
+      SELECT COUNT()
+      FROM OrderItem
+      WHERE OrderId = :itemLinkedSaleOrder.Id AND OrderId__c = :originalOrder.Id
+    ];
+    Integer relatedSaleCount = OrderNumViewController.testVisibleGetRelatedSaleOrderCount(originalOrder);
+    System.assertEquals(2, saleNos.size(), 'linkedItemCount=' + linkedItemCount + ', relatedSaleCount=' + relatedSaleCount + ', saleNos=' + saleNos);
+    System.assert(saleNos.contains(tjLinkedSaleOrder.SaleNo__c));
+    System.assert(saleNos.contains(itemLinkedSaleOrder.SaleNo__c));
+  }
+
+  @IsTest
   static void test_getOrderNumView_orderPageShowsSaleSummaryWhenSaleLinksBackToOrder() {
     setMock();
 
@@ -1401,15 +1476,111 @@ private class OrderNumViewControllerTest {
     applyOrderDefaults(returnOrder, storeAccount.Id, 0, uniq('PAY-RETURN'));
     insert returnOrder;
 
-    createTJByTypeAndSubtypeName(saleOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Deposit', 'Sale Deposit', '01', 1000, 'Processed', null, null, null);
-    createTJByTypeAndSubtypeName(saleOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Deposit', 'Sale Deposit', '03', 2000, 'Processed', null, null, null);
-    createTJByTypeAndSubtypeName(saleOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Redemption', 'Coupon Redeem', '90', 300, 'Processed', null, null, null);
-    createTJByTypeAndSubtypeName(saleOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Redemption', 'Point Debit', '81', 400, 'Approved', null, null, null);
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Sale Deposit',
+      '01',
+      1000,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Sale Deposit',
+      '03',
+      2000,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Redemption',
+      'Coupon Redeem',
+      '90',
+      300,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Redemption',
+      'Point Debit',
+      '81',
+      400,
+      'Approved',
+      null,
+      null,
+      null
+    );
 
-    createTJByTypeAndSubtypeName(returnOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Deposit Reversal', 'Sale Deposit Reversal', '01', 700, 'Processed', null, null, null);
-    createTJByTypeAndSubtypeName(returnOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Deposit Reversal', 'Sale Deposit Reversal', '03', 800, 'Processed', null, null, null);
-    createTJByTypeAndSubtypeName(returnOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Redemption Reversal', 'Coupon Redeem Cancel', '90', 300, 'Processed', null, null, null);
-    createTJByTypeAndSubtypeName(returnOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Redemption Reversal', 'Point Redeem Cancel', '81', 50, 'Processed', null, null, null);
+    createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit Reversal',
+      'Sale Deposit Reversal',
+      '01',
+      700,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit Reversal',
+      'Sale Deposit Reversal',
+      '03',
+      800,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Redemption Reversal',
+      'Coupon Redeem Cancel',
+      '90',
+      300,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Redemption Reversal',
+      'Point Redeem Cancel',
+      '81',
+      50,
+      'Processed',
+      null,
+      null,
+      null
+    );
 
     Test.startTest();
     Decimal originalCash = OrderNumViewController.testVisibleGetOriginalSalePaymentSummaryAmount(saleOrder, 'cash');
@@ -1426,11 +1597,31 @@ private class OrderNumViewControllerTest {
     Decimal returnCard = OrderNumViewController.testVisibleGetReturnEventPaymentSummaryAmount(saleOrder, returnOrder, 'card');
     Decimal returnCoupon = OrderNumViewController.testVisibleGetReturnEventPaymentSummaryAmount(saleOrder, returnOrder, 'coupon');
     Decimal returnPoint = OrderNumViewController.testVisibleGetReturnEventPaymentSummaryAmount(saleOrder, returnOrder, 'point');
-    Decimal returnTotal = OrderNumViewController.testVisibleGetReturnPaymentSummaryByOrderIdsAmount(saleOrder, new Set<Id>{ returnOrder.Id }, 'total');
-    Decimal returnCashByIds = OrderNumViewController.testVisibleGetReturnPaymentSummaryByOrderIdsAmount(saleOrder, new Set<Id>{ returnOrder.Id }, 'cash');
-    Decimal returnCardByIds = OrderNumViewController.testVisibleGetReturnPaymentSummaryByOrderIdsAmount(saleOrder, new Set<Id>{ returnOrder.Id }, 'card');
-    Decimal returnCouponByIds = OrderNumViewController.testVisibleGetReturnPaymentSummaryByOrderIdsAmount(saleOrder, new Set<Id>{ returnOrder.Id }, 'coupon');
-    Decimal returnPointByIds = OrderNumViewController.testVisibleGetReturnPaymentSummaryByOrderIdsAmount(saleOrder, new Set<Id>{ returnOrder.Id }, 'point');
+    Decimal returnTotal = OrderNumViewController.testVisibleGetReturnPaymentSummaryByOrderIdsAmount(
+      saleOrder,
+      new Set<Id>{ returnOrder.Id },
+      'total'
+    );
+    Decimal returnCashByIds = OrderNumViewController.testVisibleGetReturnPaymentSummaryByOrderIdsAmount(
+      saleOrder,
+      new Set<Id>{ returnOrder.Id },
+      'cash'
+    );
+    Decimal returnCardByIds = OrderNumViewController.testVisibleGetReturnPaymentSummaryByOrderIdsAmount(
+      saleOrder,
+      new Set<Id>{ returnOrder.Id },
+      'card'
+    );
+    Decimal returnCouponByIds = OrderNumViewController.testVisibleGetReturnPaymentSummaryByOrderIdsAmount(
+      saleOrder,
+      new Set<Id>{ returnOrder.Id },
+      'coupon'
+    );
+    Decimal returnPointByIds = OrderNumViewController.testVisibleGetReturnPaymentSummaryByOrderIdsAmount(
+      saleOrder,
+      new Set<Id>{ returnOrder.Id },
+      'point'
+    );
     Test.stopTest();
 
     System.assertNotEquals(null, originalCash);
@@ -1486,12 +1677,84 @@ private class OrderNumViewControllerTest {
     applyOrderDefaults(returnOrder, storeAccount.Id, 0, uniq('RETEVT'));
     insert returnOrder;
 
-    createTJByTypeAndSubtypeName(saleOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Deposit', 'Sale Deposit', '01', 1000, 'Processed', null, null, null);
-    createTJByTypeAndSubtypeName(saleOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Redemption', 'Coupon Redeem', '90', 200, 'Processed', null, null, null);
-    createTJByTypeAndSubtypeName(saleOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Redemption', 'Point Debit', '81', 150, 'Processed', null, null, null);
-    createTJByTypeAndSubtypeName(returnOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Deposit Reversal', 'Sale Deposit Reversal', '01', 700, 'Processed', null, null, null);
-    createTJByTypeAndSubtypeName(returnOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Redemption Reversal', 'Coupon Redeem Cancel', '90', 100, 'Processed', null, null, null);
-    createTJByTypeAndSubtypeName(returnOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Redemption Reversal', 'Point Redeem Cancel', '81', 50, 'Processed', null, null, null);
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Sale Deposit',
+      '01',
+      1000,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Redemption',
+      'Coupon Redeem',
+      '90',
+      200,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Redemption',
+      'Point Debit',
+      '81',
+      150,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit Reversal',
+      'Sale Deposit Reversal',
+      '01',
+      700,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Redemption Reversal',
+      'Coupon Redeem Cancel',
+      '90',
+      100,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      returnOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Redemption Reversal',
+      'Point Redeem Cancel',
+      '81',
+      50,
+      'Processed',
+      null,
+      null,
+      null
+    );
 
     Test.startTest();
     OrderNumViewController.OrderDetailDto returnPageDto = OrderNumViewController.getOrderNumView(returnOrder.Id);
@@ -1525,7 +1788,19 @@ private class OrderNumViewControllerTest {
     Order saleOrder = createSaleOrder(storeAccount.Id, standardPricebookId, contact.Id, 1500, uniq('ORD-STORE'), uniq('SALE-STORE'));
     saleOrder.put('StoreCode__c', fallbackStoreAccount.Id);
     update saleOrder;
-    createTJByTypeAndSubtypeName(saleOrder.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Deposit', 'Sale Deposit', '01', 800, 'Processed', null, null, null);
+    createTJByTypeAndSubtypeName(
+      saleOrder.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Sale Deposit',
+      '01',
+      800,
+      'Processed',
+      null,
+      null,
+      null
+    );
 
     Test.startTest();
     OrderNumViewController.OrderDetailDto dto = OrderNumViewController.getOrderNumView(saleOrder.Id);
@@ -1550,7 +1825,11 @@ private class OrderNumViewControllerTest {
     for (Schema.PicklistEntry entry : Order.OrderStatus__c.getDescribe().getPicklistValues()) {
       String label = entry.getLabel() == null ? '' : entry.getLabel().toLowerCase();
       String value = entry.getValue() == null ? '' : entry.getValue().toLowerCase();
-      if ((label.contains('가주문') && label.contains('취소')) || (label.contains('provisional') && label.contains('cancel')) || (value.contains('provisional') && value.contains('cancel'))) {
+      if (
+        (label.contains('가주문') && label.contains('취소')) ||
+        (label.contains('provisional') && label.contains('cancel')) ||
+        (value.contains('provisional') && value.contains('cancel'))
+      ) {
         provisionalCancelStatus = entry.getValue();
         break;
       }
@@ -1573,8 +1852,32 @@ private class OrderNumViewControllerTest {
     }
     insert orderRecord;
 
-    createTJByTypeAndSubtypeName(orderRecord.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Deposit', 'Order Deposit', '01', 600, 'Processed', null, null, null);
-    createTJByTypeAndSubtypeName(orderRecord.Id, loyaltyProgramMember.ProgramId, loyaltyProgramMember.Id, 'Deposit Reversal', 'Order Deposit Reversal', '01', 600, 'Processed', null, null, null);
+    createTJByTypeAndSubtypeName(
+      orderRecord.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit',
+      'Order Deposit',
+      '01',
+      600,
+      'Processed',
+      null,
+      null,
+      null
+    );
+    createTJByTypeAndSubtypeName(
+      orderRecord.Id,
+      loyaltyProgramMember.ProgramId,
+      loyaltyProgramMember.Id,
+      'Deposit Reversal',
+      'Order Deposit Reversal',
+      '01',
+      600,
+      'Processed',
+      null,
+      null,
+      null
+    );
 
     Test.startTest();
     OrderNumViewController.OrderDetailDto dto = OrderNumViewController.getOrderNumView(orderRecord.Id);

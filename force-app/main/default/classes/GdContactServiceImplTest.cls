@@ -1,5 +1,11 @@
 @IsTest
 private class GdContactServiceImplTest {
+  private static void mockCallouts() {
+    CommonApiClient.setTokenRefresher(new CommonApiClientTestTokenRefresher());
+    CommonApiClientUniversalMock.reset();
+    Test.setMock(HttpCalloutMock.class, new CommonApiClientUniversalMock());
+  }
+
   private static String firstGenderIdentity() {
     List<Schema.PicklistEntry> entries = Contact.GenderIdentity.getDescribe().getPicklistValues();
     return entries.isEmpty() ? null : entries[0].getValue();
@@ -27,6 +33,8 @@ private class GdContactServiceImplTest {
   // === 1) createContact 성공 경로 시도 ===
   @IsTest
   static void createContact_success_attempt_alwaysPass() {
+    mockCallouts();
+
     Account company = upsertCompany('COMP-CNT-1');
 
     GdContactService svc = new GdContactServiceImpl();
@@ -65,6 +73,8 @@ private class GdContactServiceImplTest {
   // === 2) createContact 회원번호 중복 ===
   @IsTest
   static void createContact_duplicateMember_alwaysPass() {
+    mockCallouts();
+
     insert new Contact(LastName = 'Kim', MemberNo__c = 'MEM-DUP-001');
 
     GdContactService svc = new GdContactServiceImpl();
@@ -90,6 +100,8 @@ private class GdContactServiceImplTest {
   // === 3) createContact 빈 바디 ===
   @IsTest
   static void createContact_emptyBody_alwaysPass() {
+    mockCallouts();
+
     GdContactService svc = new GdContactServiceImpl();
 
     Map<String, Object> emptyBody = new Map<String, Object>();
@@ -113,6 +125,8 @@ private class GdContactServiceImplTest {
   // === 4) updateContact 성공 경로 시도 (등급 변경 없이) ===
   @IsTest
   static void updateContact_success_attempt_alwaysPass() {
+    mockCallouts();
+
     Account company = upsertCompany('COMP-UP-1');
 
     Contact c = new Contact(LastName = 'Choi', MemberNo__c = 'MEM-U-001', Email = 'memu001@ex.co');
@@ -143,6 +157,8 @@ private class GdContactServiceImplTest {
   // === 5) updateContact 등급 변경 분기 (LPM 미존재로 예외 예상) ===
   @IsTest
   static void updateContact_withGrade_branch_alwaysPass() {
+    mockCallouts();
+
     Contact c = new Contact(LastName = 'Han', MemberNo__c = 'MEM-U-002');
 
     insert c;
@@ -169,6 +185,8 @@ private class GdContactServiceImplTest {
   // === 6) updateContact 존재하지 않는 회원 ===
   @IsTest
   static void updateContact_nonexistentMember_alwaysPass() {
+    mockCallouts();
+
     GdContactService svc = new GdContactServiceImpl();
 
     Map<String, Object> body = new Map<String, Object>{ 'MemberNo__c' => 'NO-SUCH-MEMBER', 'Lastname' => 'Who' };
@@ -191,6 +209,8 @@ private class GdContactServiceImplTest {
   // === 7) updateContact - grade != null 분기 진입 ===
   @IsTest
   static void updateContact_gradeNotNull_branch_alwaysPass() {
+    mockCallouts();
+
     LoyaltyProgram prog = new LoyaltyProgram(Name = 'Test Program', Status = 'Active');
     insert prog;
 
@@ -229,6 +249,8 @@ private class GdContactServiceImplTest {
   // === 8) createContact 매장 분기 실행 ===
   @IsTest
   static void createContact_store_branch_alwaysPass() {
+    mockCallouts();
+
     Account company = upsertCompany('COMP-S-1');
     Account store1 = upsertStore('STORE-R-1');
     Account store2 = upsertStore('STORE-M-1');
@@ -259,6 +281,8 @@ private class GdContactServiceImplTest {
   // === 9) createContact 매거진 / 모바일 인증 분기 실행 ===
   @IsTest
   static void createContact_magazine_mobile_branch_alwaysPass() {
+    mockCallouts();
+
     Account company = upsertCompany('COMP-M-1');
 
     GdContactService svc = new GdContactServiceImpl();
@@ -287,6 +311,8 @@ private class GdContactServiceImplTest {
   // === 10) undeleteContact 실행 ===
   @IsTest
   static void undeleteContact_success_alwaysPass() {
+    mockCallouts();
+
     Contact c = new Contact(LastName = 'WithdrawUser', MemberNo__c = 'MEM-DEL-001', IsWithdrawn__c = true, MemberDropDate__c = Date.today());
 
     insert c;

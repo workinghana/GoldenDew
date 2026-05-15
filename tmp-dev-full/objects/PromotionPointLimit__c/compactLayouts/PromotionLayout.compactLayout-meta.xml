@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CompactLayout xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>PromotionLayout</fullName>
+    <fields>Name</fields>
+    <fields>LoyaltyPgmCurrencySubtypeName__c</fields>
+    <fields>Type__c</fields>
+    <fields>Value__c</fields>
+    <fields>LoyaltyPgmCurrencySubtypeId__c</fields>
+    <label>프로모션 레이아웃</label>
+</CompactLayout>

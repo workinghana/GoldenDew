@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomLabels xmlns="http://soap.sforce.com/2006/04/metadata">
+    <labels>
+        <fullName>LoyaltyProgramName</fullName>
+        <language>ko</language>
+        <protected>false</protected>
+        <shortDescription>로열티 프로그램 명</shortDescription>
+        <value>Golden Dew</value>
+    </labels>
+    <labels>
+        <fullName>MceCreditPointEventDefinitionKey</fullName>
+        <categories>MCE</categories>
+        <language>ko</language>
+        <protected>false</protected>
+        <shortDescription>MceCreditPointEventDefinitionKey</shortDescription>
+        <value>APIEvent-70fdac47-dd41-5c1b-91a6-900768d2670d</value>
+    </labels>
+    <labels>
+        <fullName>MceDebitPointEventDefinitionKey</fullName>
+        <categories>MCE</categories>
+        <language>ko</language>
+        <protected>false</protected>
+        <shortDescription>MceDebitPointEventDefinitionKey</shortDescription>
+        <value>APIEvent-2ad7a45b-99fd-0100-89e1-d5aeacb120a9</value>
+    </labels>
+    <labels>
+        <fullName>TierGroupName</fullName>
+        <language>ko</language>
+        <protected>false</protected>
+        <shortDescription>로열티 티어 그룹 명</shortDescription>
+        <value>Golden Dew Tier Group</value>
+    </labels>
+</CustomLabels>

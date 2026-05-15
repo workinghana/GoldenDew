@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>IsEnabled__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>분기 처리 활성화 여부. true 일 때만 옵션 C 마이그된 옛 거래에 대한 분기 처리 핸들러가 호출된다. false (기본값) 인 경우 모든 운영 API 가 표준 로직만 실행 — 즉, 이 설정 배포 만으로는 운영 영향 0%. 운영자 동의 후 true 로 전환.</description>
+    <inlineHelpText>true 일 때만 분기 처리가 활성화됨. 긴급 상황 시 false 로 즉시 표준 로직 복귀 가능.</inlineHelpText>
+    <label>Is Enabled</label>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

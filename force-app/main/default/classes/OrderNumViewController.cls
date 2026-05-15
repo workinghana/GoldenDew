@@ -280,6 +280,18 @@ public with sharing class OrderNumViewController {
       }
     }
 
+    if (orderIds.isEmpty() && !saleContextIds.isEmpty()) {
+      for (OrderItem linkedSaleItem : [
+        SELECT OrderId__c
+        FROM OrderItem
+        WHERE OrderId IN :saleContextIds AND OrderId__c != NULL
+      ]) {
+        if (linkedSaleItem.OrderId__c != null && !saleContextIds.contains(linkedSaleItem.OrderId__c)) {
+          orderIds.add(linkedSaleItem.OrderId__c);
+        }
+      }
+    }
+
     if (orderIds.isEmpty()) {
       if (
         currentOrderRecord != null &&
@@ -547,6 +559,16 @@ public with sharing class OrderNumViewController {
     ]) {
       if (journal.SaleId__c != null && journal.SaleId__c != originalOrderId) {
         saleOrderIds.add(journal.SaleId__c);
+      }
+    }
+
+    for (OrderItem linkedSaleItem : [
+      SELECT OrderId
+      FROM OrderItem
+      WHERE OrderId__c = :originalOrderId AND OrderId != NULL
+    ]) {
+      if (linkedSaleItem.OrderId != null && linkedSaleItem.OrderId != originalOrderId) {
+        saleOrderIds.add(linkedSaleItem.OrderId);
       }
     }
 

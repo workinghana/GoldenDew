@@ -1,5 +1,20 @@
 @IsTest
 private class IssuePointSubTypeControllerV1Test {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setStatus('OK');
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"ok":true}');
+      return res;
+    }
+  }
+
+  private static void setupCalloutMock() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  }
+
   private static String uniq(String prefix) {
     return prefix + '_' + String.valueOf(Datetime.now().getTime());
   }
@@ -93,6 +108,8 @@ private class IssuePointSubTypeControllerV1Test {
   }
 
   private static Contact createContact(String memberNo) {
+    setupCalloutMock();
+
     Contact c = new Contact(LastName = uniq('Contact'), MemberNo__c = memberNo);
     insert c;
     return c;

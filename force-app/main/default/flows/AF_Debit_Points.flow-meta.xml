@@ -33,28 +33,28 @@
         <assignNullValuesIfNoRecordsFound>false</assignNullValuesIfNoRecordsFound>
         <filterLogic>and</filterLogic>
         <filters>
-            <field>LoyaltyProgramMemberId</field>
+            <field>LoyaltyProgramMemberId__NotFound</field>
             <operator>EqualTo</operator>
             <value>
                 <elementReference>varT_LoyaltyMemberId</elementReference>
             </value>
         </filters>
         <filters>
-            <field>PointsStatus</field>
+            <field>PointsStatus__NotFound</field>
             <operator>EqualTo</operator>
             <value>
                 <stringValue>Active</stringValue>
             </value>
         </filters>
         <filters>
-            <field>ExpirationDate</field>
+            <field>ExpirationDate__NotFound</field>
             <operator>GreaterThanOrEqualTo</operator>
             <value>
                 <elementReference>$Flow.CurrentDate</elementReference>
             </value>
         </filters>
         <getFirstRecordOnly>false</getFirstRecordOnly>
-        <object>LoyaltyAggrPointExprLedger</object>
+        <object>LoyaltyAggrPointExprLedger__NotFound</object>
         <storeOutputAutomatically>true</storeOutputAutomatically>
     </recordLookups>
     <start>

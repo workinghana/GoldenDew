@@ -60,6 +60,12 @@
             </value>
         </inputParameters>
         <inputParameters>
+            <name>no_man_coupon_mil</name>
+            <value>
+                <elementReference>get050.Name</elementReference>
+            </value>
+        </inputParameters>
+        <inputParameters>
             <name>no_mbr</name>
             <value>
                 <elementReference>get010.Contact.MemberNo__c</elementReference>
@@ -176,7 +182,7 @@
         <connector>
             <targetReference>screen010</targetReference>
         </connector>
-        <filterLogic>1 AND (2 OR 3)</filterLogic>
+        <filterLogic>1 AND (2 OR 3) AND 4</filterLogic>
         <filters>
             <field>IsActive</field>
             <operator>EqualTo</operator>
@@ -196,6 +202,13 @@
             <operator>GreaterThanOrEqualTo</operator>
             <value>
                 <elementReference>$Flow.CurrentDate</elementReference>
+            </value>
+        </filters>
+        <filters>
+            <field>CouponManNo__c</field>
+            <operator>EqualTo</operator>
+            <value>
+                <booleanValue>true</booleanValue>
             </value>
         </filters>
         <getFirstRecordOnly>false</getFirstRecordOnly>
@@ -412,7 +425,7 @@
             <targetReference>get020</targetReference>
         </connector>
     </start>
-    <status>InvalidDraft</status>
+    <status>Active</status>
     <variables>
         <name>recordId</name>
         <dataType>String</dataType>

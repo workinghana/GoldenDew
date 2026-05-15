@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>IsActive__c</fullName>
+    <defaultValue>true</defaultValue>
+    <description>현재 사용 여부
+사용 = true / 미사용 false</description>
+    <label>사용 여부</label>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

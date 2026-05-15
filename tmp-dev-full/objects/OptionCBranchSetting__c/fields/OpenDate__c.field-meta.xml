@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>OpenDate__c</fullName>
+    <description>운영 오픈 기준 일자. 이 일자 이전 거래는 옵션 C 분기 처리 대상으로 판단된다. 코드 변경 없이 Setup → Custom Settings → Option C Branch Setting 에서 운영자가 직접 변경 가능.</description>
+    <inlineHelpText>옵션 C 마이그된 거래와 신규 거래를 구분하는 기준 일자. 거래일이 이 일자보다 이전이면 옛 거래로 분류됨.</inlineHelpText>
+    <label>Open Date</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Date</type>
+</CustomField>

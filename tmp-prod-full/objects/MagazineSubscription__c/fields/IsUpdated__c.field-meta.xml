@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>IsUpdated__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>회원 상세 정보 최종 업데이트 여부</description>
+    <label>업데이트 여부</label>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

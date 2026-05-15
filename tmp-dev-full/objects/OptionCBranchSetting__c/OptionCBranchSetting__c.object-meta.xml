@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <customSettingsType>Hierarchy</customSettingsType>
+    <description>옵션 C 마이그레이션 분기 처리용 설정. 기준 일자 이전 거래에 대한 운영 API 호출 시 표준 로직 대신 분기 처리 핸들러로 라우팅 여부 + 기준 일자를 제어한다. IsEnabled__c=false 로 즉시 표준 로직 복귀 가능 (kill-switch).
+(설정일이 5/3인 경우, 적용 대상은 5/2까지의 판매일자입니다.)</description>
+    <enableFeeds>false</enableFeeds>
+    <label>Option C Branch Setting</label>
+    <visibility>Public</visibility>
+</CustomObject>

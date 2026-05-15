@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>SourceApi__c</fullName>
+    <description>분기 처리 발생 API. 예: DELETE /gd/v1/return/deposit, POST /gd/v1/return, DELETE /gd/v1/sale, PATCH /gd/v1/sale</description>
+    <externalId>false</externalId>
+    <label>Source API</label>
+    <length>100</length>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

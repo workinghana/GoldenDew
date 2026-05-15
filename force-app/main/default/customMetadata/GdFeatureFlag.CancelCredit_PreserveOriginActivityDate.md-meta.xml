@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomMetadata xmlns="http://soap.sforce.com/2006/04/metadata" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <label>CancelCredit_PreserveOriginActivityDate</label>
+    <protected>false</protected>
+    <values>
+        <field>Description__c</field>
+        <value xsi:type="xsd:string">포인트 사용 취소 시 발행되는 재적립 TJ 의 ActivityDate 를 LMS 표준 API 가 재적립 시점(today)으로 자동 설정하는데, 이로 인해 회원정보 도움창의 사용/소멸 내역의 적립일(DT_SAVE)이 원 적립일이 아닌 재적립일로 표시되는 결함을 보정하기 위한 Flag.  ON 시: 원 적립 TJ의 ActivityDate</value>
+    </values>
+    <values>
+        <field>IsActive__c</field>
+        <value xsi:type="xsd:boolean">true</value>
+    </values>
+</CustomMetadata>

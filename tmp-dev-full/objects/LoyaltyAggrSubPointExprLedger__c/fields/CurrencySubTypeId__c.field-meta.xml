@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>CurrencySubTypeId__c</fullName>
+    <label>포인트 정의 하위 유형</label>
+    <referenceTo>LoyaltyPgmCurrencySubtype</referenceTo>
+    <relationshipLabel>포인트(하위 유형) 만료 집계 원장</relationshipLabel>
+    <relationshipName>LoyaltyAggrSubPointExprLedger</relationshipName>
+    <relationshipOrder>1</relationshipOrder>
+    <reparentableMasterDetail>false</reparentableMasterDetail>
+    <trackTrending>false</trackTrending>
+    <type>MasterDetail</type>
+    <writeRequiresMasterRead>false</writeRequiresMasterRead>
+</CustomField>

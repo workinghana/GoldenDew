@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>CustomerLoss__c</fullName>
+    <description>회사 부담 손실 (= Requested - Actual). 정기 정산 / 회원 보상 검토용</description>
+    <externalId>false</externalId>
+    <label>Customer Loss</label>
+    <precision>18</precision>
+    <required>false</required>
+    <scale>2</scale>
+    <trackTrending>false</trackTrending>
+    <type>Number</type>
+    <unique>false</unique>
+</CustomField>

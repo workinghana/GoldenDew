@@ -1,18 +1,15 @@
 @IsTest
 private class MagazineSubscriptionSyncTriggerTest {
   private static String makePayload(Boolean withMembers) {
-    ErpMemberReqDto.UpdateMagazineSubscriptionRequest req =
-      new ErpMemberReqDto.UpdateMagazineSubscriptionRequest();
+    ErpMemberReqDto.UpdateMagazineSubscriptionRequest req = new ErpMemberReqDto.UpdateMagazineSubscriptionRequest();
     req.ID_UPDATE = 'MCE_MAGAZINE_FETCH';
 
     if (withMembers) {
-      req.memebrModelList.add(
-        new ErpMemberReqDto.UpdateMagazineSubscriptionMemebrModel(
-          'MT-001',
-          'Y',
-          String.valueOf(Date.today())
-        )
-      );
+      ErpMemberReqDto.UpdateMagazineSubscriptionMemebrModel m = new ErpMemberReqDto.UpdateMagazineSubscriptionMemebrModel();
+      m.NO_MBR = 'MT-001';
+      m.YM_RECEIVE_MAGAZINE = 'Y';
+      m.DT_RECEIVE_MAGAZINE = String.valueOf(Date.today());
+      req.memebrModelList.add(m);
     }
 
     return JSON.serialize(req);

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>VoucherDefinitionId__c</fullName>
+    <label>사용 가능 쿠폰</label>
+    <referenceTo>VoucherDefinition</referenceTo>
+    <relationshipLabel>쿠폰 한도</relationshipLabel>
+    <relationshipName>VoucherLimit_Id</relationshipName>
+    <relationshipOrder>0</relationshipOrder>
+    <reparentableMasterDetail>false</reparentableMasterDetail>
+    <trackTrending>false</trackTrending>
+    <type>MasterDetail</type>
+    <writeRequiresMasterRead>false</writeRequiresMasterRead>
+</CustomField>

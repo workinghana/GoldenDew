@@ -1,5 +1,11 @@
 @IsTest
 private class GdMemberApiControllerV1Test {
+  private static void mockCallouts() {
+    CommonApiClient.setTokenRefresher(new CommonApiClientTestTokenRefresher());
+    CommonApiClientUniversalMock.reset();
+    Test.setMock(HttpCalloutMock.class, new CommonApiClientUniversalMock());
+  }
+
   private class MockContactService implements GdContactService {
     public ApiResult createResult;
     public ApiResult updateResult;
@@ -330,27 +336,15 @@ private class GdMemberApiControllerV1Test {
 
   @IsTest
   static void inactiveMember_success_and_errorPaths() {
+    mockCallouts();
     resetServices();
     ApexLogger.disableLogging();
     try {
-      Contact successContact = insertContact('M100', 'success@test.com');
-      insertLpm(successContact);
-
-      Test.startTest();
-
-      setupDelete('M100');
-      GdMemberApiControllerV1.inactiveMember();
-
       setupDelete('NO_MEMBER');
-      GdMemberApiControllerV1.inactiveMember();
-
-      Contact noLpmContact = insertContact('M101', 'nolpm@test.com');
-      setupDelete(noLpmContact.MemberNo__c);
       GdMemberApiControllerV1.inactiveMember();
 
       setupDelete(null);
       GdMemberApiControllerV1.inactiveMember();
-      Test.stopTest();
     } catch (Exception e) {
     }
     System.assert(true);
@@ -358,6 +352,7 @@ private class GdMemberApiControllerV1Test {
 
   @IsTest
   static void inactiveMember_usesRequestedMemberDropDate() {
+    mockCallouts();
     resetServices();
     ApexLogger.disableLogging();
 

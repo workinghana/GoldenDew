@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomMetadata xmlns="http://soap.sforce.com/2006/04/metadata" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+    <label>EcoPointCancel_UseSpecificLedger</label>
+    <protected>false</protected>
+    <values>
+        <field>Description__c</field>
+        <value xsi:type="xsd:string">용도: 통반품 / 판매 전체 삭제 시 에코포인트 회수 방식 분기.  ON (정확): 자기 판매의 에코 적립 LL 만 직접 가리키는 Debit LL/Trace 를 수동 생성하여 정확히 차감. cross-sale 누설 없음.  OFF (결함): 표준 LMS API (FIFO) 사용. 만료 임박한 다른 판매의 에코 LL 까지 끌어다 차감하여 cross-sale 누설 발생.  운영 정책: ON 유지 권장.</value>
+    </values>
+    <values>
+        <field>IsActive__c</field>
+        <value xsi:type="xsd:boolean">true</value>
+    </values>
+</CustomMetadata>

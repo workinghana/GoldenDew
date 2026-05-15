@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>VoucherCategoryId__c</fullName>
+    <deleteConstraint>SetNull</deleteConstraint>
+    <label>쿠폰 상위 범주</label>
+    <referenceTo>VoucherCategory__c</referenceTo>
+    <relationshipLabel>쿠폰 범주</relationshipLabel>
+    <relationshipName>VoucherCategoryId</relationshipName>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Lookup</type>
+</CustomField>

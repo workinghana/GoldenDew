@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>ReturnOrderId__c</fullName>
+    <description>반품 Order Id (RETURN_REGISTER_BRANCH 와 RETURN_DELETE_BRANCH 의 1:1 매칭 키. 기존 데이터는 null 허용 — fallback 매칭으로 호환)</description>
+    <externalId>false</externalId>
+    <label>Return Order Id</label>
+    <length>18</length>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>
