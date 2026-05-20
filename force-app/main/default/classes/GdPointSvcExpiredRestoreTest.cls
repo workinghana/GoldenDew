@@ -29,14 +29,26 @@ private class GdPointSvcExpiredRestoreTest {
   private static final String TEST_MEMBER_NO = 'EXP-RESTORE-001';
   private static final String TEST_ORDER_NO = 'ORD-EXP-RESTORE-001';
 
+  private class McCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"result":"ok"}');
+      return res;
+    }
+  }
+
   // ────────────────────────────────────────────────────────────────────────────
   // Test Setup
   // ────────────────────────────────────────────────────────────────────────────
 
   @TestSetup
   static void setupData() {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
     Id standardPricebookId = Test.getStandardPricebookId();
-    update new Pricebook2(Id = standardPricebookId, IsActive = true);
+    try { update new Pricebook2(Id = standardPricebookId, IsActive = true); } catch (Exception lockEx) { /* parallel @TestSetup lock conflict - safe to ignore (idempotent) */ }
 
     Contact con = new Contact(LastName = 'ExpiredPointTester', Grade__c = '02', MemberNo__c = TEST_MEMBER_NO);
     insert con;

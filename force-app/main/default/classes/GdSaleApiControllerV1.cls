@@ -229,12 +229,9 @@ global with sharing class GdSaleApiControllerV1 {
       // SOQL 1회 추가만, 표준 service 흐름에 영향 없음.
       String saleNoForBranchCapture = (String) reqData.get('SaleNo__c');
       Decimal optCOldAmount = null;
-      if (String.isNotBlank(saleNoForBranchCapture)
-          && GdMigrationUtil.shouldApplyOptionCBranchBySaleNo(saleNoForBranchCapture)) {
+      if (String.isNotBlank(saleNoForBranchCapture) && GdMigrationUtil.shouldApplyOptionCBranchBySaleNo(saleNoForBranchCapture)) {
         try {
-          List<Order> preUpdate = [
-            SELECT ActualPaymentAmount__c FROM Order WHERE SaleNo__c = :saleNoForBranchCapture LIMIT 1
-          ];
+          List<Order> preUpdate = [SELECT ActualPaymentAmount__c FROM Order WHERE SaleNo__c = :saleNoForBranchCapture LIMIT 1];
           if (!preUpdate.isEmpty()) {
             optCOldAmount = preUpdate[0].ActualPaymentAmount__c;
           }
@@ -280,9 +277,7 @@ global with sharing class GdSaleApiControllerV1 {
       // IsEnabled=false 또는 신규 거래 시 false → wrap 안 함 (표준 응답 그대로)
       String saleNoForBranchCheck = (String) reqData.get('SaleNo__c');
       if (GdMigrationUtil.shouldApplyOptionCBranchBySaleNo(saleNoForBranchCheck)) {
-        result = GdSalePatchBranchHandler.wrapResponseForOldSale(
-          result, saleNoForBranchCheck, optCOldAmount, logger
-        );
+        result = GdSalePatchBranchHandler.wrapResponseForOldSale(result, saleNoForBranchCheck, optCOldAmount, logger);
       }
 
       RestResponseUtil.handleSuccess(result, logger);
@@ -350,148 +345,145 @@ global with sharing class GdSaleApiControllerV1 {
           LIMIT 1
         ];
         if (!lpmList.isEmpty()) {
-          List<PointDebitDTO> ecoCancelList = GdReturnDepositServiceImpl.cancelEcoPointsForSaleDelete(
-            orderId, lpmList[0], 'SALE_DELETE'
-          );
+          List<PointDebitDTO> ecoCancelList = GdReturnDepositServiceImpl.cancelEcoPointsForSaleDelete(orderId, lpmList[0], 'SALE_DELETE');
           if (ecoCancelList != null && !ecoCancelList.isEmpty()) {
             resData.put('CancelPointList', ecoCancelList);
           }
         }
         // Flag ON 경로 종료 — 기존 블록 (아래) 으로 진입하지 않음
       } else {
+        Id accrualJtId = SObjectUtil.findIdByName(JournalType.SObjectType, 'Accrual', true);
+        Id apiForcedCreditJstId = SObjectUtil.findIdByName(JournalSubType.SObjectType, 'Api Forced Credit', true);
 
-      Id accrualJtId = SObjectUtil.findIdByName(JournalType.SObjectType, 'Accrual', true);
-      Id apiForcedCreditJstId = SObjectUtil.findIdByName(JournalSubType.SObjectType, 'Api Forced Credit', true);
-
-      // 판매에서 에코포인트 적립된 LoyaltyLedger 조회
-      List<LoyaltyLedger> ecoCreditLedgerList = [
-        SELECT Id, Points, LoyaltyPgmCrcySubtype.Name, TransactionJournal.LoyaltyProgramId, LoyaltyProgramMemberId
-        FROM LoyaltyLedger
-        WHERE
-          TransactionJournal.OrderId = :orderId
-          AND TransactionJournal.JournalTypeId = :accrualJtId
-          AND TransactionJournal.JournalSubTypeId = :apiForcedCreditJstId
-          AND LoyaltyPgmCrcySubtype.PointTypeCode__c = '05'
-          AND EventType = 'Credit'
-        LIMIT 200
-      ];
-      if (!ecoCreditLedgerList.isEmpty()) {
-        Set<Id> creditLedgerIdSet = new Set<Id>();
-        for (LoyaltyLedger ll : ecoCreditLedgerList) {
-          creditLedgerIdSet.add(ll.Id);
-        }
-
-        // 지급된 에코포인트가 사용 추적 조회
-        Map<Id, Integer> usedPointByCreditLedgerId = new Map<Id, Integer>();
-        for (LoyaltyLedgerTraceability llt : [
-          SELECT CreditLoyaltyLedgerId, Points, ActionType
-          FROM LoyaltyLedgerTraceability
-          WHERE CreditLoyaltyLedgerId IN :creditLedgerIdSet
-          LIMIT 2000
-        ]) {
-          // 사용한 금액
-          Integer current = usedPointByCreditLedgerId.containsKey(llt.CreditLoyaltyLedgerId)
-            ? usedPointByCreditLedgerId.get(llt.CreditLoyaltyLedgerId)
-            : 0;
-
-          System.debug('에코포인트 사용한 금액 : ' + current);
-
-          // 사용한 금액 || 적립 취소 금액
-          if (llt.ActionType == 'Debit' || llt.ActionType == 'CreditCancellation') {
-            current += (Integer) llt.Points;
+        // 판매에서 에코포인트 적립된 LoyaltyLedger 조회
+        List<LoyaltyLedger> ecoCreditLedgerList = [
+          SELECT Id, Points, LoyaltyPgmCrcySubtype.Name, TransactionJournal.LoyaltyProgramId, LoyaltyProgramMemberId
+          FROM LoyaltyLedger
+          WHERE
+            TransactionJournal.OrderId = :orderId
+            AND TransactionJournal.JournalTypeId = :accrualJtId
+            AND TransactionJournal.JournalSubTypeId = :apiForcedCreditJstId
+            AND LoyaltyPgmCrcySubtype.PointTypeCode__c = '05'
+            AND EventType = 'Credit'
+          LIMIT 200
+        ];
+        if (!ecoCreditLedgerList.isEmpty()) {
+          Set<Id> creditLedgerIdSet = new Set<Id>();
+          for (LoyaltyLedger ll : ecoCreditLedgerList) {
+            creditLedgerIdSet.add(ll.Id);
           }
-          usedPointByCreditLedgerId.put(llt.CreditLoyaltyLedgerId, current);
-        }
 
-        // 취소할 금액
-        Integer remainingPoint = 0; // 취소할 금액
-        for (LoyaltyLedger ecoLedger : ecoCreditLedgerList) {
-          // 사용한 금액
-          Integer usedPoint = usedPointByCreditLedgerId.containsKey(ecoLedger.Id) ? usedPointByCreditLedgerId.get(ecoLedger.Id) : 0;
-          // 취소할 금액
-          remainingPoint = (Integer) ecoLedger.Points - (Integer) usedPoint;
-          System.debug('에코포인트 취소할 금액 : ' + remainingPoint);
-        }
-
-        if (remainingPoint > 0) {
-          // 저널 유형 체크
-          Id jtId = SObjectUtil.findIdByName(JournalType.SObjectType, 'Redemption', true);
-          // 저날 하위 유형 체크
-          Map<String, Object> jstCond = new Map<String, Object>{ 'Name' => 'Api Forced Debit', 'JournalTypeId' => jtId };
-          Id jstId = SObjectUtil.findIdByConditions(JournalSubType.SObjectType, jstCond, true);
-
-          // 취소할 거래 이력 생성
-          TransactionJournal ecoCancelTj = new TransactionJournal();
-          ecoCancelTj.DepositNo__c = 'ECO-' + String.valueOf(orderId);
-          ecoCancelTj.DeposiSeqNo__c = '1';
-          ecoCancelTj.JournalDate = Datetime.now();
-          ecoCancelTj.ActivityDate = Datetime.now();
-          ecoCancelTj.LoyaltyProgramId = ecoCreditLedgerList[0].TransactionJournal.LoyaltyProgramId;
-          ecoCancelTj.MemberId = ecoCreditLedgerList[0].LoyaltyProgramMemberId;
-          ecoCancelTj.OrderId = orderId;
-          ecoCancelTj.SaleId__c = orderId;
-          ecoCancelTj.AdditionalNotes__c = 'FULL_RETURN_ECO_POINT_CANCEL';
-          ecoCancelTj.transactionAmount = remainingPoint;
-          ecoCancelTj.JournalReason__c = '1'; // 1 : 사용
-          ecoCancelTj.JournalTypeId = jtId;
-          ecoCancelTj.JournalSubTypeId = jstId;
-          ecoCancelTj.Status = 'Pending';
-
-          insert ecoCancelTj;
-
-          List<Map<String, Object>> debitPointsReqList = new List<Map<String, Object>>();
-          Map<String, Object> debitPointsReq = new Map<String, Object>();
-          debitPointsReq.put('loyaltyProgramMemberId', ecoCancelTj.MemberId);
-          debitPointsReq.put('points', remainingPoint);
-          debitPointsReq.put('journalId', ecoCancelTj.Id);
-          debitPointsReq.put('loyaltyProgramCurrencySubtypeName', '에코포인트');
-          debitPointsReqList.add(debitPointsReq);
-
-          List<LoyaltyManagement.DebitPointsOutput> resList = LoyaltyPointService.debitPoints(debitPointsReqList);
-
-          System.debug('여기까지 진입');
-
-          // 포인트 사용 추적 조회
-          List<LoyaltyLedgerTraceability> lltList = [
-            SELECT
-              LoyaltyPgmCurrencySubtype.Name,
-              Points,
-              CreditLoyaltyLedger.ExpiryDate,
-              LoyaltyProgramMember.Contact.MemberNo__c,
-              LastModifiedDate,
-              DebitLoyaltyLedgerId,
-              LoyaltyPgmCurrencySubtype.PointTypeCode__c,
-              CreditLoyaltyLedgerId
+          // 지급된 에코포인트가 사용 추적 조회
+          Map<Id, Integer> usedPointByCreditLedgerId = new Map<Id, Integer>();
+          for (LoyaltyLedgerTraceability llt : [
+            SELECT CreditLoyaltyLedgerId, Points, ActionType
             FROM LoyaltyLedgerTraceability
-            WHERE LoyaltyProgramMemberId = :ecoCancelTj.MemberId AND DebitLoyaltyLedger.TransactionJournalId = :ecoCancelTj.Id
-            LIMIT 100
-          ];
-          if (lltList.isEmpty()) {
-            throw new CustomException(400, '포인트 사용 추적 내용이 존재하지 않습니다. ' + ecoCancelTj.Id);
-          }
+            WHERE CreditLoyaltyLedgerId IN :creditLedgerIdSet
+            LIMIT 2000
+          ]) {
+            // 사용한 금액
+            Integer current = usedPointByCreditLedgerId.containsKey(llt.CreditLoyaltyLedgerId)
+              ? usedPointByCreditLedgerId.get(llt.CreditLoyaltyLedgerId)
+              : 0;
 
-          List<PointDebitDTO> pdDtoList = new List<PointDebitDTO>();
-          for (LoyaltyLedgerTraceability llt : lltList) {
-            PointDebitDTO pcDto = new PointDebitDTO();
-            pcDto.CD_LEDGER = llt.DebitLoyaltyLedgerId;
-            pcDto.CD_JOURNAL = llt.CreditLoyaltyLedgerId; // ecoCancelTj.Id; -> llt.CreditLoyaltyLedgerId;
-            pcDto.CD_TYPE_POINT = llt.LoyaltyPgmCurrencySubtype.PointTypeCode__c;
-            pcDto.CD_RESON = ecoCancelTj.JournalReason__c;
-            pcDto.NO_MBR = llt.LoyaltyProgramMember.Contact.MemberNo__c; // 회원 번호
-            if (String.isNotBlank(ecoCancelTj.Order.OrderNo__c)) {
-              pcDto.NO_SAL = ecoCancelTj.Order.OrderNo__c; // 주문 번호
-            } else if (String.isNotBlank(ecoCancelTj.Order.SaleNo__c)) {
-              pcDto.NO_SAL = ecoCancelTj.Order.SaleNo__c; // 판매 번호
+            System.debug('에코포인트 사용한 금액 : ' + current);
+
+            // 사용한 금액 || 적립 취소 금액
+            if (llt.ActionType == 'Debit' || llt.ActionType == 'CreditCancellation') {
+              current += (Integer) llt.Points;
             }
-            pcDto.PT_USE = llt.Points; // 사용처리된 금액
-            pcDto.DTS_INSERT = String.valueOf(llt.LastModifiedDate); // 사용처리된 금액
-
-            pdDtoList.add(pcDto);
+            usedPointByCreditLedgerId.put(llt.CreditLoyaltyLedgerId, current);
           }
 
-          resData.put('CancelPointList', pdDtoList);
+          // 취소할 금액
+          Integer remainingPoint = 0; // 취소할 금액
+          for (LoyaltyLedger ecoLedger : ecoCreditLedgerList) {
+            // 사용한 금액
+            Integer usedPoint = usedPointByCreditLedgerId.containsKey(ecoLedger.Id) ? usedPointByCreditLedgerId.get(ecoLedger.Id) : 0;
+            // 취소할 금액
+            remainingPoint = (Integer) ecoLedger.Points - (Integer) usedPoint;
+            System.debug('에코포인트 취소할 금액 : ' + remainingPoint);
+          }
+
+          if (remainingPoint > 0) {
+            // 저널 유형 체크
+            Id jtId = SObjectUtil.findIdByName(JournalType.SObjectType, 'Redemption', true);
+            // 저날 하위 유형 체크
+            Map<String, Object> jstCond = new Map<String, Object>{ 'Name' => 'Api Forced Debit', 'JournalTypeId' => jtId };
+            Id jstId = SObjectUtil.findIdByConditions(JournalSubType.SObjectType, jstCond, true);
+
+            // 취소할 거래 이력 생성
+            TransactionJournal ecoCancelTj = new TransactionJournal();
+            ecoCancelTj.DepositNo__c = 'ECO-' + String.valueOf(orderId);
+            ecoCancelTj.DeposiSeqNo__c = '1';
+            ecoCancelTj.JournalDate = Datetime.now();
+            ecoCancelTj.ActivityDate = Datetime.now();
+            ecoCancelTj.LoyaltyProgramId = ecoCreditLedgerList[0].TransactionJournal.LoyaltyProgramId;
+            ecoCancelTj.MemberId = ecoCreditLedgerList[0].LoyaltyProgramMemberId;
+            ecoCancelTj.OrderId = orderId;
+            ecoCancelTj.SaleId__c = orderId;
+            ecoCancelTj.AdditionalNotes__c = 'FULL_RETURN_ECO_POINT_CANCEL';
+            ecoCancelTj.transactionAmount = remainingPoint;
+            ecoCancelTj.JournalReason__c = '1'; // 1 : 사용
+            ecoCancelTj.JournalTypeId = jtId;
+            ecoCancelTj.JournalSubTypeId = jstId;
+            ecoCancelTj.Status = 'Pending';
+
+            insert ecoCancelTj;
+
+            List<Map<String, Object>> debitPointsReqList = new List<Map<String, Object>>();
+            Map<String, Object> debitPointsReq = new Map<String, Object>();
+            debitPointsReq.put('loyaltyProgramMemberId', ecoCancelTj.MemberId);
+            debitPointsReq.put('points', remainingPoint);
+            debitPointsReq.put('journalId', ecoCancelTj.Id);
+            debitPointsReq.put('loyaltyProgramCurrencySubtypeName', '에코포인트');
+            debitPointsReqList.add(debitPointsReq);
+
+            List<LoyaltyManagement.DebitPointsOutput> resList = LoyaltyPointService.debitPoints(debitPointsReqList);
+
+            System.debug('여기까지 진입');
+
+            // 포인트 사용 추적 조회
+            List<LoyaltyLedgerTraceability> lltList = [
+              SELECT
+                LoyaltyPgmCurrencySubtype.Name,
+                Points,
+                CreditLoyaltyLedger.ExpiryDate,
+                LoyaltyProgramMember.Contact.MemberNo__c,
+                LastModifiedDate,
+                DebitLoyaltyLedgerId,
+                LoyaltyPgmCurrencySubtype.PointTypeCode__c,
+                CreditLoyaltyLedgerId
+              FROM LoyaltyLedgerTraceability
+              WHERE LoyaltyProgramMemberId = :ecoCancelTj.MemberId AND DebitLoyaltyLedger.TransactionJournalId = :ecoCancelTj.Id
+              LIMIT 100
+            ];
+            if (lltList.isEmpty()) {
+              throw new CustomException(400, '포인트 사용 추적 내용이 존재하지 않습니다. ' + ecoCancelTj.Id);
+            }
+
+            List<PointDebitDTO> pdDtoList = new List<PointDebitDTO>();
+            for (LoyaltyLedgerTraceability llt : lltList) {
+              PointDebitDTO pcDto = new PointDebitDTO();
+              pcDto.CD_LEDGER = llt.DebitLoyaltyLedgerId;
+              pcDto.CD_JOURNAL = llt.CreditLoyaltyLedgerId; // ecoCancelTj.Id; -> llt.CreditLoyaltyLedgerId;
+              pcDto.CD_TYPE_POINT = llt.LoyaltyPgmCurrencySubtype.PointTypeCode__c;
+              pcDto.CD_RESON = ecoCancelTj.JournalReason__c;
+              pcDto.NO_MBR = llt.LoyaltyProgramMember.Contact.MemberNo__c; // 회원 번호
+              if (String.isNotBlank(ecoCancelTj.Order.OrderNo__c)) {
+                pcDto.NO_SAL = ecoCancelTj.Order.OrderNo__c; // 주문 번호
+              } else if (String.isNotBlank(ecoCancelTj.Order.SaleNo__c)) {
+                pcDto.NO_SAL = ecoCancelTj.Order.SaleNo__c; // 판매 번호
+              }
+              pcDto.PT_USE = llt.Points; // 사용처리된 금액
+              pcDto.DTS_INSERT = String.valueOf(llt.LastModifiedDate); // 사용처리된 금액
+
+              pdDtoList.add(pcDto);
+            }
+
+            resData.put('CancelPointList', pdDtoList);
+          }
         }
-      }
       } // [Feature Flag 분기 — 2026-05-05] else (Flag OFF) 블록 종료
       // 신규 로직 end.
 

@@ -1,7 +1,18 @@
 @IsTest
 private class GdLoyaltyProgramMemberServiceImplTest {
+  private class McCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"result":"ok"}');
+      return res;
+    }
+  }
+
   // 헬퍼: 테스트용 Contact 생성
   private static Contact makeContact(String memberNo) {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
     Contact c = new Contact(LastName = 'Tester', MemberNo__c = memberNo, Email = memberNo.toLowerCase() + '@example.com');
     insert c;
     return c;

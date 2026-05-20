@@ -2,8 +2,9 @@ public with sharing class PointResDto {
   private static final Map<String, String> POINT_JOURNAL_SUB_TYPE_MAP = new Map<String, String>{
     'Tier Qualifying Accrue' => '승급 포인트 지급',
     'Purchase Accrual' => '구매 시 포인트 지급',
-    'Manual Points Credit' => '포인트 수동 지급',
-    'Point Redeem Cancel' => '사용 취소 재적립'
+    'Manual Points Credit' => '포인트 수동(UI) 지급',
+    'Point Redeem Cancel' => '사용 취소 재적립',
+    'Api Forced Credit' => '포인트 수동(API) 지급'
   };
 
   private static final Map<String, String> POINT_DEBIT_MAP = new Map<String, String>{
@@ -12,6 +13,10 @@ public with sharing class PointResDto {
     'CreditCancellation' => '포인트 지급 취소',
     'Expiry' => '소멸'
   };
+
+  private static String displayPointTypeName(String pointTypeName) {
+    return pointTypeName == '사은포인트' ? '듀포인트' : (pointTypeName == null ? '' : pointTypeName);
+  }
 
   /**
    * 사용 가능한 포인트 조회 응답
@@ -88,11 +93,9 @@ public with sharing class PointResDto {
 
       // 날짜/기본
       this.YM_CREATE = (ll != null && ll.ActivityDate != null) ? ll.ActivityDate.format('yyyyMM') : '';
-      this.NM_TYPE_POINT = (ll != null &&
-        ll.LoyaltyPgmCrcySubtypeId != null &&
-        ll.LoyaltyPgmCrcySubtype != null)
-        ? ll.LoyaltyPgmCrcySubtype.Name
-        : '';
+      this.NM_TYPE_POINT = displayPointTypeName(
+        (ll != null && ll.LoyaltyPgmCrcySubtypeId != null && ll.LoyaltyPgmCrcySubtype != null) ? ll.LoyaltyPgmCrcySubtype.Name : null
+      );
 
       // [Plan Field Fix 2026-04-29] PT_SAVE_PLAN / DT_SAVE_PLAN = 최초 적립 시점 값 (불변)
       //   - LL 은 insert 후 Points / ActivityDate 가 update 되지 않으므로 원본값 유지
@@ -129,9 +132,7 @@ public with sharing class PointResDto {
         ? ll.TransactionJournal.SaleId__r.SaleNo__c
         : null;
 
-      this.NO_SAL = String.isNotBlank(orderSaleNo)
-        ? orderSaleNo
-        : (String.isNotBlank(saleSaleNo) ? saleSaleNo : '');
+      this.NO_SAL = String.isNotBlank(orderSaleNo) ? orderSaleNo : (String.isNotBlank(saleSaleNo) ? saleSaleNo : '');
       // 기존 로직
       // this.NO_SAL = (ll != null &&
       //   ll.TransactionJournalId != null &&
@@ -149,7 +150,7 @@ public with sharing class PointResDto {
       this.AM_SAL = (amt == null) ? 0 : Integer.valueOf(amt);
 
       // this.PT_TARGET = 0;  // 기존
-      this.PT_TARGET = (ll != null && ll.Points != null) ? ll.Points.intValue() : 0;  // 신규 로직 (26.05.04 CS)
+      this.PT_TARGET = (ll != null && ll.Points != null) ? ll.Points.intValue() : 0; // 신규 로직 (26.05.04 CS)
       this.PT_USE_SALE = usedSalePoints == null ? 0 : usedSalePoints;
       this.PT_USE_SALE_COUPON = usedSaleCouponAmount == null ? 0 : usedSaleCouponAmount;
 
@@ -225,7 +226,8 @@ public with sharing class PointResDto {
     //         직접 합성되므로 기존 LLT 인자 생성자를 사용할 수 없음.
     //   해결: 빈 기본 생성자 추가 — 필드는 호출자가 직접 set.
     //   영향: 기존 LLT 인자 생성자는 그대로 유지되어 기존 호출부 영향 없음.
-    public DebitPointResponse() {}
+    public DebitPointResponse() {
+    }
 
     public DebitPointResponse(LoyaltyLedgerTraceability llt) {
       Order debitOrder = (llt != null &&
@@ -240,11 +242,9 @@ public with sharing class PointResDto {
         : null;
 
       this.YM_CREATE = (llt != null && llt.CreatedDate != null) ? llt.CreatedDate.format('yyyyMM') : '';
-      this.NM_TYPE_POINT = (llt != null &&
-        llt.LoyaltyPgmCurrencySubtypeId != null &&
-        llt.LoyaltyPgmCurrencySubtype != null)
-        ? llt.LoyaltyPgmCurrencySubtype.Name
-        : '';
+      this.NM_TYPE_POINT = displayPointTypeName(
+        (llt != null && llt.LoyaltyPgmCurrencySubtypeId != null && llt.LoyaltyPgmCurrencySubtype != null) ? llt.LoyaltyPgmCurrencySubtype.Name : null
+      );
 
       this.NM_PERSON = (llt != null && POINT_DEBIT_MAP.containsKey(llt.ActionType))
         ? POINT_DEBIT_MAP.get(llt.ActionType)
@@ -260,9 +260,7 @@ public with sharing class PointResDto {
       //   Multi-Traceability 케이스에서 각 행의 PT_USE 가 Debit Ledger 총액으로
       //   잘못 표시되어 합계가 N배로 뻥튀기되던 버그. 이제 각 Traceability 의
       //   실제 사용 포인트만 표시하여 합계도 정확해짐.
-      Integer ptUse = (llt != null && llt.Points != null)
-        ? Integer.valueOf(llt.Points.abs())
-        : 0;
+      Integer ptUse = (llt != null && llt.Points != null) ? Integer.valueOf(llt.Points.abs()) : 0;
       if (llt != null && llt.ActionType == 'DebitCancellation') {
         ptUse *= -1;
       }
@@ -279,7 +277,7 @@ public with sharing class PointResDto {
 
       // NO_SAL: 반품 포인트면 빈값, 일반 사용이면 판매번호
       // this.NO_SAL = isReturnPoint ? '' : getSaleNoFromDebitContext(llt, debitOrder); // 기존
-      this.NO_SAL = isReturnPoint ? getSaleNoFromOrder(creditOrder) : getSaleNoFromDebitContext(llt, debitOrder);  // 신규
+      this.NO_SAL = isReturnPoint ? getSaleNoFromOrder(creditOrder) : getSaleNoFromDebitContext(llt, debitOrder); // 신규
 
       this.AM_SAL = getSaleAmountFromOrder(debitOrder);
       this.NO_SAL_SAVE = getSaleNoFromOrder(creditOrder);

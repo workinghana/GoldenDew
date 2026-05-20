@@ -91,7 +91,7 @@ public with sharing class ErpCouponFlowAction {
 
     System.debug('Enqueueing COUPON_ISSUE request. req=' + couponIssueReq);
     // enqueue
-    System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), voucherIdsForCallback));
+    // System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), voucherIdsForCallback));
 
     out.enqueued = true;
     out.message = 'Enqueued COUPON_ISSUE. req=' + out.requestCount + ', voucherIds=' + out.voucherIdCount;

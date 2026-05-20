@@ -54,6 +54,10 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
   private static final String JOURNAL_SUB_TYPE_NAME_COUPON_REDEEM_CANCEL = 'Coupon Redeem Cancel'; // 쿠폰 사용 취소
 
   private static final String LOYALTY_PROGRAM_CURRENCY_NAME = '포인트';
+  // [2026-05-15 옵션 A] PATCH /order 사용 취소 시 원본 Debit TJ 마킹용 전용 마커.
+  //   기존 RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE 와 분리해서 회원정보 도움창 SOQL/계산이 정상 사용 TJ 를 차단하지 않도록 함.
+  //   POST /sale 차단(calculateUnrefundedUsage) 등 후속 검증은 두 마커 모두 인식.
+  private static final String ORDER_UPDATE_POINT_REDEEM_CANCEL_NOTE = '주문 수정 포인트 사용 취소 완료';
 
   private static final String LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_DEBIT = 'Debit'; // 포인트 사용
   // private static final String LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_DEBIT_CANCELLATION = 'DebitCancellation'; // 포인트 사용 취소
@@ -128,7 +132,8 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
       List<Object> depositList = ValidationUtil.listObjValidation(reqData.get('TransactionJournal'), 'TransactionJournal', true);
       String memberNo = ValidationUtil.stringValidation(reqData.get('MemberNo__c'), 'MemberNo__c', true); // 회원 번호
       String orderId = ValidationUtil.stringValidation(reqData.get('orderId'), 'orderId', true); // 주문 번호
-      String promotionNo = ValidationUtil.stringValidation(reqData.get('PromotionNo__c'), 'PromotionNo__c', false); // 프로모션 번호
+      // String promotionNo = ValidationUtil.stringValidation(reqData.get('PromotionNo__c'), 'PromotionNo__c', false); // 프로모션 번호   // 기존 로직
+      String promotionId = ValidationUtil.stringValidation(reqData.get('promotionId'), 'promotionId', false); // 프로모션 Id  // 신규 로직 (26.05.18 CS)
 
       String type = ValidationUtil.stringValidation(reqData.get('Type'), 'Type', false); // 주문 구분 코드
       String storeTypeFour = ValidationUtil.stringValidation(reqData.get('storeTypeFour'), 'storeTypeFour', false); // 매장구분4
@@ -140,49 +145,49 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
 
       Integer usedCouponCount = 0; // 쿠폰 사용 횟수
 
-      System.debug('storeType : ' + storeType);
-      System.debug('promotionNo : ' + promotionNo);
-      if (('08'.equals(storeType) || '09'.equals(storeType) || '11'.equals(storeType)) && String.isBlank(promotionNo)) {
+      // System.debug('storeType : ' + storeType);
+      // System.debug('promotionNo : ' + promotionNo);
+      if (('08'.equals(storeType) || '09'.equals(storeType) || '11'.equals(storeType)) && String.isBlank(promotionId)) {
         throw new CustomException(400, '해당 매장 구분은 프로모션 번호가 필수입니다. storeType=' + storeType);
       }
 
-      Id promotionId;
-      if (!String.isEmpty(promotionNo)) {
-        // if (promotionNo != null) {
-        List<Promotion> promotionList = [
-          SELECT Id, IsActive, StartDate, EndDate
-          FROM Promotion
-          WHERE PromotionNo__c = :promotionNo
-          LIMIT 1
-        ];
-        if (promotionList.isEmpty()) {
-          throw new CustomException(400, '해당 프로모션이 없습니다. ' + promotionNo);
-        }
-        if (promotionList[0].IsActive == false) {
-          throw new CustomException(400, '해당 프로모션은 비활성화 상태입니다. ' + promotionNo);
-        }
-        // [Promotion Date Validation 2026-04-28] 주문 등록일(= 오늘) 이 프로모션 적용 기간(StartDate ~ EndDate) 내인지 검증
-        //   - 주문은 별도 주문 일자를 받지 않으므로 등록 시점 Date.today() 를 기준으로 함.
-        //   - 범위 외이면 시작/종료일자를 함께 알리는 에러 메시지 반환. (판매 등록과 동일 패턴)
-        Promotion p = promotionList[0];
-        Date orderDate = Date.today();
-        if (p.StartDate != null && orderDate < p.StartDate) {
-          throw new CustomException(
-            400,
-            '주문 일자가 프로모션 적용 기간 이전입니다. (프로모션: ' + promotionNo +
-            ', 시작일: ' + String.valueOf(p.StartDate) + ', 종료일: ' + String.valueOf(p.EndDate) + ')'
-          );
-        }
-        if (p.EndDate != null && orderDate > p.EndDate) {
-          throw new CustomException(
-            400,
-            '주문 일자가 프로모션 적용 기간 이후입니다. (프로모션: ' + promotionNo +
-            ', 시작일: ' + String.valueOf(p.StartDate) + ', 종료일: ' + String.valueOf(p.EndDate) + ')'
-          );
-        }
-        promotionId = p.Id;
-        // }
-      }
+      // Id promotionId;
+      // if (!String.isEmpty(promotionNo)) {
+      //   // if (promotionNo != null) {
+      //   List<Promotion> promotionList = [
+      //     SELECT Id, IsActive, StartDate, EndDate
+      //     FROM Promotion
+      //     WHERE PromotionNo__c = :promotionNo
+      //     LIMIT 1
+      //   ];
+      //   if (promotionList.isEmpty()) {
+      //     throw new CustomException(400, '해당 프로모션이 없습니다. ' + promotionNo);
+      //   }
+      //   if (promotionList[0].IsActive == false) {
+      //     throw new CustomException(400, '해당 프로모션은 비활성화 상태입니다. ' + promotionNo);
+      //   }
+      //   // [Promotion Date Validation 2026-04-28] 주문 등록일(= 오늘) 이 프로모션 적용 기간(StartDate ~ EndDate) 내인지 검증
+      //   //   - 주문은 별도 주문 일자를 받지 않으므로 등록 시점 Date.today() 를 기준으로 함.
+      //   //   - 범위 외이면 시작/종료일자를 함께 알리는 에러 메시지 반환. (판매 등록과 동일 패턴)
+      //   Promotion p = promotionList[0];
+      //   Date orderDate = Date.today();
+      //   if (p.StartDate != null && orderDate < p.StartDate) {
+      //     throw new CustomException(
+      //       400,
+      //       '주문 일자가 프로모션 적용 기간 이전입니다. (프로모션: ' + promotionNo +
+      //       ', 시작일: ' + String.valueOf(p.StartDate) + ', 종료일: ' + String.valueOf(p.EndDate) + ')'
+      //     );
+      //   }
+      //   if (p.EndDate != null && orderDate > p.EndDate) {
+      //     throw new CustomException(
+      //       400,
+      //       '주문 일자가 프로모션 적용 기간 이후입니다. (프로모션: ' + promotionNo +
+      //       ', 시작일: ' + String.valueOf(p.StartDate) + ', 종료일: ' + String.valueOf(p.EndDate) + ')'
+      //     );
+      //   }
+      //   promotionId = p.Id;
+      //   // }
+      // }
 
       Boolean isExclude = true; // 포인트 적립 제외 여부
       Decimal earnableAmount = 0; // 적립 가능 품목 금액 합계
@@ -246,7 +251,7 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
         String couponNo = ValidationUtil.stringValidationEx(deposit.get('CouponNo'), 'CouponNo', false, true); // 쿠폰 번호
 
         // 고재성
-        if(depositType == '03' || depositType == '05') {
+        if (depositType == '03' || depositType == '05') {
           totalTransactionAmount -= transactionAmount;
         } else {
           totalTransactionAmount += transactionAmount;
@@ -265,7 +270,7 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
         tj.OrderId = orderId;
         tj.OrderId__c = orderId;
 
-        if (promotionNo != null) {
+        if (promotionId != null) {
           tj.PromotionId = promotionId;
         }
 
@@ -314,7 +319,7 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
           // 26.04.09 GD 수정 포인트 적립 매장 구분 코드 로직 수정
           if ((('20'.equals(storeType) || '25'.equals(storeType)) && !'03'.equals(type))) {
             throw new CustomException(400, '아울렛은 포인트 사용이 불가합니다. (수선 주문은 가능)');
-          } 
+          }
           if ('33'.equals(storeType)) {
             throw new CustomException(400, '면세점은 포인트 사용이 불가합니다.');
           }
@@ -437,7 +442,7 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
 
         depositNo += '-' + deposiSeqNo;
         // 고재성
-        if(depositType == '03' || depositType == '05') {
+        if (depositType == '03' || depositType == '05') {
           totalTransactionAmount -= transactionAmount;
         } else {
           totalTransactionAmount += transactionAmount;
@@ -514,19 +519,20 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
             // data.put('CancelPointList', cancelPointResult);
             // [기존 코드 끝] 2026-04-22
 
-            // [수정 코드 시작] 2026-04-22 - 포인트 사용 취소(PATCH /order PM=81 DT=03) 후, 원본 Debit TJ 의 AdditionalNotes__c 를 RESTORE_NOTE 로 UPDATE하여
-            //   후속 POST /return 의 차단 SOQL (GdReturnServiceImpl.cls:64-99) 에서 해당 LLT가 "이미 복구됨"으로 제외되도록 함.
-            //   DELETE /return-deposit 경로(GdReturnDepositServiceImpl.cls:534) 와 동일 시맨틱 정합성 확보.
+            // [수정 코드 시작] 2026-04-22 / 2026-05-15 옵션 A - 포인트 사용 취소(PATCH /order PM=81 DT=03) 후, 원본 Debit TJ 의 AdditionalNotes__c 를 전용 마커로 UPDATE.
+            //   목적: POST /sale (calculateUnrefundedUsage) 등 후속 차단 검증에서 해당 LLT가 "이미 취소됨"으로 인식되도록 함.
+            //   [2026-05-15] 회원정보 도움창이 RESTORE_NOTE 마커를 정상 사용 TJ 차단 신호로 오인하는 부작용을 제거하기 위해 별도 마커로 분리.
             //   안전성: 동일 OrderId + PM=81 + DT=01/02 + IsDeleted=FALSE + AdditionalNotes=NULL + TransactionAmount 일치 조건으로 좁혀 부분 취소 오판 방지.
             Map<String, Object> cancelPointResult = getPointService().cancelPointRedemption(tj);
             data.put('CancelPointList', cancelPointResult);
 
-            // 역입금이 성공적으로 처리된 경우에만 원본 Debit TJ 를 "이미 복구됨" 으로 마킹
+            // 역입금이 성공적으로 처리된 경우에만 원본 Debit TJ 를 "이미 취소됨" 으로 마킹
             // 금액 매칭 (reversal amount == original debit amount) 으로 부분 취소 케이스 보호
             List<TransactionJournal> origDebitTjs = [
               SELECT Id, AdditionalNotes__c
               FROM TransactionJournal
-              WHERE OrderId = :orderId
+              WHERE
+                OrderId = :orderId
                 AND PaymentMethod = '81'
                 AND DepositType__c IN ('01', '02')
                 AND IsDeleted__c = FALSE
@@ -536,11 +542,11 @@ public with sharing class GdOrderDepositServiceImpl implements GdOrderDepositSer
             ];
             if (!origDebitTjs.isEmpty()) {
               for (TransactionJournal origTj : origDebitTjs) {
-                origTj.AdditionalNotes__c = '반품 입금 삭제로 인한 "포인트 사용" 내역 복구';
+                origTj.AdditionalNotes__c = ORDER_UPDATE_POINT_REDEEM_CANCEL_NOTE;
               }
               update origDebitTjs;
             }
-            // [수정 코드 끝] 2026-04-22
+            // [수정 코드 끝] 2026-04-22 / 2026-05-15 옵션 A
           } else if ('01'.equals(depositType) || '02'.equals(depositType)) {
             // 포인트 사용
             debitPointList = getPointService().debitPoint(tj);

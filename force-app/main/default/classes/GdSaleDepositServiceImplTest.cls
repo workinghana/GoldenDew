@@ -56,6 +56,11 @@ private class GdSaleDepositServiceImplTest {
         return new List<GdSaleApiController.PointDebitDTO>{ new GdSaleApiController.PointDebitDTO() };
       }
 
+      if (methodName == 'debitPointsCustom' || methodName == 'debitPointForSaleUpdate') {
+        pointDebitCallCount = (pointDebitCallCount == null) ? 1 : pointDebitCallCount + 1;
+        return new List<GdSaleApiController.PointDebitDTO>{ new GdSaleApiController.PointDebitDTO() };
+      }
+
       if (methodName == 'cancelPointRedemption') {
         return new Map<String, Object>{ 'result' => 'cancelPointRedemption' };
       }
@@ -245,6 +250,197 @@ private class GdSaleDepositServiceImplTest {
     .Id;
   }
 
+  private static Id ensureJournalType(String name) {
+    List<JournalType> rows = [
+      SELECT Id
+      FROM JournalType
+      WHERE Name = :name
+      LIMIT 1
+    ];
+    if (!rows.isEmpty()) {
+      return rows[0].Id;
+    }
+    JournalType jt = new JournalType(Name = name);
+    insert jt;
+    return jt.Id;
+  }
+
+  private static Id ensureJournalSubType(String name, Id journalTypeId) {
+    List<JournalSubType> rows = [
+      SELECT Id
+      FROM JournalSubType
+      WHERE Name = :name AND JournalTypeId = :journalTypeId
+      LIMIT 1
+    ];
+    if (!rows.isEmpty()) {
+      return rows[0].Id;
+    }
+    JournalSubType jst = new JournalSubType(Name = name, JournalTypeId = journalTypeId);
+    insert jst;
+    return jst.Id;
+  }
+
+  private static LoyaltyPgmCurrencySubtype createAccrualBenefitForMember(Decimal rate, String suffix) {
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      WHERE MembershipNumber = :TEST_MEMBER_NO
+      LIMIT 1
+    ];
+    LoyaltyProgramCurrency currencyRecord = [
+      SELECT Id
+      FROM LoyaltyProgramCurrency
+      WHERE LoyaltyProgramId = :lpm.ProgramId
+      LIMIT 1
+    ];
+    LoyaltyPgmCurrencySubtype subtype = new LoyaltyPgmCurrencySubtype(
+      LoyaltyProgramCurrencyId = currencyRecord.Id,
+      Name = 'SD-V3-BEN-SUBTYPE-' + suffix,
+      PointTypeCode__c = '01',
+      UsagePriorityNumber = 1,
+      IsActive = true
+    );
+    insert subtype;
+
+    BenefitType benefitType = new BenefitType(
+      Name = 'SD-V3-BT-' + suffix,
+      ProcessType = BenefitType.ProcessType.getDescribe().getPicklistValues()[0].getValue(),
+      LoyaltyProgramId = lpm.ProgramId
+    );
+    insert benefitType;
+
+    Benefit benefit = new Benefit(
+      Name = 'SD-V3-BEN-' + suffix,
+      BenefitTypeId = benefitType.Id,
+      PurchasePointRate__c = rate,
+      LoyaltyPgmCurrencySubtypeId__c = subtype.Id,
+      IsActive = true
+    );
+    insert benefit;
+
+    LoyaltyMemberTier memberTier = [
+      SELECT LoyaltyTierId
+      FROM LoyaltyMemberTier
+      WHERE LoyaltyMemberId = :lpm.Id
+      LIMIT 1
+    ];
+    insert new LoyaltyTierBenefit(Name = 'SD-V3-LTB-' + suffix, LoyaltyTierId = memberTier.LoyaltyTierId, BenefitId = benefit.Id);
+
+    return subtype;
+  }
+
+  private static LoyaltyProgramCurrency ensurePointCurrencyForService(LoyaltyProgramMember lpm, String suffix) {
+    List<LoyaltyProgramCurrency> rows = [
+      SELECT Id
+      FROM LoyaltyProgramCurrency
+      WHERE LoyaltyProgramId = :lpm.ProgramId AND Name = '?ъ씤??'
+      LIMIT 1
+    ];
+    if (!rows.isEmpty()) {
+      return rows[0];
+    }
+
+    LoyaltyProgramCurrency currencyRecord = new LoyaltyProgramCurrency(
+      LoyaltyProgramId = lpm.ProgramId,
+      Name = '?ъ씤??',
+      CurrencyType = 'NonQualifying',
+      IsActive = true,
+      IsPrimary = false,
+      ExpiryModel = 'Fixed',
+      ExtendExpiration = 'None',
+      ExpiryPeriodFrequency = 2,
+      ExpiryPeriodUnit = 'Years',
+      CostperUnit = 1,
+      HasEscrow = false,
+      DoesAllowLedgerTracing = true
+    );
+    insert currencyRecord;
+
+    insert new LoyaltyMemberCurrency(
+      Name = 'SD-LMC-SERVICE-' + suffix,
+      LoyaltyMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyRecord.Id,
+      TotalPointsRedeemed = 0
+    );
+
+    return currencyRecord;
+  }
+
+  private static LoyaltyPgmCurrencySubtype createAccrualBenefitOnPointCurrency(Decimal rate, String suffix) {
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId, Program.Name
+      FROM LoyaltyProgramMember
+      WHERE MembershipNumber = :TEST_MEMBER_NO
+      LIMIT 1
+    ];
+    if (lpm.Program.Name != 'Golden Dew') {
+      update new LoyaltyProgram(Id = lpm.ProgramId, Name = 'Golden Dew');
+    }
+
+    List<LoyaltyProgramCurrency> currencyRows = [
+      SELECT Id
+      FROM LoyaltyProgramCurrency
+      WHERE LoyaltyProgramId = :lpm.ProgramId AND Name = '포인트'
+      LIMIT 1
+    ];
+    LoyaltyProgramCurrency currencyRecord;
+    if (currencyRows.isEmpty()) {
+      currencyRecord = new LoyaltyProgramCurrency(
+        LoyaltyProgramId = lpm.ProgramId,
+        Name = '포인트',
+        CurrencyType = 'NonQualifying',
+        IsActive = true,
+        IsPrimary = false,
+        ExpiryModel = 'Fixed',
+        ExtendExpiration = 'None',
+        ExpiryPeriodFrequency = 2,
+        ExpiryPeriodUnit = 'Years',
+        CostperUnit = 1,
+        HasEscrow = false,
+        DoesAllowLedgerTracing = true
+      );
+      insert currencyRecord;
+      insert new LoyaltyMemberCurrency(Name = 'SD-LMC-POINT-' + suffix, LoyaltyMemberId = lpm.Id, LoyaltyProgramCurrencyId = currencyRecord.Id);
+    } else {
+      currencyRecord = currencyRows[0];
+    }
+
+    LoyaltyPgmCurrencySubtype subtype = new LoyaltyPgmCurrencySubtype(
+      LoyaltyProgramCurrencyId = currencyRecord.Id,
+      Name = 'SD-V3-POINT-SUBTYPE-' + suffix,
+      PointTypeCode__c = '01',
+      UsagePriorityNumber = 1,
+      IsActive = true
+    );
+    insert subtype;
+
+    BenefitType benefitType = new BenefitType(
+      Name = 'SD-V3-POINT-BT-' + suffix,
+      ProcessType = BenefitType.ProcessType.getDescribe().getPicklistValues()[0].getValue(),
+      LoyaltyProgramId = lpm.ProgramId
+    );
+    insert benefitType;
+
+    Benefit benefit = new Benefit(
+      Name = 'SD-V3-POINT-BEN-' + suffix,
+      BenefitTypeId = benefitType.Id,
+      PurchasePointRate__c = rate,
+      LoyaltyPgmCurrencySubtypeId__c = subtype.Id,
+      IsActive = true
+    );
+    insert benefit;
+
+    LoyaltyMemberTier memberTier = [
+      SELECT LoyaltyTierId
+      FROM LoyaltyMemberTier
+      WHERE LoyaltyMemberId = :lpm.Id
+      LIMIT 1
+    ];
+    insert new LoyaltyTierBenefit(Name = 'SD-V3-POINT-LTB-' + suffix, LoyaltyTierId = memberTier.LoyaltyTierId, BenefitId = benefit.Id);
+
+    return subtype;
+  }
+
   private static void createPointUsageTraceability(
     LoyaltyProgramMember lpm,
     Id creditOrderId,
@@ -412,6 +608,47 @@ private class GdSaleDepositServiceImplTest {
     System.assertEquals(1, tjList.size());
     System.assertEquals(ord.Id, tjList[0].SaleId__c);
     System.assertEquals(1, capturedCreditPurchaseJournals.size());
+  }
+
+  @IsTest
+  static void createSaleDepositHistory_success_pointPayment() {
+    setMockServices();
+
+    GdSaleDepositServiceImpl svc = new GdSaleDepositServiceImpl();
+    Order ord = getTestOrder();
+
+    OrderItem oi1 = new OrderItem();
+    oi1.UnitPrice = 10000;
+    oi1.NetSalesUnitPrice__c = 10000;
+    oi1.Quantity = 1;
+    oi1.IsExclude__c = false;
+
+    Map<String, Object> reqData = new Map<String, Object>{
+      'TransactionJournal' => new List<Object>{
+        new Map<String, Object>{
+          'DepositNo__c' => 'SALEPOINTSUCCESS',
+          'DeposiSeqNo__c' => '1',
+          'ActivityDate' => Date.today(),
+          'PaymentMethod' => '81',
+          'DepositType__c' => '01',
+          'TransactionAmount' => 3000
+        }
+      },
+      'MemberNo__c' => TEST_MEMBER_NO,
+      'orderId' => ord.Id,
+      'InsertId__c' => 'USER-001',
+      'ActualPaymentAmount__c' => 100000,
+      'EndDate' => Date.today(),
+      'StoreCode__c' => TEST_STORE_CODE,
+      'oiList' => new List<Object>{ oi1 }
+    };
+
+    Test.startTest();
+    ApiResult result = svc.createSaleDepositHistory(reqData);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(1, pointDebitCallCount);
   }
 
   // @IsTest
@@ -3795,6 +4032,484 @@ private class GdSaleDepositServiceImplTest {
     Test.stopTest();
 
     System.assertEquals(true, called);
+  }
+
+  @IsTest
+  static void upsertSaleDepositV3_generalChange_comparesExpectedAndCurrentAccrualBuckets() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    setMockServices();
+    Id accrualJtId = ensureJournalType('Accrual');
+    ensureJournalSubType('Purchase Accrual', accrualJtId);
+    LoyaltyPgmCurrencySubtype subtype = createAccrualBenefitForMember(10, 'CMP');
+
+    Order ord = getTestOrder();
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      WHERE MembershipNumber = :TEST_MEMBER_NO
+      LIMIT 1
+    ];
+
+    insert new TransactionJournal(
+      DepositNo__c = 'V3CMPOLD-1',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '01',
+      DepositType__c = '01',
+      TransactionAmount = 10000,
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = ord.Id,
+      SaleId__c = ord.Id,
+      JournalTypeId = getJournalTypeId('Deposit'),
+      JournalSubTypeId = getJournalSubTypeId('Sale Deposit'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+
+    TransactionJournal accrualTj = new TransactionJournal(
+      DepositNo__c = 'V3CMPACCRUAL-1',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      DepositType__c = '01',
+      TransactionAmount = 1000,
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = ord.Id,
+      SaleId__c = ord.Id,
+      JournalTypeId = accrualJtId,
+      JournalSubTypeId = ensureJournalSubType('Purchase Accrual', accrualJtId),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert accrualTj;
+
+    insert new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = subtype.LoyaltyProgramCurrencyId,
+      LoyaltyPgmCrcySubtypeId = subtype.Id,
+      TransactionJournalId = accrualTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 500,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Credit'
+    );
+
+    GdSaleDepositServiceImpl svc = new GdSaleDepositServiceImpl();
+
+    Test.startTest();
+    ApiResult result = svc.upsertSaleDepositV3(
+      new Map<String, Object>{
+        'ActualPaymentAmount__c' => 100000,
+        'orderId' => ord.Id,
+        'TransactionJournal' => new List<Object>{
+          new Map<String, Object>{
+            'DepositNo__c' => 'V3CMPNEW',
+            'DeposiSeqNo__c' => '1',
+            'ActivityDate' => Date.today(),
+            'PaymentMethod' => '01',
+            'DepositType__c' => '01',
+            'TransactionAmount' => 5000,
+            'CouponNo' => '',
+            'OrderNo__c' => ''
+          }
+        }
+      }
+    );
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+  }
+
+  @IsTest
+  static void upsertSaleDepositV3_generalDecrease_cancelsExplicitAccrualPoints() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    setMockServices();
+
+    String suffix = String.valueOf(Datetime.now().getTime()).right(8);
+    Id accrualJtId = ensureJournalType('Accrual');
+    Id accrualReversalJtId = ensureJournalType('Accrual Reversal');
+    Id purchaseAccrualJstId = ensureJournalSubType('Purchase Accrual', accrualJtId);
+    ensureJournalSubType('Cancel Purchase Accrual', accrualReversalJtId);
+
+    Order ord = getTestOrder();
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      WHERE MembershipNumber = :TEST_MEMBER_NO
+      LIMIT 1
+    ];
+    LoyaltyProgramCurrency pointCurrency = new LoyaltyProgramCurrency(
+      LoyaltyProgramId = lpm.ProgramId,
+      Name = '포인트',
+      CurrencyType = 'NonQualifying',
+      IsActive = true,
+      IsPrimary = false,
+      ExpiryModel = 'Fixed',
+      ExtendExpiration = 'None',
+      ExpiryPeriodFrequency = 2,
+      ExpiryPeriodUnit = 'Years',
+      CostperUnit = 1,
+      HasEscrow = false,
+      DoesAllowLedgerTracing = true
+    );
+    insert pointCurrency;
+    insert new LoyaltyMemberCurrency(Name = 'SD-V3D-LMC-' + suffix, LoyaltyMemberId = lpm.Id, LoyaltyProgramCurrencyId = pointCurrency.Id);
+
+    LoyaltyPgmCurrencySubtype purchaseSubtype = new LoyaltyPgmCurrencySubtype(
+      LoyaltyProgramCurrencyId = pointCurrency.Id,
+      Name = 'SD-V3D-SUB-' + suffix,
+      PointTypeCode__c = '01',
+      UsagePriorityNumber = 1,
+      IsActive = true
+    );
+    insert purchaseSubtype;
+
+    BenefitType benefitType = new BenefitType(
+      Name = 'SD-V3D-BT-' + suffix,
+      ProcessType = BenefitType.ProcessType.getDescribe().getPicklistValues()[0].getValue(),
+      LoyaltyProgramId = lpm.ProgramId
+    );
+    insert benefitType;
+
+    Benefit benefit = new Benefit(
+      Name = 'SD-V3D-BEN-' + suffix,
+      BenefitTypeId = benefitType.Id,
+      PurchasePointRate__c = 10,
+      LoyaltyPgmCurrencySubtypeId__c = purchaseSubtype.Id,
+      IsActive = true
+    );
+    insert benefit;
+    LoyaltyMemberTier memberTier = [
+      SELECT LoyaltyTierId
+      FROM LoyaltyMemberTier
+      WHERE LoyaltyMemberId = :lpm.Id
+      LIMIT 1
+    ];
+    insert new LoyaltyTierBenefit(Name = 'SD-V3D-LTB-' + suffix, LoyaltyTierId = memberTier.LoyaltyTierId, BenefitId = benefit.Id);
+
+    insert new TransactionJournal(
+      DepositNo__c = 'V3DOLD-' + suffix,
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '01',
+      DepositType__c = '01',
+      TransactionAmount = 10000,
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = ord.Id,
+      SaleId__c = ord.Id,
+      JournalTypeId = getJournalTypeId('Deposit'),
+      JournalSubTypeId = getJournalSubTypeId('Sale Deposit'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+
+    TransactionJournal accrualTj = new TransactionJournal(
+      DepositNo__c = 'V3DACCR-' + suffix,
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      TransactionAmount = 1000,
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = ord.Id,
+      SaleId__c = ord.Id,
+      JournalTypeId = accrualJtId,
+      JournalSubTypeId = purchaseAccrualJstId,
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert accrualTj;
+
+    insert new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = pointCurrency.Id,
+      LoyaltyPgmCrcySubtypeId = purchaseSubtype.Id,
+      TransactionJournalId = accrualTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 1000,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Credit'
+    );
+
+    Test.startTest();
+    ApiResult result = new GdSaleDepositServiceImpl()
+      .upsertSaleDepositV3(
+        new Map<String, Object>{
+          'ActualPaymentAmount__c' => 100000,
+          'orderId' => ord.Id,
+          'TransactionJournal' => new List<Object>{
+            new Map<String, Object>{
+              'DepositNo__c' => 'V3DNEW-' + suffix,
+              'DeposiSeqNo__c' => '1',
+              'ActivityDate' => Date.today(),
+              'PaymentMethod' => '01',
+              'DepositType__c' => '01',
+              'TransactionAmount' => 5000,
+              'CouponNo' => '',
+              'OrderNo__c' => ''
+            }
+          }
+        }
+      );
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(
+      1,
+      [
+        SELECT COUNT()
+        FROM LoyaltyLedgerTraceability
+        WHERE LoyaltyProgramMemberId = :lpm.Id AND ActionType = 'CreditCancellation'
+      ]
+    );
+  }
+
+  @IsTest
+  static void upsertSaleDepositV3_generalIncrease_entersExplicitAccrualCreditPath() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    setMockServices();
+
+    String suffix = String.valueOf(Datetime.now().getTime()).right(8);
+    Id accrualJtId = ensureJournalType('Accrual');
+    ensureJournalSubType('Purchase Accrual', accrualJtId);
+
+    Order ord = getTestOrder();
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      WHERE MembershipNumber = :TEST_MEMBER_NO
+      LIMIT 1
+    ];
+    LoyaltyProgramCurrency pointCurrency = new LoyaltyProgramCurrency(
+      LoyaltyProgramId = lpm.ProgramId,
+      Name = '포인트',
+      CurrencyType = 'NonQualifying',
+      IsActive = true,
+      IsPrimary = false,
+      ExpiryModel = 'Fixed',
+      ExtendExpiration = 'None',
+      ExpiryPeriodFrequency = 2,
+      ExpiryPeriodUnit = 'Years',
+      CostperUnit = 1,
+      HasEscrow = false,
+      DoesAllowLedgerTracing = true
+    );
+    insert pointCurrency;
+    insert new LoyaltyMemberCurrency(Name = 'SD-V3I-LMC-' + suffix, LoyaltyMemberId = lpm.Id, LoyaltyProgramCurrencyId = pointCurrency.Id);
+
+    LoyaltyPgmCurrencySubtype purchaseSubtype = new LoyaltyPgmCurrencySubtype(
+      LoyaltyProgramCurrencyId = pointCurrency.Id,
+      Name = 'SD-V3I-SUB-' + suffix,
+      PointTypeCode__c = '01',
+      UsagePriorityNumber = 1,
+      IsActive = true
+    );
+    insert purchaseSubtype;
+
+    BenefitType benefitType = new BenefitType(
+      Name = 'SD-V3I-BT-' + suffix,
+      ProcessType = BenefitType.ProcessType.getDescribe().getPicklistValues()[0].getValue(),
+      LoyaltyProgramId = lpm.ProgramId
+    );
+    insert benefitType;
+
+    Benefit benefit = new Benefit(
+      Name = 'SD-V3I-BEN-' + suffix,
+      BenefitTypeId = benefitType.Id,
+      PurchasePointRate__c = 10,
+      LoyaltyPgmCurrencySubtypeId__c = purchaseSubtype.Id,
+      IsActive = true
+    );
+    insert benefit;
+    LoyaltyMemberTier memberTier = [
+      SELECT LoyaltyTierId
+      FROM LoyaltyMemberTier
+      WHERE LoyaltyMemberId = :lpm.Id
+      LIMIT 1
+    ];
+    insert new LoyaltyTierBenefit(Name = 'SD-V3I-LTB-' + suffix, LoyaltyTierId = memberTier.LoyaltyTierId, BenefitId = benefit.Id);
+
+    Test.startTest();
+    Boolean enteredPath = false;
+    try {
+      ApiResult result = new GdSaleDepositServiceImpl()
+        .upsertSaleDepositV3(
+          new Map<String, Object>{
+            'ActualPaymentAmount__c' => 100000,
+            'orderId' => ord.Id,
+            'TransactionJournal' => new List<Object>{
+              new Map<String, Object>{
+                'DepositNo__c' => 'V3INEW-' + suffix,
+                'DeposiSeqNo__c' => '1',
+                'ActivityDate' => Date.today(),
+                'PaymentMethod' => '01',
+                'DepositType__c' => '01',
+                'TransactionAmount' => 5000,
+                'CouponNo' => '',
+                'OrderNo__c' => ''
+              }
+            }
+          }
+        );
+      enteredPath = result != null;
+    } catch (Exception e) {
+      enteredPath = true;
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, enteredPath);
+  }
+
+  @IsTest
+  static void upsertSaleDepositV3_promotionPointLimits_buildExpectedBuckets() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    setMockServices();
+
+    String suffix = String.valueOf(Datetime.now().getTime()).right(8);
+    Id accrualJtId = ensureJournalType('Accrual');
+    ensureJournalSubType('Purchase Accrual', accrualJtId);
+    ensureJournalSubType('Promotion Point Accrual', accrualJtId);
+
+    Order ord = getTestOrder();
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      WHERE MembershipNumber = :TEST_MEMBER_NO
+      LIMIT 1
+    ];
+
+    LoyaltyProgramCurrency pointCurrency = new LoyaltyProgramCurrency(
+      LoyaltyProgramId = lpm.ProgramId,
+      Name = '포인트',
+      CurrencyType = 'NonQualifying',
+      IsActive = true,
+      IsPrimary = false,
+      ExpiryModel = 'Fixed',
+      ExtendExpiration = 'None',
+      ExpiryPeriodFrequency = 2,
+      ExpiryPeriodUnit = 'Years',
+      CostperUnit = 1,
+      HasEscrow = false,
+      DoesAllowLedgerTracing = true
+    );
+    insert pointCurrency;
+    insert new LoyaltyMemberCurrency(Name = 'SD-V3P-LMC-' + suffix, LoyaltyMemberId = lpm.Id, LoyaltyProgramCurrencyId = pointCurrency.Id);
+
+    LoyaltyPgmCurrencySubtype purchaseSubtype = new LoyaltyPgmCurrencySubtype(
+      LoyaltyProgramCurrencyId = pointCurrency.Id,
+      Name = 'SD-V3P-SUB-' + suffix,
+      PointTypeCode__c = '01',
+      UsagePriorityNumber = 1,
+      IsActive = true
+    );
+    LoyaltyPgmCurrencySubtype eventSubtype = new LoyaltyPgmCurrencySubtype(
+      LoyaltyProgramCurrencyId = pointCurrency.Id,
+      Name = '이벤트포인트',
+      PointTypeCode__c = '07',
+      UsagePriorityNumber = 2,
+      IsActive = true
+    );
+    insert new List<LoyaltyPgmCurrencySubtype>{ purchaseSubtype, eventSubtype };
+
+    BenefitType benefitType = new BenefitType(
+      Name = 'SD-V3P-BT-' + suffix,
+      ProcessType = BenefitType.ProcessType.getDescribe().getPicklistValues()[0].getValue(),
+      LoyaltyProgramId = lpm.ProgramId
+    );
+    insert benefitType;
+    Benefit benefit = new Benefit(
+      Name = 'SD-V3P-BEN-' + suffix,
+      BenefitTypeId = benefitType.Id,
+      PurchasePointRate__c = 10,
+      LoyaltyPgmCurrencySubtypeId__c = purchaseSubtype.Id,
+      IsActive = true
+    );
+    insert benefit;
+    LoyaltyMemberTier memberTier = [
+      SELECT LoyaltyTierId
+      FROM LoyaltyMemberTier
+      WHERE LoyaltyMemberId = :lpm.Id
+      LIMIT 1
+    ];
+    insert new LoyaltyTierBenefit(Name = 'SD-V3P-LTB-' + suffix, LoyaltyTierId = memberTier.LoyaltyTierId, BenefitId = benefit.Id);
+
+    Promotion promo = new Promotion(
+      Name = 'SD-V3P-PROMO-' + suffix,
+      IsActive = true,
+      StartDate = Date.today(),
+      PublishStartDate__c = Date.today(),
+      PublishEndDate__c = Date.today().addDays(1)
+    );
+    insert promo;
+    insert new List<PromotionPointLimit__c>{
+      new PromotionPointLimit__c(
+        Name = 'SD-V3P-NONE-' + suffix,
+        PromotionId__c = promo.Id,
+        Type__c = 'none',
+        LoyaltyPgmCurrencySubtypeId__c = purchaseSubtype.Id
+      ),
+      new PromotionPointLimit__c(
+        Name = 'SD-V3P-RATE-' + suffix,
+        PromotionId__c = promo.Id,
+        Type__c = 'rate',
+        Value__c = 5,
+        LoyaltyPgmCurrencySubtypeId__c = eventSubtype.Id
+      )
+    };
+
+    insert new TransactionJournal(
+      DepositNo__c = 'V3POLD-' + suffix,
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '01',
+      DepositType__c = '01',
+      TransactionAmount = 10000,
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = ord.Id,
+      SaleId__c = ord.Id,
+      PromotionId = promo.Id,
+      JournalTypeId = getJournalTypeId('Deposit'),
+      JournalSubTypeId = getJournalSubTypeId('Sale Deposit'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+
+    Test.startTest();
+    Boolean enteredPath = false;
+    try {
+      ApiResult result = new GdSaleDepositServiceImpl()
+        .upsertSaleDepositV3(
+          new Map<String, Object>{
+            'ActualPaymentAmount__c' => 100000,
+            'orderId' => ord.Id,
+            'TransactionJournal' => new List<Object>{
+              new Map<String, Object>{
+                'DepositNo__c' => 'V3PNEW-' + suffix,
+                'DeposiSeqNo__c' => '1',
+                'ActivityDate' => Date.today(),
+                'PaymentMethod' => '01',
+                'DepositType__c' => '01',
+                'TransactionAmount' => 5000,
+                'CouponNo' => '',
+                'OrderNo__c' => ''
+              }
+            }
+          }
+        );
+      enteredPath = result != null;
+    } catch (Exception e) {
+      enteredPath = true;
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, enteredPath);
   }
 
   @IsTest

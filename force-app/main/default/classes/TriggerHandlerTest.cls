@@ -136,4 +136,98 @@ private class TriggerHandlerTest {
 
     h.clearMaxLoopCount();
   }
+
+  @IsTest
+  static void test_isEnabled_defaults_to_true_when_setting_missing() {
+    TriggerHandler.mockCache = new Map<String, Apex_Trigger_Setting__mdt>();
+
+    System.assertEquals(
+      true,
+      TriggerHandler.isEnabled('MissingTriggerSetting', System.TriggerOperation.BEFORE_INSERT),
+      'Missing custom metadata should fail open.'
+    );
+
+    TriggerHandler.mockCache = null;
+  }
+
+  @IsTest
+  static void test_isEnabled_returns_false_when_trigger_inactive() {
+    TriggerHandler.mockCache = new Map<String, Apex_Trigger_Setting__mdt>{
+      'InactiveTrigger' => makeSetting(false, true, true, true, true, true, true, true)
+    };
+
+    System.assertEquals(
+      false,
+      TriggerHandler.isEnabled('InactiveTrigger', System.TriggerOperation.AFTER_INSERT),
+      'Inactive trigger setting should disable every operation.'
+    );
+
+    TriggerHandler.mockCache = null;
+  }
+
+  @IsTest
+  static void test_isEnabled_returns_operation_flags() {
+    TriggerHandler.mockCache = new Map<String, Apex_Trigger_Setting__mdt>{
+      'MixedTrigger' => makeSetting(true, true, false, true, false, true, false, true)
+    };
+
+    System.assertEquals(true, TriggerHandler.isEnabled('MixedTrigger', System.TriggerOperation.BEFORE_INSERT));
+    System.assertEquals(false, TriggerHandler.isEnabled('MixedTrigger', System.TriggerOperation.AFTER_INSERT));
+    System.assertEquals(true, TriggerHandler.isEnabled('MixedTrigger', System.TriggerOperation.BEFORE_UPDATE));
+    System.assertEquals(false, TriggerHandler.isEnabled('MixedTrigger', System.TriggerOperation.AFTER_UPDATE));
+    System.assertEquals(true, TriggerHandler.isEnabled('MixedTrigger', System.TriggerOperation.BEFORE_DELETE));
+    System.assertEquals(false, TriggerHandler.isEnabled('MixedTrigger', System.TriggerOperation.AFTER_DELETE));
+    System.assertEquals(true, TriggerHandler.isEnabled('MixedTrigger', System.TriggerOperation.AFTER_UNDELETE));
+
+    TriggerHandler.mockCache = null;
+  }
+
+  @IsTest
+  static void test_isEnabled_fail_safe_returns_true_on_exception() {
+    TriggerHandler.mockCache = new Map<String, Apex_Trigger_Setting__mdt>{
+      'AnyTrigger' => makeSetting(true, true, true, true, true, true, true, true)
+    };
+
+    System.assertEquals(true, TriggerHandler.isEnabled('AnyTrigger', null), 'Unexpected errors in isEnabled should fail open.');
+
+    TriggerHandler.mockCache = null;
+  }
+
+  @IsTest
+  static void test_loop_count_accessors() {
+    TriggerHandler.LoopCount defaultLoopCount = new TriggerHandler.LoopCount();
+    System.assertEquals(5, defaultLoopCount.getMax());
+    System.assertEquals(0, defaultLoopCount.getCount());
+    System.assertEquals(false, defaultLoopCount.exceeded());
+
+    TriggerHandler.LoopCount limitedLoopCount = new TriggerHandler.LoopCount(1);
+    System.assertEquals(false, limitedLoopCount.increment());
+    System.assertEquals(true, limitedLoopCount.increment());
+    System.assertEquals(2, limitedLoopCount.getCount());
+
+    limitedLoopCount.setMax(-1);
+    System.assertEquals(false, limitedLoopCount.exceeded());
+  }
+
+  private static Apex_Trigger_Setting__mdt makeSetting(
+    Boolean isActive,
+    Boolean beforeInsert,
+    Boolean afterInsert,
+    Boolean beforeUpdate,
+    Boolean afterUpdate,
+    Boolean beforeDelete,
+    Boolean afterDelete,
+    Boolean afterUndelete
+  ) {
+    return new Apex_Trigger_Setting__mdt(
+      IsActive__c = isActive,
+      Before_Insert__c = beforeInsert,
+      After_Insert__c = afterInsert,
+      Before_Update__c = beforeUpdate,
+      After_Update__c = afterUpdate,
+      Before_Delete__c = beforeDelete,
+      After_Delete__c = afterDelete,
+      After_Undelete__c = afterUndelete
+    );
+  }
 }

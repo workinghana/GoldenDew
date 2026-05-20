@@ -173,8 +173,6 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
         isOptionCOldSale = false;
       }
 
-      // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.initialSetup', totalStartMs, totalStartCpu);
-
       GdVoucherService voucherSvc = getVoucherService();
       GdPointService pointSvc = getPointService();
 
@@ -217,34 +215,22 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           if ('03'.equals(depositType)) {
             alignCouponCancelJournalToRedeemSource(tj);
             // 쿠폰 사용 취소
-            tj.JournalTypeId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_REDEMPTION_REVERSAL, true);
-            tj.JournalSubTypeId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_COUPON_REDEEM_CANCEL, true);
-            // Long actionStartMs = Datetime.now().getTime();
-            // Integer actionStartCpu = Limits.getCpuTime();
+            tj.JournalTypeId = SObjectCacheUtil.findIdByNameCached(JournalType.SObjectType, JOURNAL_TYPE_NAME_REDEMPTION_REVERSAL, true);
+            tj.JournalSubTypeId = SObjectCacheUtil.findIdByNameCached(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_COUPON_REDEEM_CANCEL, true);
             voucherSvc.redeemCancelVoucher(tj);
-            // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.redeemCancelVoucher', actionStartMs, actionStartCpu);
           } else if ('01'.equals(depositType) || '02'.equals(depositType)) {
             // 쿠폰 사용
-            tj.JournalTypeId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_REDEMPTION, true);
-            tj.JournalSubTypeId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_COUPON_REDEEM, true);
-            // Long actionStartMs = Datetime.now().getTime();
-            // Integer actionStartCpu = Limits.getCpuTime();
+            tj.JournalTypeId = SObjectCacheUtil.findIdByNameCached(JournalType.SObjectType, JOURNAL_TYPE_NAME_REDEMPTION, true);
+            tj.JournalSubTypeId = SObjectCacheUtil.findIdByNameCached(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_COUPON_REDEEM, true);
             voucherSvc.redeemVoucherV2(tj);
-            // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.redeemVoucherV2', actionStartMs, actionStartCpu);
           }
           continue;
         }
-        System.debug('1');
 
         if ('81'.equals(paymentMethod)) {
           // 포인트 사용 취소 (03 = 환불)
           if ('03'.equals(depositType)) {
-            // Long actionStartMs = Datetime.now().getTime();
-            // Integer actionStartCpu = Limits.getCpuTime();
-            System.debug('121');
             Map<String, Object> cancelPointResult = pointSvc.cancelPointRedemption(tj);
-            System.debug('122');
-            // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.cancelPointRedemption', actionStartMs, actionStartCpu);
             data.put('CancelPointList', cancelPointResult);
           }
           // 포인트 사용 (01 = 선수금 | 02 = 잔금)
@@ -253,40 +239,30 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
             throw new CustomException(400, '반품 시 입금 구분 코드 오류. 입금 구분 코드 : ' + depositType);
             // 반품 등록 시 depositType는 '03'으로만 들어 온다고 함.
 
-            // Long actionStartMs = Datetime.now().getTime();
-            // Integer actionStartCpu = Limits.getCpuTime();
-
             /*
             // 기존 로직
-            System.debug('123');
             List<GdSaleApiController.PointDebitDTO> debitPointList = pointSvc.debitPoint(tj);
-            System.debug('124');
             data.put('DebitPointList', debitPointList);
 
             */
-
-            // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.debitPoint', actionStartMs, actionStartCpu);
           }
         } else {
           tj.Status = 'Processed';
           if ('01'.equals(depositType) || '02'.equals(depositType)) {
-            tj.JournalTypeId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_DEPOSIT, true);
-            tj.JournalSubTypeId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_SALE_DEPOSIT, true);
+            tj.JournalTypeId = SObjectCacheUtil.findIdByNameCached(JournalType.SObjectType, JOURNAL_TYPE_NAME_DEPOSIT, true);
+            tj.JournalSubTypeId = SObjectCacheUtil.findIdByNameCached(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_SALE_DEPOSIT, true);
             depositTransactionList.add(tj);
           } else if ('03'.equals(depositType)) {
-            tj.JournalTypeId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_DEPOSIT_REVERSAL, true);
-            tj.JournalSubTypeId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_SALE_DEPOSIT_REVERSAL, true);
+            tj.JournalTypeId = SObjectCacheUtil.findIdByNameCached(JournalType.SObjectType, JOURNAL_TYPE_NAME_DEPOSIT_REVERSAL, true);
+            tj.JournalSubTypeId = SObjectCacheUtil.findIdByNameCached(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_SALE_DEPOSIT_REVERSAL, true);
             cancelDepositTransactionList.add(tj);
           }
           tjList.add(tj);
         }
       }
-      System.debug('12');
 
-      // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.depositLoop', totalStartMs, totalStartCpu);
       if (!tjList.isEmpty()) {
         List<Database.SaveResult> resultList = Database.insert(tjList);
-        // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.insertTransactionJournals', totalStartMs, totalStartCpu);
         for (Database.SaveResult result : resultList) {
           if (!result.isSuccess()) {
             Database.Error err = result.getErrors()[0];
@@ -294,14 +270,10 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           }
         }
       }
-      System.debug('13');
 
       // 구매 시 포인트 적립 로직
       if (!depositTransactionList.isEmpty()) {
-        // Long actionStartMs = Datetime.now().getTime();
-        // Integer actionStartCpu = Limits.getCpuTime();
         List<PointCreditDTO> creditPointList = pointSvc.creditPointsOnPurchase(depositTransactionList);
-        // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.creditPointsOnPurchase', actionStartMs, actionStartCpu);
         // [Null Safe Fix 2026-05-07] creditPointsOnPurchase 가 적립 대상 금액 0 케이스에서 null 반환할 수 있음.
         //   GdPointServiceImpl.creditPointsOnPurchase 의 early return 추가로 인해 null 안전 처리 필요.
         if (creditPointList != null) {
@@ -316,13 +288,9 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           data.put('CreditPointList', creditPointList);
         }
       }
-      System.debug('14');
 
       // 구매 시 포인트 적립 취소 로직
       if (!cancelDepositTransactionList.isEmpty()) {
-        // System.debug('구매 시 포인트 적립 취소 로직 진입');
-        // Long actionStartMs = Datetime.now().getTime();
-        // Integer actionStartCpu = Limits.getCpuTime();
         // List<GdSaleApiController.PointDebitDTO> cancelPointsCreditedList = pointSvc.cancelPointsCreditedOnPurchase(cancelDepositTransactionList);  // 기존 로직
 
         // 신규 로직 Start.(26.04.02)
@@ -364,19 +332,13 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           cancelPointsCreditedList = pointSvc.cancelPointsCreditedOnPurchase(accrualEligibleCancelTransactions);
         }
         // 신규 로직 End.(26.04.02)
-        // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.cancelPointsCreditedOnPurchase', actionStartMs, actionStartCpu);
         data.put('CancelPointsCreditedList', cancelPointsCreditedList);
       }
-      System.debug('15');
 
       // 통반품 여부 확인
       if (isFullReturn(originalOrderId)) {
-        // System.debug('통반품입니다.');
-        // Long actionStartMs = Datetime.now().getTime();
-        // Integer actionStartCpu = Limits.getCpuTime();
         // 에코포인트 회수
         List<PointDebitDTO> ecoPointCancelList = cancelEcoPointsForFullReturn(orderId, originalOrderId, lpmList[0], insertId);
-        // logTiming('GdReturnDepositServiceImpl.insertSaleDepositHistoryByUpdate.cancelEcoPointsForFullReturn', actionStartMs, actionStartCpu);
         if (!ecoPointCancelList.isEmpty()) {
           data.put(ECO_POINT_CANCEL_RESULT_KEY, ecoPointCancelList);
         }
@@ -436,7 +398,6 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
               LIMIT 1
             ];
           }
-          //
 
           if (!percentageVouchers.isEmpty()) {
             throw new CustomException(400, '정률 쿠폰 사용 시, 부분 반품이 불가합니다. 해당 판매 ID : ' + originalOrderId);
@@ -611,7 +572,6 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       }
 
       TransactionJournal sourceTj = tjList[0];
-      // System.debug('sourceTj.Id : ' + sourceTj.Id);
 
       TransactionJournal newTj = buildDeleteTransactionJournal(sourceTj);
       List<TransactionJournal> linkedAccrualReversalTjList = new List<TransactionJournal>();
@@ -626,16 +586,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
         JOURNAL_SUB_TYPE_NAME_PROMOTION_POINT_ACCRUAL_REVERSAL,
         true
       );
-      // Id pointDebitJstId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_POINT_DEBIT, true);
 
-      // if (isEcoPointCancelJournal(sourceTj, apiForcedDebitJstId)) {
-      //   // 에코포인트 지급 취소 건 복원
-      //   System.debug('에코포인트 지급 취소 건 복원합니다.');
-      //   List<PointCreditDTO> ecoRestoreResult = restoreEcoPointsFromReturn(newTj, sourceTj.Id);
-      //   if (!ecoRestoreResult.isEmpty()) {
-      //     data.put(ECO_POINT_RESTORE_RESULT_KEY, ecoRestoreResult);
-      //   }
-      // } else
       linkedAccrualReversalTjList = [
         SELECT
           Id,
@@ -657,9 +608,6 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           AND IsDeleted__c = FALSE
           AND JournalSubTypeId IN :new Set<Id>{ cancelPurchaseAccrualJstId, promotionPointAccrualReversalJstId }
       ];
-      // if (!linkedAccrualReversalTjList.isEmpty()) {
-      //   System.debug('linkedAccrualReversalTjList[0].RelatedJournalId : ' + linkedAccrualReversalTjList[0].RelatedJournalId);
-      // }
 
       if (
         sourceTj.JournalSubTypeId == pointRedeemCancelJstId ||
@@ -667,7 +615,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
         sourceTj.JournalSubTypeId == saleDepositReversalJstId
       ) {
         if (sourceTj.JournalSubTypeId == pointRedeemCancelJstId) {
-          // System.debug('if (sourceTj.JournalSubTypeId == pointRedeemCancelJstId) { 진입 (포인트 사용 취소)');
+          // ? 포인트 내역 복구 진입
 
           // [Origin Check 2026-05-08] B 반품의 Point Redeem Cancel 삭제 = 사용 복원 (재차감) 시도.
           //   재차감하려면 origin 적립 LL 의 판매 (A판매) 가 활성 상태여야 함.
@@ -689,7 +637,6 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
             LIMIT 100
           ];
 
-          // Return deletion must recover the full restored point amount, including expired restored ledgers.
           List<LoyaltyLedger> expiredLedgers = new List<LoyaltyLedger>();
           List<PointDebitDTO> debitPointResult = new List<PointDebitDTO>();
           if (!llList.isEmpty()) {
@@ -715,16 +662,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
             data.put('포인트 사용 만료 확정(재차감 스킵)', expiredSkipped);
           }
         } else if (sourceTj.JournalSubTypeId == couponRedeemCancelJstId) {
-          // 기존 "쿠폰 사용" 내역 복구 진입 - 쿠폰 상태별 분기 처리
-          // List<Voucher> vList = [
-          //   SELECT Id, Status, ExpirationDate, VoucherCode, LoyaltyProgramMemberId,
-          //          VoucherDefinitionId, VoucherDefinition.Name, VoucherDefinition.IsUnlimited__c,
-          //          UsedTransactionJournalId__c
-          //   FROM Voucher
-          //   WHERE VoucherCode = :sourceTj.VoucherCode
-          //     AND LoyaltyProgramMemberId = :sourceTj.MemberId
-          //   LIMIT 1
-          // ];
+          // ? 쿠폰 내역 복구 진입
 
           // 26.05.01 GD - 쿠폰 코드 분할 "쿠폰 사용" 내역 복구 진입 - 쿠폰 상태별 분기 처리
           String searchVoucherCode = sourceTj.VoucherCode;
@@ -811,8 +749,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
             throw new CustomException(400, '알 수 없는 쿠폰 상태입니다. status=' + v.Status + ', voucherCode=' + v.VoucherCode);
           }
         } else {
-          // System.debug('} else { 진입 (판매 입금 취소)');
-          // "판매 입금" 내역 복구 진입
+          // ? 일반 입금 복구 진입
 
           // [Wina 수정 2026.04.04]
           // 설명: 적립불가 품목만 있는 반품 삭제는 구매 포인트 복구 대상이 아니다.
@@ -828,9 +765,6 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
             sourceTj.DeleteDateTime__c = Datetime.now();
             update sourceTj;
             rebuildPointAggregationForMembers(new Set<Id>{ sourceTj.MemberId });
-            // if (!linkedAccrualReversalTjList.isEmpty()) {
-            // update linkedAccrualReversalTjList;
-            // }
             return ApiResult.ok(200, '반품 입금 삭제 완료', data);
           }
 
@@ -874,7 +808,6 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           List<PointCreditDTO> creditPointsOnPurchaseResult = new List<PointCreditDTO>();
           List<PointCreditDTO> creditPromotionPointsResult = new List<PointCreditDTO>();
           if (!linkedAccrualReversalTjList.isEmpty()) {
-            // System.debug('if (!linkedAccrualReversalTjList.isEmpty()) { 진입');
             for (TransactionJournal reversalTj : linkedAccrualReversalTjList) {
               TransactionJournal restoreTj = buildDeleteTransactionJournal(reversalTj);
               restoreTj.AdditionalNotes__c = reversalTj.JournalSubTypeId == promotionPointAccrualReversalJstId
@@ -960,7 +893,6 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
               ];
 
               // 포인트 적립 취소된 내역 복원 = 재지급
-              // System.debug('lltList.size()aaaaaaa : ' + lltList.size());
               List<PointCreditDTO> restoreResult = getPointService().creditSepcificPoints(restoreTj, lltList);
               if (reversalTj.JournalSubTypeId == promotionPointAccrualReversalJstId) {
                 creditPromotionPointsResult.addAll(restoreResult);
@@ -995,7 +927,6 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
           } else {
             String grade;
             if (orderDate < modifiedDate) {
-              // System.debug('if (orderDate < modifiedDate) { 진입');
               // 이전 등급으로 다시 적립
 
               // 기존 로직 Start 2026-04-06
@@ -1039,13 +970,10 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
                 creditPointsOnPurchaseResult = getPointService().creditPointsOnPurchaseByGrade(reqData);
               }
             } else {
-              // System.debug('sourceTj.Id : ' + sourceTj.Id);
               creditPointsOnPurchaseResult = getPointService().creditPointsOnPurchase(new List<TransactionJournal>{ sourceTj });
             }
 
-            // System.debug('sourceTj.PromotionId : ' + sourceTj.PromotionId);
             if (sourceTj.PromotionId != null) {
-              // System.debug('if (sourceTj.PromotionId != null) { 진입');
               creditPromotionPointsResult = getPointService().creditPromotionPointsOnPurchase(new List<TransactionJournal>{ sourceTj }, 0);
             }
 
@@ -1067,9 +995,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
             }
           }
           if (creditPromotionPointsResult != null) {
-            // System.debug('if (creditPromotionPointsResult != null) { 진입');
             if (!creditPromotionPointsResult.isEmpty()) {
-              // System.debug('if (!creditPromotionPointsResult.isEmpty()) { 진입');
               data.put('프로모션 포인트 지급 내역 복구', creditPromotionPointsResult);
             }
           }
@@ -1150,7 +1076,6 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       originalQtyByProductId.put(productId, currentQty + originalOi.Quantity);
     }
     if (originalQtyByProductId.isEmpty()) {
-      System.debug('if (originalQtyByProductId.isEmpty()) {');
       return false;
     }
 
@@ -1166,7 +1091,6 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     ]) {
       Id productId = returnOi.PricebookEntry.Product2Id;
       if (!originalQtyByProductId.containsKey(productId)) {
-        System.debug('if (!originalQtyByProductId.containsKey(productId)) {');
         return false;
       }
       Decimal returnedMagnitude = (returnOi.Quantity == null) ? 0 : returnOi.Quantity.abs();
@@ -1175,16 +1099,12 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     }
 
     if (returnQtyByProductId.size() != originalQtyByProductId.size()) {
-      System.debug('if (returnQtyByProductId.size() != originalQtyByProductId.size()) {');
       return false;
     }
 
     for (Id productId : originalQtyByProductId.keySet()) {
       Decimal returnedQty = returnQtyByProductId.get(productId);
-      System.debug('returnedQty : ' + returnedQty);
-      System.debug('originalQtyByProductId.get(productId) : ' + originalQtyByProductId.get(productId));
       if (returnedQty == null || returnedQty < originalQtyByProductId.get(productId)) {
-        System.debug('if (returnedQty == null || returnedQty < originalQtyByProductId.get(productId)) {');
         return false;
       }
     }
@@ -1358,13 +1278,16 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
   }
 
   /**
+   * * 사용 중
    * 원판매 입금 이력 중 포인트 적립 대상 결제 금액 합계 계산
    */
   @TestVisible
   private static Decimal getOriginalAccrualEligibleDepositAmount(Id originalOrderId) {
     Decimal eligibleDepositAmount = 0;
-    Id saleDepositJstId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_SALE_DEPOSIT, true);
+    Id saleDepositJstId = SObjectCacheUtil.findIdByNameCached(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_SALE_DEPOSIT, true);
+    Id orderDepositJstId = SObjectCacheUtil.findIdByNameCached(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_ORDER_DEPOSIT, true);
 
+    /*
     for (TransactionJournal tj : [
       SELECT PaymentMethod, TransactionAmount
       FROM TransactionJournal
@@ -1379,6 +1302,28 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       eligibleDepositAmount += tj.TransactionAmount;
     }
 
+    return eligibleDepositAmount;
+    */
+    for (TransactionJournal tj : [
+      SELECT PaymentMethod, TransactionAmount
+      FROM TransactionJournal
+      WHERE
+        (OrderId = :originalOrderId
+        OR SaleId__c = :originalOrderId) // ← OR 추가
+        AND JournalSubTypeId IN (
+          :saleDepositJstId,
+          :orderDepositJstId // ← IN으로 변경 (신규 로직 26.05.18 CS)
+        )
+        AND IsDeleted__c = FALSE
+    ]) {
+      if (tj.PaymentMethod == '20' || tj.PaymentMethod == '81' || tj.PaymentMethod == '90' || tj.PaymentMethod == '93') {
+        continue;
+      }
+      if (tj.TransactionAmount == null || tj.TransactionAmount == 0) {
+        continue;
+      }
+      eligibleDepositAmount += tj.TransactionAmount;
+    }
     return eligibleDepositAmount;
   }
 
@@ -1638,7 +1583,16 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     Id apiForcedCreditJstId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_API_FORCED_CREDIT, true);
 
     ctx.originalEcoCreditLedgerList = [
-      SELECT Id, Points, LoyaltyPgmCrcySubtypeId, LoyaltyPgmCrcySubtype.Name, LoyaltyProgramCurrencyId, ExpiryDate, ActivityDate, CreatedDate
+      SELECT
+        Id,
+        Points,
+        LoyaltyPgmCrcySubtypeId,
+        LoyaltyPgmCrcySubtype.Name,
+        LoyaltyProgramCurrencyId,
+        LoyaltyProgramMemberId,
+        ExpiryDate,
+        ActivityDate,
+        CreatedDate
       FROM LoyaltyLedger
       WHERE
         TransactionJournal.OrderId = :originalOrderId
@@ -1661,25 +1615,58 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       ctx.remainingByLedgerId.put(ll.Id, ll.Points == null ? 0 : ll.Points);
     }
 
+    // [v3 net-match 2026-05-15 / CAR_269999800262]
+    //   v3 paradigm (PointCancel_PreserveTrace=ON) 에서는 사용 cancel 시 CC LLT 가 발행되지 않고
+    //   Cancel Credit LL 만 발행됨. LLT 만 보는 단순 합산은 사용 cancel 된 양도 활성 사용으로 잘못
+    //   인식하여 잔여 = 0 으로 계산 → 에코 회수가 안 됨.
+    //   해결: Debit LLT 합 - 같은 origin 의 Cancel Credit LL.Points 합 = net 활성 사용.
+    //   동일 패턴: validateEcoUsageBeforeCancel (line 2907~), GdSaleServiceImpl.calculateUnrefundedUsage.
+    Map<Id, Decimal> debitSumByLedgerId = new Map<Id, Decimal>();
     for (AggregateResult ar : [
       SELECT CreditLoyaltyLedgerId creditLedgerId, SUM(Points) totalPoints
       FROM LoyaltyLedgerTraceability
       WHERE
         CreditLoyaltyLedgerId IN :ctx.remainingByLedgerId.keySet()
-        AND (ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_DEBIT
-        OR ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION)
+        AND ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_DEBIT
         AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
         AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
         OR (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE
         AND DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :ECO_POINT_CANCEL_NOTE))
       GROUP BY CreditLoyaltyLedgerId
     ]) {
-      Id creditLedgerId = (Id) ar.get('creditLedgerId');
-      Decimal usedPoints = (Decimal) ar.get('totalPoints');
-      if (ctx.remainingByLedgerId.containsKey(creditLedgerId)) {
-        Decimal remaining = ctx.remainingByLedgerId.get(creditLedgerId) - usedPoints;
-        ctx.remainingByLedgerId.put(creditLedgerId, remaining < 0 ? 0 : remaining);
-      }
+      debitSumByLedgerId.put((Id) ar.get('creditLedgerId'), (Decimal) ar.get('totalPoints'));
+    }
+
+    Id memberId = ctx.originalEcoCreditLedgerList[0].LoyaltyProgramMemberId;
+    Map<Id, Decimal> cancelSumByOriginLLId = new Map<Id, Decimal>();
+    for (LoyaltyLedger cc : [
+      SELECT Id, Points, AdditionalNotes
+      FROM LoyaltyLedger
+      WHERE
+        LoyaltyProgramMemberId = :memberId
+        AND TransactionJournal.JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL
+        AND EventType = 'Credit'
+        AND Points > 0
+        AND IsDeleted = FALSE
+        AND TransactionJournal.IsDeleted__c = FALSE
+        AND AdditionalNotes LIKE '%ORIGIN_CREDIT_LL=%'
+      LIMIT 50000
+    ]) {
+      Id originId = extractOriginCreditLedgerIdFromNotes(cc.AdditionalNotes);
+      if (originId == null || !ctx.remainingByLedgerId.containsKey(originId))
+        continue;
+      Decimal pts = cc.Points == null ? 0 : cc.Points;
+      cancelSumByOriginLLId.put(originId, (cancelSumByOriginLLId.containsKey(originId) ? cancelSumByOriginLLId.get(originId) : 0) + pts);
+    }
+
+    for (Id ledgerId : new Set<Id>(ctx.remainingByLedgerId.keySet())) {
+      Decimal debit = debitSumByLedgerId.containsKey(ledgerId) ? debitSumByLedgerId.get(ledgerId) : 0;
+      Decimal cancel = cancelSumByOriginLLId.containsKey(ledgerId) ? cancelSumByOriginLLId.get(ledgerId) : 0;
+      Decimal netUsed = debit - cancel;
+      if (netUsed < 0)
+        netUsed = 0;
+      Decimal remaining = ctx.remainingByLedgerId.get(ledgerId) - netUsed;
+      ctx.remainingByLedgerId.put(ledgerId, remaining < 0 ? 0 : remaining);
     }
 
     for (LoyaltyLedger ecoLedger : ctx.originalEcoCreditLedgerList) {
@@ -1738,6 +1725,18 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       List<LoyaltyLedger> originalEcoCreditLedgerList = ecoCtx.originalEcoCreditLedgerList;
       Map<Id, Decimal> remainingByLedgerId = ecoCtx.remainingByLedgerId;
 
+      // Map<Id, Order> saleOrderById = loadSaleOrdersByJournalList(data);
+      Date saleEndDate = null;
+      List<Order> oList = [
+        SELECT Id, EndDate, EffectiveDate, SaleNo__c, IsDeleted__c
+        FROM Order
+        WHERE id = :returnOrderId
+        LIMIT 1
+      ];
+      if (!oList.isEmpty()) {
+        saleEndDate = oList[0].EndDate;
+      }
+
       // 기존 차감 분량 합산 (RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE 와
       // ECO_POINT_CANCEL_NOTE 마커는 제외 — getCancelableEcoPointLedgers 와 동일 정책)
       // [Eco Cancel IsDeleted Fix 2026-05-05] 입금 삭제로 무효화된 Debit TJ 의 LLT 도 제외.
@@ -1749,7 +1748,8 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       TransactionJournal ecoCancelTj = new TransactionJournal();
       ecoCancelTj.DepositNo__c = 'ECO-' + String.valueOf(returnOrderId);
       ecoCancelTj.DeposiSeqNo__c = '1';
-      ecoCancelTj.JournalDate = Datetime.now();
+      // ecoCancelTj.JournalDate = Datetime.now();  // 기존
+      ecoCancelTj.JournalDate = saleEndDate == null ? Datetime.now() : TimeUtil.dateToUtcStartOfDay(saleEndDate);
       ecoCancelTj.ActivityDate = Datetime.now();
       ecoCancelTj.LoyaltyProgramId = lpm.ProgramId;
       ecoCancelTj.MemberId = lpm.Id;
@@ -2535,6 +2535,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     return resultByLedgerId;
   }
 
+  @TestVisible
   private static void validateRestoredPointLedgersFullyRecoverableV2(List<LoyaltyLedger> restoredLedgers, Id memberId) {
     if (restoredLedgers == null || restoredLedgers.isEmpty()) {
       return;
@@ -2764,6 +2765,7 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
     return String.valueOf(orderId) + '|' + String.valueOf(subtypeId) + '|' + String.valueOf(expiryDate);
   }
 
+  @TestVisible
   private static void validateRestoredPointLedgersFullyRecoverable(List<LoyaltyLedger> restoredLedgers, Id memberId) {
     if (restoredLedgers == null || restoredLedgers.isEmpty()) {
       return;
@@ -2892,29 +2894,46 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
    *         A판매에 에코 적립 자체가 없으면 (originalEcoCreditLedgerIds 빈 셋) 검증 우회.
    */
   private static void validateEcoUsageBeforeCancel(Id originalOrderId) {
-    // [SOQL Optimization 2026-05-08] 2 SOQL → 1 SOQL (semi-join 활용).
-    //   기존: originalEcoCreditLedgerIds 조회(SOQL 1) + usageLltList(SOQL 2)
-    //   수정: 사용 LLT 조회 시 CreditLL 의 매칭 조건을 semi-join 으로 한 SOQL 에 통합.
-    //   효과: governor SOQL limit 여유 확보 (큰 흐름에서 한도 초과 방지).
+    // [v3 net-match 2026-05-15 / CAR_269999800260]
+    //   배경: v3 paradigm (PointCancel_PreserveTrace=ON) 에서는 사용 cancel 시 Cancel Credit LL 만
+    //         발행되고 원본 Debit LLT 는 보존됨 (CreditCancellation/DebitCancellation LLT 미발행).
+    //   기존 동작: 활성 Debit LLT 1건이라도 있으면 차단 → v3 cancel 된 사용을 active 로 오인식.
+    //   해결: SAL_252 의 에코 적립 LL 을 ORIGIN_CREDIT_LL 로 가리키는 Point Redeem Cancel LL 의
+    //         Points 합 vs. 활성 Debit LLT Points 합 → net 잔량 > 0 일 때만 차단.
+    //         CAR_258 의 calculateUnrefundedUsage main loop net-match 와 동일 패턴.
+    List<LoyaltyLedger> originalEcoCreditLLs = [
+      SELECT Id, LoyaltyProgramMemberId
+      FROM LoyaltyLedger
+      WHERE
+        TransactionJournal.OrderId = :originalOrderId
+        AND TransactionJournal.JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_API_FORCED_CREDIT
+        AND LoyaltyPgmCrcySubtype.PointTypeCode__c = :ECO_POINT_TYPE_CODE
+        AND EventType = 'Credit'
+        AND (TransactionJournal.AdditionalNotes__c = NULL
+        OR TransactionJournal.AdditionalNotes__c != :ECO_POINT_RESTORE_NOTE)
+      LIMIT 200
+    ];
+    if (originalEcoCreditLLs.isEmpty()) {
+      return;
+    }
+    Set<Id> originalEcoCreditLLIds = new Set<Id>();
+    Id memberId = null;
+    for (LoyaltyLedger ll : originalEcoCreditLLs) {
+      originalEcoCreditLLIds.add(ll.Id);
+      memberId = ll.LoyaltyProgramMemberId;
+    }
+
     List<LoyaltyLedgerTraceability> usageLltList = [
       SELECT
         Id,
+        Points,
+        CreditLoyaltyLedgerId,
         DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
         DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
         DebitLoyaltyLedger.TransactionJournal.DepositNo__c
       FROM LoyaltyLedgerTraceability
       WHERE
-        CreditLoyaltyLedgerId IN (
-          SELECT Id
-          FROM LoyaltyLedger
-          WHERE
-            TransactionJournal.OrderId = :originalOrderId
-            AND TransactionJournal.JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_API_FORCED_CREDIT
-            AND LoyaltyPgmCrcySubtype.PointTypeCode__c = :ECO_POINT_TYPE_CODE
-            AND EventType = 'Credit'
-            AND (TransactionJournal.AdditionalNotes__c = NULL
-            OR TransactionJournal.AdditionalNotes__c != :ECO_POINT_RESTORE_NOTE)
-        )
+        CreditLoyaltyLedgerId IN :originalEcoCreditLLIds
         AND ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_DEBIT
         AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
         AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
@@ -2926,10 +2945,44 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       return;
     }
 
+    Map<Id, Decimal> debitSumByOriginLLId = new Map<Id, Decimal>();
+    for (LoyaltyLedgerTraceability llt : usageLltList) {
+      Id originId = llt.CreditLoyaltyLedgerId;
+      Decimal pts = llt.Points == null ? 0 : llt.Points;
+      debitSumByOriginLLId.put(originId, (debitSumByOriginLLId.containsKey(originId) ? debitSumByOriginLLId.get(originId) : 0) + pts);
+    }
+
+    Map<Id, Decimal> cancelSumByOriginLLId = new Map<Id, Decimal>();
+    for (LoyaltyLedger cc : [
+      SELECT Id, Points, AdditionalNotes
+      FROM LoyaltyLedger
+      WHERE
+        LoyaltyProgramMemberId = :memberId
+        AND TransactionJournal.JournalSubType.Name = :JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL
+        AND EventType = 'Credit'
+        AND Points > 0
+        AND IsDeleted = FALSE
+        AND TransactionJournal.IsDeleted__c = FALSE
+        AND AdditionalNotes LIKE '%ORIGIN_CREDIT_LL=%'
+      LIMIT 50000
+    ]) {
+      Id originId = extractOriginCreditLedgerIdFromNotes(cc.AdditionalNotes);
+      if (originId == null || !originalEcoCreditLLIds.contains(originId))
+        continue;
+      Decimal pts = cc.Points == null ? 0 : cc.Points;
+      cancelSumByOriginLLId.put(originId, (cancelSumByOriginLLId.containsKey(originId) ? cancelSumByOriginLLId.get(originId) : 0) + pts);
+    }
+
     Set<String> saleNumberSet = new Set<String>();
     Set<String> orderNumberSet = new Set<String>();
     Set<String> depositNumberSet = new Set<String>();
     for (LoyaltyLedgerTraceability llt : usageLltList) {
+      Id originId = llt.CreditLoyaltyLedgerId;
+      Decimal debit = debitSumByOriginLLId.containsKey(originId) ? debitSumByOriginLLId.get(originId) : 0;
+      Decimal cancel = cancelSumByOriginLLId.containsKey(originId) ? cancelSumByOriginLLId.get(originId) : 0;
+      if (debit - cancel <= 0.000001) {
+        continue;
+      }
       if (llt.DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c != null) {
         saleNumberSet.add(llt.DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c);
       } else if (llt.DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c != null) {
@@ -2938,6 +2991,9 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       if (llt.DebitLoyaltyLedger.TransactionJournal.DepositNo__c != null) {
         depositNumberSet.add(llt.DebitLoyaltyLedger.TransactionJournal.DepositNo__c);
       }
+    }
+    if (saleNumberSet.isEmpty() && orderNumberSet.isEmpty() && depositNumberSet.isEmpty()) {
+      return;
     }
     List<String> saleSorted = new List<String>(saleNumberSet);
     saleSorted.sort();
@@ -2960,6 +3016,30 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
       detail += ' / 입금번호: ' + depositNumberList;
     }
     throw new CustomException(400, detail);
+  }
+
+  /**
+   * [v3 net-match helper 2026-05-15] AdditionalNotes 에서 ORIGIN_CREDIT_LL=<id>; 토큰 추출.
+   *   GdSaleServiceImpl 의 extractOriginCreditLedgerId 와 동일 패턴.
+   */
+  private static Id extractOriginCreditLedgerIdFromNotes(String notes) {
+    if (String.isBlank(notes))
+      return null;
+    String token = 'ORIGIN_CREDIT_LL=';
+    Integer idx = notes.indexOf(token);
+    if (idx < 0)
+      return null;
+    String tail = notes.substring(idx + token.length());
+    Integer semiIdx = tail.indexOf(';');
+    String idStr = semiIdx >= 0 ? tail.substring(0, semiIdx) : tail;
+    idStr = idStr.trim();
+    if (String.isBlank(idStr))
+      return null;
+    try {
+      return (Id) idStr;
+    } catch (Exception e) {
+      return null;
+    }
   }
 
   @TestVisible

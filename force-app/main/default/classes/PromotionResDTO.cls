@@ -50,20 +50,20 @@ public with sharing class PromotionResDTO {
     // this.DT_EVENT_END = (p.EndDate != null) ? String.valueOf(p.EndDate).replaceAll('-', '') : '';
     // this.CD_STAT = p.StatusCode__c;
     this.NM_STAT = p.StatusCode__c;
-    this.YN_USE_COUPON =
-      (p.IsCouponAllowed__c == true ||
+    this.YN_USE_COUPON = (p.IsCouponAllowed__c == true ||
       p.IsFixedAmountCouponAllowed__c == true ||
       p.IsRateCouponAllowed__c == true ||
       p.IsSpecificCouponAllowed__c == true)
-        ? 'Y'
-        : 'N';
-    this.YN_USE_FIXED_COUPON = (p.IsFixedAmountCouponAllowed__c) ? 'Y' : 'N';
-    this.YN_USE_RATE_COUPON = (p.IsRateCouponAllowed__c) ? 'Y' : 'N';
-    this.YN_USE_SPECIFIC_COUPON = (p.IsSpecificCouponAllowed__c) ? 'Y' : 'N';
+      ? 'Y'
+      : 'N';
+    Boolean isAllCoupon = p.IsCouponAllowed__c == true;
+    this.YN_USE_FIXED_COUPON = (isAllCoupon || p.IsFixedAmountCouponAllowed__c == true) ? 'Y' : 'N';
+    this.YN_USE_RATE_COUPON = (isAllCoupon || p.IsRateCouponAllowed__c == true) ? 'Y' : 'N';
+    this.YN_USE_SPECIFIC_COUPON = (isAllCoupon || p.IsSpecificCouponAllowed__c == true) ? 'Y' : 'N';
     this.YN_USE_POINT = (p.IsPointUsageAllowed__c) ? 'Y' : 'N';
     this.YN_ALL_STORE = (p.IsAllStore__c) ? 'Y' : 'N';
     this.YN_ALL_ITEM = (p.IsAllItem__c) ? 'Y' : 'N';
-    this.YN_ALL_COUPON = (p.IsCouponAllowed__c) ? 'Y' : 'N';
+    this.YN_ALL_COUPON = isAllCoupon ? 'Y' : 'N';
     this.YN_PROM_DC = (p.IsDiscountRateApplicable__c) ? 'Y' : 'N';
     this.YN_SPEC_STORE = (p.IsStoreSpecific__c) ? 'Y' : 'N';
     this.YN_SPEC_ITEM = (p.HasTargetProductCondition__c) ? 'Y' : 'N';

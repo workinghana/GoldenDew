@@ -137,7 +137,7 @@ private class ErpCouponApiClientTest {
     Test.setMock(HttpCalloutMock.class, new MockHttpSuccess());
 
     ErpCouponReqDto.IssueRequest req = new ErpCouponReqDto.IssueRequest();
-    ErpCouponReqDto.CouponDetailModel item = new ErpCouponReqDto.CouponDetailModel('MAN-001', 'MBR-001', 'tester');
+    ErpCouponReqDto.CouponDetailModel item = new ErpCouponReqDto.CouponDetailModel('MAN-001', 'CPN-001', 'MBR-001', 'tester');
     req.couponDetailModels.add(item);
 
     Test.startTest();

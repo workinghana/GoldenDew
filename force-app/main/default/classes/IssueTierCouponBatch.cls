@@ -251,9 +251,9 @@ public with sharing class IssueTierCouponBatch implements Database.Batchable<SOb
 
         ErpCouponReqDto.IssueRequest couponIssueReq = new ErpCouponReqDto.IssueRequest();
 
-        couponIssueReq.couponDetailModels = new List<ErpCouponReqDto.CouponDetailModel>();
+        // couponIssueReq.couponDetailModels = new List<ErpCouponReqDto.CouponDetailModel>();
 
-        Set<Id> voucherIdsForCallback = new Set<Id>();
+        // Set<Id> voucherIdsForCallback = new Set<Id>();
 
         for (Voucher v : issued) {
           String couponManNo = v.VoucherDefinition.CouponManNo__c;
@@ -264,18 +264,18 @@ public with sharing class IssueTierCouponBatch implements Database.Batchable<SOb
             continue;
           }
 
-          couponIssueReq.couponDetailModels.add(new ErpCouponReqDto.CouponDetailModel(couponManNo, voucherCode, memberNo, UserInfo.getName()));
+          // couponIssueReq.couponDetailModels.add(new ErpCouponReqDto.CouponDetailModel(couponManNo, voucherCode, memberNo, UserInfo.getName()));
 
-          voucherIdsForCallback.add(v.Id);
+          // voucherIdsForCallback.add(v.Id);
         }
 
-        if (!couponIssueReq.couponDetailModels.isEmpty()) {
-          System.enqueueJob(
-            new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), voucherIdsForCallback)
-          );
+        // if (!couponIssueReq.couponDetailModels.isEmpty()) {
+        //   System.enqueueJob(
+        //     new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), voucherIdsForCallback)
+        //   );
 
-          erpEnqueueCnt = 1;
-        }
+        //   erpEnqueueCnt = 1;
+        // }
       }
 
       /* ================= 상태 집계 ================= */
@@ -289,7 +289,8 @@ public with sharing class IssueTierCouponBatch implements Database.Batchable<SOb
       else
         logger.setStatus('SUCCESS');
 
-      logger.setDescription('scope=' + scopeCnt + ', members=' + memberCnt + ', TJ ok=' + tjOk + ', issue ok=' + issueOk + ', ERP=' + erpEnqueueCnt);
+      // logger.setDescription('scope=' + scopeCnt + ', members=' + memberCnt + ', TJ ok=' + tjOk + ', issue ok=' + issueOk + ', ERP=' + erpEnqueueCnt);  // 기존 로직
+      logger.setDescription('scope=' + scopeCnt + ', members=' + memberCnt + ', TJ ok=' + tjOk + ', issue ok=' + issueOk + ', ERP=' + erpEnqueueCnt); // 신규 로직 (26.05.18 CS)
     } catch (Exception e) {
       logger.setStatus('ERROR');
       logger.setErrorMessage(e.getMessage());

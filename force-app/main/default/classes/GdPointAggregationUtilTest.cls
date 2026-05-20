@@ -21,7 +21,7 @@ private class GdPointAggregationUtilTest {
     ApexLogger.disableLogging();
 
     Id standardPricebookId = Test.getStandardPricebookId();
-    update new Pricebook2(Id = standardPricebookId, IsActive = true);
+    try { update new Pricebook2(Id = standardPricebookId, IsActive = true); } catch (Exception lockEx) { /* parallel @TestSetup lock conflict - safe to ignore (idempotent) */ }
 
     Contact contactRecord = new Contact(LastName = 'AggrUtilMember', MemberNo__c = MEMBER_NO);
     insert contactRecord;

@@ -1,24 +1,30 @@
 @IsTest
 private class VoucherTriggerTest {
+  private class SuccessCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setBody('{"success":true,"message":"ok","data":{}}');
+      return res;
+    }
+  }
+
   @TestSetup
   static void setupTestData() {
-    Test.setMock(HttpCalloutMock.class, new CommonApiClientUniversalMock());
-
-    // 필수 연관 데이터 세팅
-    LoyaltyProgram lp = new LoyaltyProgram(Name = 'Test Program');
+    LoyaltyProgram lp = new LoyaltyProgram(Name = 'Voucher Trigger Test Program');
     insert lp;
 
-    Product2 prod = new Product2(Name = 'Test Product', IsActive = true);
+    Product2 prod = new Product2(Name = 'Voucher Trigger Test Product', IsActive = true);
     insert prod;
 
-    VoucherCategory__c vc = new VoucherCategory__c(Name = 'Test Category', Code__c = 'TEST');
+    VoucherCategory__c vc = new VoucherCategory__c(Name = 'Voucher Trigger Test Category', Code__c = 'VTT');
     insert vc;
 
-    Account acc = new Account(Name = 'Test Account', CompanyCode__c = '1000');
+    Account acc = new Account(Name = 'Voucher Trigger Test Account', CompanyCode__c = '1000');
     insert acc;
 
     VoucherDefinition vd = new VoucherDefinition(
-      Name = 'Test Voucher',
+      Name = 'Voucher Trigger Test Voucher',
       LoyaltyProgramId = lp.Id,
       IsActive = true,
       ProductId = prod.Id,
@@ -37,36 +43,61 @@ private class VoucherTriggerTest {
     );
     insert vd;
 
-    Contact con = new Contact(LastName = 'Test Contact', AccountId = acc.Id, MemberNo__c = 'M001');
+    Contact con = new Contact(LastName = 'Voucher Trigger Contact', AccountId = acc.Id, MemberNo__c = 'M001');
     insert con;
 
-    // 테스트용 Voucher 생성
-    Voucher v = new Voucher(
+    insert new Voucher(
       VoucherDefinitionId = vd.Id,
       ContactId = con.Id,
       Status = 'Issued',
       EffectiveDate = Date.today(),
       ExpirationDate = Date.today().addDays(30)
     );
-    insert v;
+  }
+
+  private static Voucher getVoucher() {
+    return [
+      SELECT Id, Status, EffectiveDate, ExpirationDate
+      FROM Voucher
+      LIMIT 1
+    ];
   }
 
   @IsTest
-  static void testVoucherTriggerExecution() {
-    // Given: 생성된 Voucher를 가져옵니다.
-    Voucher testVoucher = [SELECT Id, Status FROM Voucher LIMIT 1];
-    Test.setMock(HttpCalloutMock.class, new CommonApiClientUniversalMock());
+  static void afterUpdate_statusChangedToExpired_enqueuesCouponUpdateJob() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Voucher testVoucher = getVoucher();
 
     Test.startTest();
-
-    // When: Voucher를 업데이트하여 VoucherTrigger(after update)를 강제로 실행시킵니다.
     testVoucher.Status = 'Expired';
     update testVoucher;
-
     Test.stopTest();
 
-    // Then: 트리거가 에러 없이 정상적으로 실행(update 성공)되었는지 검증합니다.
-    Voucher updatedVoucher = [SELECT Id, Status FROM Voucher WHERE Id = :testVoucher.Id];
-    System.assertEquals('Expired', updatedVoucher.Status);
+    System.assertEquals('Expired', [SELECT Status FROM Voucher WHERE Id = :testVoucher.Id].Status);
+  }
+
+  @IsTest
+  static void afterUpdate_expirationDateChanged_enqueuesCouponUpdateJob() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Voucher testVoucher = getVoucher();
+
+    Test.startTest();
+    testVoucher.ExpirationDate = Date.today().addDays(45);
+    update testVoucher;
+    Test.stopTest();
+
+    System.assertEquals(Date.today().addDays(45), [SELECT ExpirationDate FROM Voucher WHERE Id = :testVoucher.Id].ExpirationDate);
+  }
+
+  @IsTest
+  static void afterUpdate_withoutRelevantChange_doesNotEnqueueJob() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Voucher testVoucher = getVoucher();
+
+    Test.startTest();
+    testVoucher.Status = 'Issued';
+    update testVoucher;
+    System.assertEquals(0, Limits.getQueueableJobs(), 'Unchanged status and expiration date should not enqueue a job.');
+    Test.stopTest();
   }
 }

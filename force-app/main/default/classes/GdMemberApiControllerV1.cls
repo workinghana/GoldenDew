@@ -136,6 +136,8 @@ global with sharing class GdMemberApiControllerV1 {
         // Voucher, TransactionJournal insert
         ApiResult voucherResult = getVoucherService().issueSignupCoupon(reqData);
 
+        /*
+        ! 쿠폰 동기화 하지 않음으로 ERP API 호출하지 않는다.
         if (voucherResult != null) {
           // 쿠폰 개별 지급 비동기 처리 큐에 등록
           List<Voucher> couponList = (List<Voucher>) voucherResult.data.get('CouponList');
@@ -151,6 +153,7 @@ global with sharing class GdMemberApiControllerV1 {
             System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), couponIds));
           }
         }
+        */
       } else {
         // SMS 미동의: 쿠폰 발급 스킵
       }

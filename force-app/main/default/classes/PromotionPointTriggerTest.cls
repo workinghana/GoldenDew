@@ -12,8 +12,36 @@ private class PromotionPointTriggerTest {
 
   @TestSetup
   static void setupData() {
-    LoyaltyProgram lp = new LoyaltyProgram(Name = 'TPP-LP', IsPrimary = false, Status = 'Active');
+    LoyaltyProgram lp = new LoyaltyProgram(Name = 'TPP-LP', IsPrimary = false);
     insert lp;
+
+    String expiryUnit = null;
+    for (Schema.PicklistEntry e : LoyaltyProgramCurrency.ExpiryPeriodUnit.getDescribe().getPicklistValues()) {
+      if (!e.getValue().toLowerCase().contains('day')) {
+        expiryUnit = e.getValue();
+        break;
+      }
+    }
+    if (expiryUnit == null) {
+      List<Schema.PicklistEntry> units = LoyaltyProgramCurrency.ExpiryPeriodUnit.getDescribe().getPicklistValues();
+      if (!units.isEmpty()) {
+        expiryUnit = units[0].getValue();
+      }
+    }
+
+    String expiryModel = 'FIXED';
+    for (Schema.PicklistEntry e : LoyaltyProgramCurrency.ExpiryModel.getDescribe().getPicklistValues()) {
+      if (e.getValue().equalsIgnoreCase('FIXED')) {
+        expiryModel = e.getValue();
+        break;
+      }
+    }
+
+    String extendExpiration = null;
+    List<Schema.PicklistEntry> extEntries = LoyaltyProgramCurrency.ExtendExpiration.getDescribe().getPicklistValues();
+    if (!extEntries.isEmpty()) {
+      extendExpiration = extEntries[0].getValue();
+    }
 
     LoyaltyProgramCurrency lpc = new LoyaltyProgramCurrency(
       LoyaltyProgramId = lp.Id,
@@ -22,16 +50,16 @@ private class PromotionPointTriggerTest {
       IsActive = true,
       IsPrimary = true,
       ExpiryPeriodFrequency = 12,
-      ExpiryPeriodUnit = 'Years',
-      ExpiryModel = 'Fixed',
-      ExtendExpiration = 'None',
+      ExpiryPeriodUnit = expiryUnit,
+      ExpiryModel = expiryModel,
+      ExtendExpiration = extendExpiration,
       CostperUnit = 1,
       HasEscrow = false,
       DoesAllowLedgerTracing = true
     );
     insert lpc;
 
-    String pointTypeCode = firstPicklistValue(LoyaltyPgmCurrencySubtype.PointTypeCode__c);
+    String pointTypeCode = LoyaltyPgmCurrencySubtype.PointTypeCode__c.getDescribe().getPicklistValues()[0].getValue();
     LoyaltyPgmCurrencySubtype subtype = new LoyaltyPgmCurrencySubtype(
       LoyaltyProgramCurrencyId = lpc.Id,
       Name = 'TPP-Subtype',
@@ -57,22 +85,13 @@ private class PromotionPointTriggerTest {
     insert p;
   }
 
-  private static String firstPicklistValue(Schema.SObjectField fieldRef) {
-    List<Schema.PicklistEntry> entries = fieldRef.getDescribe().getPicklistValues();
-    return entries.isEmpty() ? null : entries[0].getValue();
-  }
-
-  private static Boolean isDefaultPointLimitType(String typeText) {
-    String normalized = String.valueOf(typeText).toLowerCase();
-    return normalized.contains('기본') || normalized.contains('basic') || normalized.contains('default');
-  }
-
   private static String pointLimitTypeAllowingValue() {
     List<Schema.PicklistEntry> entries = PromotionPointLimit__c.Type__c.getDescribe().getPicklistValues();
     for (Schema.PicklistEntry entry : entries) {
       String value = String.valueOf(entry.getValue());
       String label = String.valueOf(entry.getLabel());
-      if (!isDefaultPointLimitType(value + ' ' + label)) {
+      String normalized = (value + ' ' + label).toLowerCase();
+      if (!normalized.contains('기본') && !normalized.contains('basic') && !normalized.contains('default')) {
         return value;
       }
     }
@@ -90,8 +109,7 @@ private class PromotionPointTriggerTest {
       Type__c = typeValue,
       LoyaltyPgmCurrencySubtypeId__c = subtypeId
     );
-
-    if (typeValue != null && !isDefaultPointLimitType(typeValue)) {
+    if (typeValue != null && !String.valueOf(typeValue).contains('기본')) {
       limitRecord.Value__c = 100;
     }
     return limitRecord;
@@ -117,22 +135,14 @@ private class PromotionPointTriggerTest {
     PromotionPointLimit__c ppl = makeLimit();
     insert ppl;
 
-    if (isDefaultPointLimitType(ppl.Type__c)) {
-      ppl.Name = ppl.Name + '-U';
-    } else {
-      ppl.Value__c = 90;
-    }
+    ppl.Value__c = 90;
 
     Test.startTest();
     update ppl;
     Test.stopTest();
 
-    PromotionPointLimit__c updated = [SELECT Id, Name, Type__c, Value__c FROM PromotionPointLimit__c WHERE Id = :ppl.Id LIMIT 1];
-    if (isDefaultPointLimitType(updated.Type__c)) {
-      System.assert(updated.Name.endsWith('-U'));
-    } else {
-      System.assertEquals(90, updated.Value__c);
-    }
+    PromotionPointLimit__c updated = [SELECT Id, Value__c FROM PromotionPointLimit__c WHERE Id = :ppl.Id LIMIT 1];
+    System.assertEquals(90, updated.Value__c);
   }
 
   @IsTest

@@ -20,6 +20,72 @@ private class Order_Sale_Return_View_ControllerV1Test {
     }
   }
 
+  private class VoucherServiceStubProvider implements System.StubProvider {
+    public Object handleMethodCall(
+      Object stubbedObject,
+      String methodName,
+      Type returnType,
+      List<Type> paramTypes,
+      List<String> paramNames,
+      List<Object> args
+    ) {
+      if (methodName == 'redeemVoucherV2' || methodName == 'redeemCancelVoucher') {
+        return ApiResult.ok(200, 'ok', new Map<String, Object>());
+      }
+      return null;
+    }
+  }
+
+  private class PointServiceStubProvider implements System.StubProvider {
+    public Object handleMethodCall(
+      Object stubbedObject,
+      String methodName,
+      Type returnType,
+      List<Type> paramTypes,
+      List<String> paramNames,
+      List<Object> args
+    ) {
+      if (methodName == 'debitPoint' || methodName == 'debitPointsCustom') {
+        return new List<GdSaleApiController.PointDebitDTO>{ new GdSaleApiController.PointDebitDTO() };
+      }
+      if (methodName == 'cancelPointRedemption') {
+        return new Map<String, Object>{ 'result' => 'ok' };
+      }
+      if (
+        methodName == 'creditPointsOnPurchaseV2' ||
+        methodName == 'creditPromotionPointsOnPurchase' ||
+        methodName == 'creditEtcPointsOnPurchaseForOldSale'
+      ) {
+        return new List<PointCreditDTO>{ new PointCreditDTO() };
+      }
+      if (methodName == 'creditPointsOnPurchaseByGrade') {
+        return new List<PointCreditDTO>{ new PointCreditDTO() };
+      }
+      if (methodName == 'debitPointsOnPurchaseByGrade') {
+        return new List<PointDebitDTO>{ new PointDebitDTO() };
+      }
+      if (methodName == 'cancelPointsCreditedOnPurchase') {
+        return new List<GdSaleApiController.PointDebitDTO>{ new GdSaleApiController.PointDebitDTO() };
+      }
+      if (methodName == 'isAccrualEligible') {
+        return true;
+      }
+      return null;
+    }
+  }
+
+  private static void setMockServices() {
+    GdVoucherService voucherStub = (GdVoucherService) Test.createStub(GdVoucherService.class, new VoucherServiceStubProvider());
+    GdPointService pointStub = (GdPointService) Test.createStub(GdPointService.class, new PointServiceStubProvider());
+
+    GdOrderDepositServiceImpl.setVoucherService(voucherStub);
+    GdOrderDepositServiceImpl.setPointService(pointStub);
+    GdSaleDepositServiceImpl.setVoucherService(voucherStub);
+    GdSaleDepositServiceImpl.setPointService(pointStub);
+    GdReturnDepositServiceImpl.setVoucherService(voucherStub);
+    GdReturnDepositServiceImpl.setPointService(pointStub);
+  }
+
   // @TestSetup 으로 데이터를 별도 transaction 에서 commit → 후속 test 의 callout 차단 회피
   @TestSetup
   static void setupData() {
@@ -47,7 +113,7 @@ private class Order_Sale_Return_View_ControllerV1Test {
 
     Id stdPbId = Test.getStandardPricebookId();
     try {
-      update new Pricebook2(Id = stdPbId, IsActive = true);
+      try { update new Pricebook2(Id = stdPbId, IsActive = true); } catch (Exception lockEx) { /* parallel @TestSetup lock conflict - safe to ignore (idempotent) */ }
     } catch (Exception ignore) {
     }
 
@@ -109,19 +175,106 @@ private class Order_Sale_Return_View_ControllerV1Test {
     );
     insert origOrderR;
 
-    LoyaltyProgram lp = new LoyaltyProgram(Name = 'CTRL-MEM-LP', IsPrimary = true);
+    LoyaltyProgram lp = new LoyaltyProgram(Name = 'Golden Dew', IsPrimary = true, Status = 'Active');
     insert lp;
 
     LoyaltyTierGroup tg = new LoyaltyTierGroup(
-      Name = 'CTRL-MEM-TG',
+      Name = 'LoyaltyTierGroup',
+      IsPrimary = true,
       LoyaltyProgramId = lp.Id,
       QpResetPeriod = 'Years',
       QpResetFrequency = 1,
-      QpResetDate = Date.today()
+      QpResetDate = Date.today(),
+      ExtendExpiration = 'None',
+      TierPeriodUnit = 'Years',
+      TierPeriodQuantity = 1
     );
     insert tg;
 
-    insert new LoyaltyTier(Name = 'BASIC', LoyaltyTierGroupId = tg.Id);
+    insert new List<LoyaltyTier>{
+      new LoyaltyTier(Name = 'BASIC', LoyaltyTierGroupId = tg.Id),
+      new LoyaltyTier(Name = 'Gold', LoyaltyTierGroupId = tg.Id)
+    };
+
+    List<LoyaltyProgramMember> members = new List<LoyaltyProgramMember>();
+    for (Contact c : [SELECT Id, MemberNo__c FROM Contact WHERE MemberNo__c LIKE 'CTRL-%']) {
+      members.add(
+        new LoyaltyProgramMember(
+          MembershipNumber = c.MemberNo__c,
+          MemberStatus = 'Active',
+          MemberType = 'Individual',
+          ContactId = c.Id,
+          EnrollmentDate = Date.today(),
+          ProgramId = lp.Id
+        )
+      );
+    }
+    insert members;
+
+    JournalType depositType = new JournalType(Name = 'Deposit');
+    JournalType depositReversalType = new JournalType(Name = 'Deposit Reversal');
+    JournalType redemptionType = new JournalType(Name = 'Redemption');
+    JournalType redemptionReversalType = new JournalType(Name = 'Redemption Reversal');
+    JournalType accrualType = new JournalType(Name = 'Accrual');
+    JournalType accrualReversalType = new JournalType(Name = 'Accrual Reversal');
+    insert new List<JournalType>{ depositType, depositReversalType, redemptionType, redemptionReversalType, accrualType, accrualReversalType };
+
+    insert new List<JournalSubType>{
+      new JournalSubType(Name = 'Order Deposit', JournalTypeId = depositType.Id),
+      new JournalSubType(Name = 'Order Deposit Reversal', JournalTypeId = depositReversalType.Id),
+      new JournalSubType(Name = 'Sale Deposit', JournalTypeId = depositType.Id),
+      new JournalSubType(Name = 'Sale Deposit Reversal', JournalTypeId = depositReversalType.Id),
+      new JournalSubType(Name = 'Coupon Redeem', JournalTypeId = redemptionType.Id),
+      new JournalSubType(Name = 'Coupon Redeem Cancel', JournalTypeId = redemptionReversalType.Id),
+      new JournalSubType(Name = 'Point Debit', JournalTypeId = redemptionType.Id),
+      new JournalSubType(Name = 'Point Redeem Cancel', JournalTypeId = redemptionReversalType.Id),
+      new JournalSubType(Name = 'Purchase Accrual', JournalTypeId = accrualType.Id),
+      new JournalSubType(Name = 'Cancel Purchase Accrual', JournalTypeId = accrualReversalType.Id)
+    };
+
+    Product2 product = new Product2(Name = 'CTRL-PROD', ProductCode = 'CTRL-PROD-001', IsActive = true);
+    insert product;
+    PricebookEntry pbe = new PricebookEntry(
+      Pricebook2Id = stdPbId,
+      Product2Id = product.Id,
+      UnitPrice = 10000,
+      IsActive = true
+    );
+    insert pbe;
+
+    Order returnSource = [SELECT Id FROM Order WHERE SaleNo__c = 'CTRL-R-SAL-001' LIMIT 1];
+    insert new OrderItem(
+      OrderId = returnSource.Id,
+      PricebookEntryId = pbe.Id,
+      Quantity = 1,
+      UnitPrice = 10000,
+      SaleSeqNo__c = '1',
+      SaleItemNo__c = returnSource.Id + '-1',
+      NetSalesUnitPrice__c = 10000,
+      IsExclude__c = false
+    );
+  }
+
+  private static String todayText() {
+    return String.valueOf(Date.today());
+  }
+
+  private static String orderItemJson() {
+    return '{"OrderSeqNo__c":"1","Status__c":"01","ProductCode":"CTRL-PROD-001","Quantity":1,"isExclude":false,"NetSalesUnitPrice__c":10000}';
+  }
+
+  private static String saleItemJson() {
+    return '{"SaleSeqNo__c":"1","Status__c":"01","ProductCode":"CTRL-PROD-001","Quantity":1,"isExclude":false,"NetSalesUnitPrice__c":10000}';
+  }
+
+  private static String depositJson(String prefix, String depositType) {
+    return '{"DepositNo__c":"' +
+      prefix +
+      '","DeposiSeqNo__c":"1","ActivityDate":"' +
+      todayText() +
+      '","PaymentMethod":"01","DepositType__c":"' +
+      depositType +
+      '","TransactionAmount":10000,"CouponNo":""}';
   }
 
   // ============================================================
@@ -474,7 +627,7 @@ private class Order_Sale_Return_View_ControllerV1Test {
     Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
 
     // 회원 등록에 필요한 필드들 — LoyaltyProgram/TierGroup 셋업 없으면 service 가 실패하지만 그 분기까지 path 실행
-    String json = '{"MemberNo__c":"MEMTEST-001","Lastname":"TestMember","TargetTierName":"BASIC","IsSMSAgreed__c":false}';
+    String json = '{"MemberNo__c":"MEMTEST-001","Lastname":"TestMember","Grade__c":"02","TargetTierName":"Gold","IsSMSAgreed__c":false}';
 
     Test.startTest();
     Order_Sale_Return_View_ControllerV1.MemberRegisterResult r = Order_Sale_Return_View_ControllerV1.createMember(json);
@@ -486,7 +639,7 @@ private class Order_Sale_Return_View_ControllerV1Test {
   static void createMember_smsAgreedJson_triggersCouponBranch() {
     Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
 
-    String json = '{"MemberNo__c":"MEMTEST-002","Lastname":"TestSMS","TargetTierName":"BASIC","IsSMSAgreed__c":true}';
+    String json = '{"MemberNo__c":"MEMTEST-002","Lastname":"TestSMS","Grade__c":"02","TargetTierName":"Gold","IsSMSAgreed__c":true}';
 
     Test.startTest();
     Order_Sale_Return_View_ControllerV1.MemberRegisterResult r = Order_Sale_Return_View_ControllerV1.createMember(json);
@@ -507,6 +660,17 @@ private class Order_Sale_Return_View_ControllerV1Test {
 
     Order ord = new Order(AccountId = acc.Id, EffectiveDate = Date.today(), Status = 'Draft', Pricebook2Id = stdPbId, SaleNo__c = 'DELSAL-CTRL-001');
     insert ord;
+    PricebookEntry pbe = [SELECT Id, UnitPrice FROM PricebookEntry WHERE ProductCode = 'CTRL-PROD-001' AND Pricebook2Id = :stdPbId LIMIT 1];
+    insert new OrderItem(
+      OrderId = ord.Id,
+      PricebookEntryId = pbe.Id,
+      Quantity = 1,
+      UnitPrice = pbe.UnitPrice,
+      SaleSeqNo__c = '1',
+      SaleItemNo__c = ord.Id + '-1',
+      NetSalesUnitPrice__c = 10000,
+      IsExclude__c = false
+    );
 
     Test.startTest();
     Order_Sale_Return_View_ControllerV1.OrderResult r = Order_Sale_Return_View_ControllerV1.deleteSale('DELSAL-CTRL-001');
@@ -518,6 +682,28 @@ private class Order_Sale_Return_View_ControllerV1Test {
   @IsTest
   static void deleteSaleDeposit_validInputs_exercisesPath() {
     Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    setMockServices();
+
+    Order saleOrder = [SELECT Id, MemberNo__c FROM Order WHERE SaleNo__c = 'CTRL-US-SAL-001' LIMIT 1];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE ContactId = :saleOrder.MemberNo__c LIMIT 1];
+    JournalSubType saleDepositSubType = [SELECT Id, JournalTypeId FROM JournalSubType WHERE Name = 'Sale Deposit' LIMIT 1];
+    insert new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      JournalTypeId = saleDepositSubType.JournalTypeId,
+      JournalSubTypeId = saleDepositSubType.Id,
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      Status = 'Processed',
+      PaymentMethod = '01',
+      DepositType__c = '02',
+      TransactionAmount = 10000,
+      DepositNo__c = 'DEP-CTRL-001-01',
+      DeposiSeqNo__c = '01',
+      OrderId = saleOrder.Id,
+      OrderId__c = saleOrder.Id,
+      SaleId__c = saleOrder.Id
+    );
 
     Test.startTest();
     Order_Sale_Return_View_ControllerV1.OrderResult r = Order_Sale_Return_View_ControllerV1.deleteSaleDeposit('DEP-CTRL-001', '01');
@@ -533,8 +719,14 @@ private class Order_Sale_Return_View_ControllerV1Test {
   @IsTest
   static void createOrder_fullValidData_exercisesAfterServicesPath() {
     Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    setMockServices();
 
-    String json = '{"AccountId":"CTRL-CMP","StoreCode__c":"CTRL-STR","MemberNo__c":"CTRL-M-001","OrderNo__c":"CTRL-ORD-001","ActualPaymentAmount__c":50000,"Type":"01","InsertId__c":"tester","OrderItem":[],"TransactionJournal":[]}';
+    String json =
+      '{"AccountId":"CTRL-CMP","StoreCode__c":"CTRL-STR","MemberNo__c":"CTRL-M-001","OrderNo__c":"CTRL-ORD-001","ActualPaymentAmount__c":50000,"Type":"01","InsertId__c":"tester","OrderItem":[' +
+      orderItemJson() +
+      '],"TransactionJournal":[' +
+      depositJson('CTRL-ORD-DEP', '01') +
+      ']}';
 
     Test.startTest();
     Order_Sale_Return_View_ControllerV1.OrderResult r = Order_Sale_Return_View_ControllerV1.createOrder(json);
@@ -549,8 +741,14 @@ private class Order_Sale_Return_View_ControllerV1Test {
   @IsTest
   static void createSale_fullValidData_exercisesPath() {
     Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    setMockServices();
 
-    String json = '{"AccountId":"CTRL-S-CMP","StoreCode__c":"CTRL-S-STR","MemberNo__c":"CTRL-S-001","SaleNo__c":"CTRL-SAL-001","OriginalOrderId":"CTRL-S-ORIG-001","ActualPaymentAmount__c":30000,"OrderItem":[],"TransactionJournal":[]}';
+    String json =
+      '{"AccountId":"CTRL-S-CMP","StoreCode__c":"CTRL-S-STR","MemberNo__c":"CTRL-S-001","SaleNo__c":"CTRL-SAL-001","OriginalOrderId":"CTRL-S-ORIG-001","ActualPaymentAmount__c":30000,"OrderItem":[' +
+      saleItemJson() +
+      '],"TransactionJournal":[' +
+      depositJson('CTRL-SAL-DEP', '02') +
+      ']}';
 
     Test.startTest();
     Order_Sale_Return_View_ControllerV1.OrderResult r = Order_Sale_Return_View_ControllerV1.createSale(json);
@@ -565,8 +763,14 @@ private class Order_Sale_Return_View_ControllerV1Test {
   @IsTest
   static void updateOrder_existingOrder_exercisesPath() {
     Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    setMockServices();
 
-    String json = '{"OrderNo__c":"CTRL-U-ORD-001","ActualPaymentAmount__c":10000,"OrderItem":[],"TransactionJournal":[]}';
+    String json =
+      '{"OrderNo__c":"CTRL-U-ORD-001","ActualPaymentAmount__c":10000,"OrderItem":[' +
+      orderItemJson() +
+      '],"TransactionJournal":[' +
+      depositJson('CTRL-UPD-ORD-DEP', '01') +
+      ']}';
 
     Test.startTest();
     Order_Sale_Return_View_ControllerV1.OrderResult r = Order_Sale_Return_View_ControllerV1.updateOrder(json);
@@ -581,8 +785,14 @@ private class Order_Sale_Return_View_ControllerV1Test {
   @IsTest
   static void updateSale_existingSale_exercisesPath() {
     Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    setMockServices();
 
-    String json = '{"SaleNo__c":"CTRL-US-SAL-001","ActualPaymentAmount__c":7000,"OrderItem":[],"TransactionJournal":[]}';
+    String json =
+      '{"SaleNo__c":"CTRL-US-SAL-001","ActualPaymentAmount__c":7000,"OrderItem":[' +
+      saleItemJson() +
+      '],"TransactionJournal":[' +
+      depositJson('CTRL-UPD-SAL-DEP', '02') +
+      ']}';
 
     Test.startTest();
     Order_Sale_Return_View_ControllerV1.OrderResult r = Order_Sale_Return_View_ControllerV1.updateSale(json);
@@ -597,8 +807,26 @@ private class Order_Sale_Return_View_ControllerV1Test {
   @IsTest
   static void createReturn_withExistingSale_exercisesPath() {
     Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    setMockServices();
 
-    String json = '{"OriginalOrderId":"CTRL-R-SAL-001","SaleNo__c":"CTRL-R-RTN-001","ActualPaymentAmount__c":10000,"OrderItem":[],"TransactionJournal":[]}';
+    String json = '{"OriginalOrderId":"CTRL-R-SAL-001","SaleNo__c":"CTRL-R-RTN-001","ActualPaymentAmount__c":10000}';
+
+    Test.startTest();
+    Order_Sale_Return_View_ControllerV1.OrderResult r = Order_Sale_Return_View_ControllerV1.createReturn(json);
+    Test.stopTest();
+
+    System.assertNotEquals(null, r);
+  }
+
+  @IsTest
+  static void createReturn_withOrderItem_reachesItemBranch() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    setMockServices();
+
+    String json =
+      '{"OriginalOrderId":"CTRL-R-SAL-001","SaleNo__c":"CTRL-R-RTN-ITEM-001","ActualPaymentAmount__c":10000,"OrderItem":[' +
+      saleItemJson() +
+      ']}';
 
     Test.startTest();
     Order_Sale_Return_View_ControllerV1.OrderResult r = Order_Sale_Return_View_ControllerV1.createReturn(json);
@@ -614,7 +842,7 @@ private class Order_Sale_Return_View_ControllerV1Test {
   static void createMember_withFullLoyaltySetup_exercisesPath() {
     Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
 
-    String json = '{"MemberNo__c":"CTRL-MEM-FULL-001","Lastname":"FullSetup","TargetTierName":"BASIC","IsSMSAgreed__c":false}';
+    String json = '{"MemberNo__c":"CTRL-MEM-FULL-001","Lastname":"FullSetup","Grade__c":"02","TargetTierName":"Gold","IsSMSAgreed__c":false}';
 
     Test.startTest();
     Order_Sale_Return_View_ControllerV1.MemberRegisterResult r = Order_Sale_Return_View_ControllerV1.createMember(json);

@@ -1,9 +1,20 @@
 @IsTest
 private class GdLoyaltyAggrSubUIControllerTest {
+  private class McCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"result":"ok"}');
+      return res;
+    }
+  }
+
   /* ===============================
        테스트 데이터 생성
        =============================== */
   private static Id createMemberWithLedgers() {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
     Contact c = new Contact(LastName = 'PointTester', MemberNo__c = 'M' + String.valueOf(System.now().getTime()));
     insert c;
 
@@ -86,6 +97,7 @@ private class GdLoyaltyAggrSubUIControllerTest {
        =============================== */
   @IsTest
   static void getPointDetails_memberWithoutLedger() {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
     Contact c = new Contact(LastName = 'NoLedger', MemberNo__c = 'N' + System.now().getTime());
     insert c;
 

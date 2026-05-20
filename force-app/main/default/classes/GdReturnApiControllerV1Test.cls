@@ -6,7 +6,7 @@ private class GdReturnApiControllerV1Test {
     insert acc;
 
     Id standardPricebookId = Test.getStandardPricebookId();
-    update new Pricebook2(Id = standardPricebookId, IsActive = true);
+    try { update new Pricebook2(Id = standardPricebookId, IsActive = true); } catch (Exception lockEx) { /* parallel @TestSetup lock conflict - safe to ignore (idempotent) */ }
 
     Product2 product = new Product2(Name = 'Return API Product', ProductCode = 'RET-API-001', IsActive = true);
     insert product;

@@ -1,10 +1,20 @@
 @IsTest
 private class GdConsultationNoteServiceImplTest {
+    private class McCalloutMock implements HttpCalloutMock {
+        public HttpResponse respond(HttpRequest req) {
+            HttpResponse res = new HttpResponse();
+            res.setStatusCode(200);
+            res.setHeader('Content-Type', 'application/json');
+            res.setBody('{"result":"ok"}');
+            return res;
+        }
+    }
 
     /* =====================================================
      * 공통 데이터 생성
      * ===================================================== */
     private static Contact createContact(String memberNo) {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
         Contact c = new Contact(
             LastName = '테스트회원',
             MemberNo__c = memberNo,

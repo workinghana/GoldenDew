@@ -252,44 +252,44 @@ public with sharing class IssueUploadCouponBatch implements Database.Batchable<I
       }
     }
 
-    if (!issuedVoucherIds.isEmpty()) {
-      List<Voucher> issued = [
-        SELECT Id, VoucherCode, EffectiveDate, LoyaltyProgramMemberId, LoyaltyProgramMember.Contact.MemberNo__c, VoucherDefinition.CouponManNo__c
-        FROM Voucher
-        WHERE Id IN :issuedVoucherIds
-      ];
+    // if (!issuedVoucherIds.isEmpty()) {
+    //   List<Voucher> issued = [
+    //     SELECT Id, VoucherCode, EffectiveDate, LoyaltyProgramMemberId, LoyaltyProgramMember.Contact.MemberNo__c, VoucherDefinition.CouponManNo__c
+    //     FROM Voucher
+    //     WHERE Id IN :issuedVoucherIds
+    //   ];
 
-      ErpCouponReqDto.IssueRequest couponIssueReq = new ErpCouponReqDto.IssueRequest();
+    // ErpCouponReqDto.IssueRequest couponIssueReq = new ErpCouponReqDto.IssueRequest();
 
-      couponIssueReq.couponDetailModels = new List<ErpCouponReqDto.CouponDetailModel>();
+    // couponIssueReq.couponDetailModels = new List<ErpCouponReqDto.CouponDetailModel>();
 
-      Set<Id> voucherIdsForCallback = new Set<Id>();
+    // Set<Id> voucherIdsForCallback = new Set<Id>();
 
-      for (Voucher v : issued) {
-        String couponManNo = v.VoucherDefinition.CouponManNo__c;
-        String memberNo = v.LoyaltyProgramMember.Contact.MemberNo__c;
-        String voucherCode = v.VoucherCode;
+    // for (Voucher v : issued) {
+    //   String couponManNo = v.VoucherDefinition.CouponManNo__c;
+    //   String memberNo = v.LoyaltyProgramMember.Contact.MemberNo__c;
+    //   String voucherCode = v.VoucherCode;
 
-        if (String.isBlank(couponManNo) || String.isBlank(memberNo)) {
-          failMsgs.add('ERP mapping missing. voucherId=' + v.Id);
-          continue;
-        }
+    //   if (String.isBlank(couponManNo) || String.isBlank(memberNo)) {
+    //     failMsgs.add('ERP mapping missing. voucherId=' + v.Id);
+    //     continue;
+    //   }
 
-        couponIssueReq.couponDetailModels.add(new ErpCouponReqDto.CouponDetailModel(couponManNo, voucherCode, memberNo, UserInfo.getName()));
+    //   couponIssueReq.couponDetailModels.add(new ErpCouponReqDto.CouponDetailModel(couponManNo, voucherCode, memberNo, UserInfo.getName()));
 
-        voucherIdsForCallback.add(v.Id);
-      }
+    //   voucherIdsForCallback.add(v.Id);
+    // }
 
-      if (!couponIssueReq.couponDetailModels.isEmpty()) {
-        try {
-          System.enqueueJob(
-            new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), voucherIdsForCallback)
-          );
-        } catch (Exception e) {
-          failMsgs.add('ERP enqueue failed: ' + e.getMessage());
-        }
-      }
-    }
+    // if (!couponIssueReq.couponDetailModels.isEmpty()) {
+    //   try {
+    //     System.enqueueJob(
+    //       new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), voucherIdsForCallback)
+    //     );
+    //   } catch (Exception e) {
+    //     failMsgs.add('ERP enqueue failed: ' + e.getMessage());
+    //   }
+    // }
+    // }
 
     failIds.removeAll(successIds);
 

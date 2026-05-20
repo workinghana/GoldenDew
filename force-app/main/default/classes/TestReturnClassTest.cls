@@ -29,7 +29,7 @@ private class TestReturnClassTest {
   static void setupData() {
     setMock();
     Id standardPricebookId = Test.getStandardPricebookId();
-    update new Pricebook2(Id = standardPricebookId, IsActive = true);
+    try { update new Pricebook2(Id = standardPricebookId, IsActive = true); } catch (Exception lockEx) { /* parallel @TestSetup lock conflict - safe to ignore (idempotent) */ }
 
     Account accountRecord = new Account(Name = 'TestReturnClass Account', StoreCode__c = 'STORE-001');
     insert accountRecord;

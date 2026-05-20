@@ -2,21 +2,6 @@
 private class OrderTriggerHandlerTest {
   private static Integer seq = 0;
 
-  private class SuccessCalloutMock implements HttpCalloutMock {
-    public HttpResponse respond(HttpRequest req) {
-      HttpResponse res = new HttpResponse();
-      res.setStatusCode(200);
-      res.setStatus('OK');
-      res.setHeader('Content-Type', 'application/json');
-      res.setBody('{"success":true,"message":"ok","data":{}}');
-      return res;
-    }
-  }
-
-  private static void setMock() {
-    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
-  }
-
   private static Account createStoreAccount() {
     seq++;
     Account acc = new Account(Name = 'OrderTrigger Store ' + seq, StoreCode__c = 'OT-ST-' + seq, StoreType__c = '11', StoreTypeFour__c = '01');
@@ -34,6 +19,27 @@ private class OrderTriggerHandlerTest {
     Contact c = new Contact(LastName = name, TierQualifyingSpend3Y__c = spend);
     insert c;
     return c;
+  }
+
+  private static LoyaltyProgram createLoyaltyProgram() {
+    seq++;
+    LoyaltyProgram lp = new LoyaltyProgram(Name = 'OrderTrigger Program ' + seq, IsPrimary = false);
+    insert lp;
+    return lp;
+  }
+
+  private static LoyaltyProgramMember createActiveMember(Contact c, LoyaltyProgram lp) {
+    seq++;
+    LoyaltyProgramMember member = new LoyaltyProgramMember(
+      MembershipNumber = 'OTM-' + seq,
+      MemberStatus = 'Active',
+      MemberType = 'Individual',
+      ContactId = c.Id,
+      EnrollmentDate = Date.today(),
+      ProgramId = lp.Id
+    );
+    insert member;
+    return member;
   }
 
   private static PricebookEntry createPricebookEntry(Id pbId) {
@@ -99,7 +105,6 @@ private class OrderTriggerHandlerTest {
   @IsTest
   static void updateTierQualifyingSpend3Y_applies_all_status_deltas() {
     ApexLogger.disableLogging();
-    setMock();
 
     Account store = createStoreAccount();
     Id pbId = ensurePricebook();
@@ -174,7 +179,6 @@ private class OrderTriggerHandlerTest {
   @IsTest
   static void updateTierQualifyingSpend3Y_ignores_unknown_status_and_missing_rows() {
     ApexLogger.disableLogging();
-    setMock();
 
     Account store = createStoreAccount();
     Id pbId = ensurePricebook();
@@ -198,7 +202,6 @@ private class OrderTriggerHandlerTest {
   @IsTest
   static void trigger_afterUpdate_updates_contact_for_transition() {
     ApexLogger.disableLogging();
-    setMock();
 
     Account store = createStoreAccount();
     Id pbId = ensurePricebook();
@@ -217,6 +220,44 @@ private class OrderTriggerHandlerTest {
 
     c = [SELECT TierQualifyingSpend3Y__c FROM Contact WHERE Id = :c.Id];
     System.assertEquals(120, c.TierQualifyingSpend3Y__c, 'afterUpdate 상태 전이 시 가산되어야 함');
+  }
+
+  @IsTest
+  static void trigger_afterUpdate_orderSuccess_enqueuesMonitoring() {
+    ApexLogger.disableLogging();
+
+    Account store = createStoreAccount();
+    Id pbId = ensurePricebook();
+    LoyaltyProgram lp = createLoyaltyProgram();
+
+    Contact cOrder = createContact('OrderSuccessMonitor', 0);
+    createActiveMember(cOrder, lp);
+
+    Order orderSuccess = createOrder(store.Id, pbId, cOrder.Id, Date.newInstance(2026, 2, 10), 'Draft');
+
+    Order updateOrder = [
+      SELECT Id, Status
+      FROM Order
+      WHERE Id = :orderSuccess.Id
+      LIMIT 1
+    ];
+    updateOrder.Status = 'orderSuccess';
+
+    Test.startTest();
+    update updateOrder;
+    Test.stopTest();
+
+    Contact reloadedContact = [SELECT TierQualifyingSpend3Y__c FROM Contact WHERE Id = :cOrder.Id];
+    System.assertEquals(0, reloadedContact.TierQualifyingSpend3Y__c, 'orderSuccess should not affect 3Y spend');
+
+    LoyaltyProgramMember member = [
+      SELECT ContactId, Last_Activity_Date__c, Daily_Activity_Count__c
+      FROM LoyaltyProgramMember
+      WHERE ContactId = :cOrder.Id
+      LIMIT 1
+    ];
+    System.assertEquals(Date.today(), member.Last_Activity_Date__c);
+    System.assertEquals(1, Integer.valueOf(member.Daily_Activity_Count__c));
   }
 
   @IsTest
@@ -260,7 +301,6 @@ private class OrderTriggerHandlerTest {
   @IsTest
   static void updateTierQualifyingSpend3Y_delta_branch_focus() {
     ApexLogger.disableLogging();
-    setMock();
 
     Account store = createStoreAccount();
     Id pbId = ensurePricebook();

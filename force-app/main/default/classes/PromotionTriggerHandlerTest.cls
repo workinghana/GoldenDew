@@ -1,33 +1,173 @@
 @IsTest
 private class PromotionTriggerHandlerTest {
-  private class ErpCalloutMock implements HttpCalloutMock {
-    public HTTPResponse respond(HTTPRequest req) {
-      HttpResponse res = new HttpResponse();
-      res.setHeader('Content-Type', 'application/json');
-      res.setBody('{"status":"success"}');
-      res.setStatusCode(200);
-      return res;
-    }
+  private static final Date BASE_DATE = Date.newInstance(2026, 1, 1);
+
+  @IsTest
+  static void afterInsert_setsPromotionCodeAndWritesSuccessLogWhenTriggerIsEnabled() {
+    enablePromotionTrigger();
+
+    Test.startTest();
+    Promotion insertedPromotion = insertPromotion('INSERT');
+    Test.stopTest();
+
+    Promotion actual = [
+      SELECT PromotionNo__c, PromotionCode
+      FROM Promotion
+      WHERE Id = :insertedPromotion.Id
+    ];
+
+    List<ApexAuditTrail__c> handlerLogs = [
+      SELECT Status__c, Description__c, SuccessRecordIds__c, FailedRecordIds__c
+      FROM ApexAuditTrail__c
+      WHERE ApexClass__c = 'PromotionTriggerHandler'
+      ORDER BY CreatedDate DESC
+      LIMIT 1
+    ];
+
+    System.assertEquals(
+      actual.PromotionNo__c,
+      actual.PromotionCode,
+      'afterInsert should copy PromotionNo__c to PromotionCode when PromotionTrigger is enabled.'
+    );
+    System.assertEquals(1, handlerLogs.size(), 'Handler log should be written when PromotionTrigger is enabled.');
+    System.assertEquals('SUCCESS', handlerLogs[0].Status__c, 'Handler log should be successful.');
+    System.assert(
+      handlerLogs[0].Description__c.contains('ERP promotion master create done.'),
+      'Handler log should describe the create processing result.'
+    );
+    System.assert(
+      handlerLogs[0].SuccessRecordIds__c.contains(String.valueOf(insertedPromotion.Id)),
+      'Inserted Promotion Id should be recorded as a successful record.'
+    );
+    System.assertEquals(null, handlerLogs[0].FailedRecordIds__c, 'No records should fail in the happy path.');
+
+    TriggerHandler.mockCache = null;
   }
 
-  // 절대로 중복되지 않는 고유 문자열 생성 함수
-  private static String getUniqueString(String prefix) {
-    return prefix + String.valueOf(DateTime.now().getTime()).right(5) + String.valueOf(Integer.valueOf(Math.random() * 1000));
+  @IsTest
+  static void afterUpdate_executesWithoutChangingPromotionCode() {
+    disablePromotionTrigger();
+    Promotion existingPromotion = insertPromotion('UPDATE');
+    PromotionTriggerHandler handler = new PromotionTriggerHandler();
+
+    Test.startTest();
+    handler.afterUpdate();
+    Test.stopTest();
+
+    Promotion actual = [
+      SELECT PromotionNo__c, PromotionCode
+      FROM Promotion
+      WHERE Id = :existingPromotion.Id
+    ];
+    System.assertEquals(
+      'CODE-UPDATE',
+      actual.PromotionCode,
+      'afterUpdate has no active logic and should not mutate PromotionCode when invoked directly.'
+    );
+    TriggerHandler.mockCache = null;
   }
 
-  @TestSetup
-  static void setup() {
-    String uKey = getUniqueString('S');
+  @IsTest
+  static void afterDelete_executesWithoutException() {
+    PromotionTriggerHandler handler = new PromotionTriggerHandler();
 
-    Promotion p = new Promotion(
-      Name = 'Setup Promo ' + uKey,
-      BrandCode__c = '01',
-      TypeCode__c = '01',
-      StatusCode__c = '01',
-      StartDate = Date.today(),
-      EndDate = Date.today().addDays(30),
-      PublishStartDate__c = Date.today(),
-      PublishEndDate__c = Date.today().addDays(30),
+    Test.startTest();
+    handler.afterDelete();
+    Test.stopTest();
+
+    System.assert(true, 'afterDelete currently has no active logic and should complete without exception.');
+  }
+
+  @IsTest
+  static void isErpSyncRelevantChange_returnsFalseWhenComparedFieldsAreSame() {
+    Promotion oldPromotion = buildComparisonPromotion();
+    Promotion newPromotion = buildComparisonPromotion();
+
+    System.assertEquals(
+      false,
+      PromotionTriggerHandler.isErpSyncRelevantChange(oldPromotion, newPromotion),
+      'Identical ERP sync fields should not be relevant.'
+    );
+  }
+
+  @IsTest
+  static void isErpSyncRelevantChange_returnsTrueForNullOrChangedFields() {
+    Promotion oldPromotion = buildComparisonPromotion();
+    Promotion samePromotion = buildComparisonPromotion();
+
+    System.assertEquals(true, PromotionTriggerHandler.isErpSyncRelevantChange(null, samePromotion));
+    System.assertEquals(true, PromotionTriggerHandler.isErpSyncRelevantChange(oldPromotion, null));
+
+    assertRelevantChange(oldPromotion, new Promotion(Name = 'Changed Name'));
+    System.assertEquals(
+      true,
+      PromotionTriggerHandler.isErpSyncRelevantChange(oldPromotion, buildComparisonPromotion('PROMO-CHANGED')),
+      'A change to PromotionNo__c should be relevant.'
+    );
+    assertRelevantChange(
+      oldPromotion,
+      new Promotion(BrandCode__c = alternatePicklistValue(Schema.SObjectType.Promotion.fields.BrandCode__c, oldPromotion.BrandCode__c))
+    );
+    assertRelevantChange(
+      oldPromotion,
+      new Promotion(TypeCode__c = alternatePicklistValue(Schema.SObjectType.Promotion.fields.TypeCode__c, oldPromotion.TypeCode__c))
+    );
+    assertRelevantChange(oldPromotion, new Promotion(StartDate = BASE_DATE.addDays(1)));
+    assertRelevantChange(oldPromotion, new Promotion(EndDate = BASE_DATE.addDays(31)));
+    assertRelevantChange(oldPromotion, new Promotion(PublishStartDate__c = BASE_DATE.addDays(2)));
+    assertRelevantChange(oldPromotion, new Promotion(PublishEndDate__c = BASE_DATE.addDays(32)));
+    assertRelevantChange(
+      oldPromotion,
+      new Promotion(StatusCode__c = alternatePicklistValue(Schema.SObjectType.Promotion.fields.StatusCode__c, oldPromotion.StatusCode__c))
+    );
+    assertRelevantChange(oldPromotion, new Promotion(IsCouponAllowed__c = false));
+    assertRelevantChange(oldPromotion, new Promotion(IsFixedAmountCouponAllowed__c = true));
+    assertRelevantChange(oldPromotion, new Promotion(IsRateCouponAllowed__c = false));
+    assertRelevantChange(oldPromotion, new Promotion(IsSpecificCouponAllowed__c = true));
+    assertRelevantChange(oldPromotion, new Promotion(IsPointUsageAllowed__c = false));
+    assertRelevantChange(oldPromotion, new Promotion(IsAllStore__c = false));
+    assertRelevantChange(oldPromotion, new Promotion(IsAllItem__c = false));
+    assertRelevantChange(oldPromotion, new Promotion(InsertId__c = 'INSERT-CHANGED'));
+    assertRelevantChange(oldPromotion, new Promotion(ResponId__c = 'RESPON-CHANGED'));
+  }
+
+  private static Promotion insertPromotion(String suffix) {
+    Promotion promotion = buildPromotion(suffix);
+    insert promotion;
+    return promotion;
+  }
+
+  private static void enablePromotionTrigger() {
+    TriggerHandler.mockCache = new Map<String, Apex_Trigger_Setting__mdt>{
+      'PromotionTrigger' => new Apex_Trigger_Setting__mdt(
+        IsActive__c = true,
+        Before_Insert__c = true,
+        After_Insert__c = true,
+        Before_Update__c = true,
+        After_Update__c = true,
+        Before_Delete__c = true,
+        After_Delete__c = true,
+        After_Undelete__c = true
+      )
+    };
+  }
+
+  private static void disablePromotionTrigger() {
+    TriggerHandler.mockCache = new Map<String, Apex_Trigger_Setting__mdt>{
+      'PromotionTrigger' => new Apex_Trigger_Setting__mdt(IsActive__c = false)
+    };
+  }
+
+  private static Promotion buildPromotion(String suffix) {
+    return new Promotion(
+      Name = 'Promotion Handler Test ' + suffix,
+      BrandCode__c = firstPicklistValue(Schema.SObjectType.Promotion.fields.BrandCode__c),
+      TypeCode__c = firstPicklistValue(Schema.SObjectType.Promotion.fields.TypeCode__c),
+      StatusCode__c = firstPicklistValue(Schema.SObjectType.Promotion.fields.StatusCode__c),
+      StartDate = BASE_DATE,
+      EndDate = BASE_DATE.addDays(30),
+      PublishStartDate__c = BASE_DATE,
+      PublishEndDate__c = BASE_DATE.addDays(30),
       IsCouponAllowed__c = true,
       IsFixedAmountCouponAllowed__c = false,
       IsRateCouponAllowed__c = true,
@@ -35,189 +175,76 @@ private class PromotionTriggerHandlerTest {
       IsPointUsageAllowed__c = true,
       IsAllStore__c = true,
       IsAllItem__c = true,
-      // 아래 필드들이 Unique 제약 조건의 주범일 가능성이 높습니다.
-      InsertId__c = 'UID' + uKey,
-      ResponId__c = 'RID' + uKey
+      InsertId__c = ('I-' + suffix).left(20),
+      ResponId__c = ('R-' + suffix).left(20),
+      PromotionCode = 'CODE-' + suffix
     );
-    insert p;
   }
 
-  // @IsTest
-  // static void testAfterInsert() {
-  //     Test.setMock(HttpCalloutMock.class, new ErpCalloutMock());
-
-  //     String uKey = getUniqueString('I');
-
-  //     Promotion p = new Promotion(
-  //         Name = 'Insert Promo ' + uKey,
-  //         BrandCode__c = '01',
-  //         TypeCode__c = '01',
-  //         StatusCode__c = '01',
-  //         StartDate = Date.today(),
-  //         EndDate = Date.today().addDays(30),
-  //         InsertId__c = 'UID' + uKey,
-  //         ResponId__c = 'RID' + uKey
-  //     );
-
-  //     Test.startTest();
-  //     insert p;
-  //     Test.stopTest();
-
-  //     System.assert(p.Id != null, 'Promotion should be inserted.');
-  // }
-
-  @IsTest
-  static void testAfterUpdate() {
-    Test.setMock(HttpCalloutMock.class, new ErpCalloutMock());
-    Promotion p = [SELECT Id, Name FROM Promotion LIMIT 1];
-
-    Test.startTest();
-    p.Name = 'Upd' + String.valueOf(Math.random() * 100);
-    update p;
-    Test.stopTest();
+  private static Promotion buildComparisonPromotion() {
+    return buildComparisonPromotion('PROMO-BASE');
   }
 
-  @IsTest
-  static void testAfterUpdateSkip() {
-    Test.setMock(HttpCalloutMock.class, new ErpCalloutMock());
-    Promotion p = [SELECT Id FROM Promotion LIMIT 1];
-
-    Test.startTest();
-    p.ErpSyncSkip__c = true;
-    update p;
-    Test.stopTest();
+  private static Promotion buildComparisonPromotion(String promotionNo) {
+    Promotion promotion = promotionWithPromotionNo(promotionNo);
+    promotion.Name = 'Comparable Promotion';
+    promotion.BrandCode__c = firstPicklistValue(Schema.SObjectType.Promotion.fields.BrandCode__c);
+    promotion.TypeCode__c = firstPicklistValue(Schema.SObjectType.Promotion.fields.TypeCode__c);
+    promotion.StartDate = BASE_DATE;
+    promotion.EndDate = BASE_DATE.addDays(30);
+    promotion.PublishStartDate__c = BASE_DATE;
+    promotion.PublishEndDate__c = BASE_DATE.addDays(30);
+    promotion.StatusCode__c = firstPicklistValue(Schema.SObjectType.Promotion.fields.StatusCode__c);
+    promotion.IsCouponAllowed__c = true;
+    promotion.IsFixedAmountCouponAllowed__c = false;
+    promotion.IsRateCouponAllowed__c = true;
+    promotion.IsSpecificCouponAllowed__c = false;
+    promotion.IsPointUsageAllowed__c = true;
+    promotion.IsAllStore__c = true;
+    promotion.IsAllItem__c = true;
+    promotion.InsertId__c = 'INSERT-BASE';
+    promotion.ResponId__c = 'RESPON-BASE';
+    return promotion;
   }
 
-  @IsTest
-  static void testAfterDelete() {
-    Test.setMock(HttpCalloutMock.class, new ErpCalloutMock());
-    Promotion p = [SELECT Id FROM Promotion LIMIT 1];
-
-    Test.startTest();
-    delete p;
-    Test.stopTest();
+  private static Promotion promotionWithPromotionNo(String promotionNo) {
+    return (Promotion) JSON.deserialize('{"attributes":{"type":"Promotion"},"PromotionNo__c":"' + promotionNo + '"}', Promotion.class);
   }
 
-  @IsTest
-  static void testIsErpSyncRelevantChangeCoverage() {
-    Promotion oldP = new Promotion(Name = 'Old');
-    Promotion newP = new Promotion(Name = 'Old');
-
-    PromotionTriggerHandler.isErpSyncRelevantChange(null, newP);
-
-    // 필드 존재 여부에 따른 에러 방지를 위해 하나씩 실행
-    List<String> fields = new List<String>{ 'Name', 'BrandCode__c', 'TypeCode__c', 'StartDate', 'EndDate', 'StatusCode__c', 'InsertId__c' };
-    for (String f : fields) {
-      try {
-        newP.put(f, 'NewValue');
-        PromotionTriggerHandler.isErpSyncRelevantChange(oldP, newP);
-      } catch (Exception e) {
-      }
+  private static void assertRelevantChange(Promotion oldPromotion, Promotion changedFields) {
+    Promotion newPromotion = buildComparisonPromotion();
+    for (String fieldName : changedFields.getPopulatedFieldsAsMap().keySet()) {
+      newPromotion.put(fieldName, changedFields.get(fieldName));
     }
 
-    Promotion promoWithNo = (Promotion) JSON.deserialize('{"PromotionNo__c":"N001"}', Promotion.class);
-    PromotionTriggerHandler.isErpSyncRelevantChange(oldP, promoWithNo);
-    PromotionTriggerHandler.isErpSyncRelevantChange(oldP, oldP);
-  }
-
-  // 26.04.22 하나 추가: 특정 매장/품목 여부 판정 헬퍼 검증
-  @IsTest
-  static void testIsErpSyncRelevantChangeTypedBranches() {
-    Promotion oldP = new Promotion(
-      Name = 'Old',
-      BrandCode__c = '01',
-      TypeCode__c = '01',
-      StartDate = Date.today(),
-      EndDate = Date.today().addDays(1),
-      PublishStartDate__c = Date.today(),
-      PublishEndDate__c = Date.today().addDays(1),
-      StatusCode__c = '01',
-      IsCouponAllowed__c = true,
-      IsFixedAmountCouponAllowed__c = true,
-      IsRateCouponAllowed__c = true,
-      IsSpecificCouponAllowed__c = true,
-      IsPointUsageAllowed__c = true,
-      IsAllStore__c = true,
-      IsAllItem__c = true,
-      PointTypeCode__c = '01',
-      InsertId__c = 'InsertOld',
-      ResponId__c = 'ResponOld'
+    System.assertEquals(
+      true,
+      PromotionTriggerHandler.isErpSyncRelevantChange(oldPromotion, newPromotion),
+      'A change to ' + String.join(new List<String>(changedFields.getPopulatedFieldsAsMap().keySet()), ',') + ' should be relevant.'
     );
-    Promotion sameP = oldP.clone(false, true, false, false);
-
-    System.assertEquals(false, PromotionTriggerHandler.isErpSyncRelevantChange(oldP, sameP));
-
-    Promotion changed = oldP.clone(false, true, false, false);
-    changed.Name = 'New';
-    System.assertEquals(true, PromotionTriggerHandler.isErpSyncRelevantChange(oldP, changed));
-
-    changed = oldP.clone(false, true, false, false);
-    changed.StartDate = Date.today().addDays(2);
-    System.assertEquals(true, PromotionTriggerHandler.isErpSyncRelevantChange(oldP, changed));
-
-    changed = oldP.clone(false, true, false, false);
-    changed.IsCouponAllowed__c = false;
-    System.assertEquals(true, PromotionTriggerHandler.isErpSyncRelevantChange(oldP, changed));
-
-    changed = oldP.clone(false, true, false, false);
-    changed.IsAllStore__c = false;
-    System.assertEquals(true, PromotionTriggerHandler.isErpSyncRelevantChange(oldP, changed));
-
-    changed = oldP.clone(false, true, false, false);
-    changed.PointTypeCode__c = '06';
-    System.assertEquals(true, PromotionTriggerHandler.isErpSyncRelevantChange(oldP, changed));
-
-    changed = oldP.clone(false, true, false, false);
-    changed.ResponId__c = 'ResponNew';
-    System.assertEquals(true, PromotionTriggerHandler.isErpSyncRelevantChange(oldP, changed));
   }
 
-  @IsTest
-  static void testResolveYnSpec() {
-    // 전체 매장/품목 → 'N'
-    System.assertEquals('N', PromotionTriggerHandler.resolveYnSpec(true, true));
-    System.assertEquals('N', PromotionTriggerHandler.resolveYnSpec(true, false));
-    // 전체 아님 + 선택됨 → 'Y'
-    System.assertEquals('Y', PromotionTriggerHandler.resolveYnSpec(false, true));
-    // 전체 아님 + 선택 안함 → 'N'
-    System.assertEquals('N', PromotionTriggerHandler.resolveYnSpec(false, false));
+  private static String firstPicklistValue(Schema.DescribeFieldResult fieldDescribe) {
+    return activePicklistValues(fieldDescribe)[0];
   }
 
-  // 26.04.22 하나 추가: 빈 입력 집합 처리 검증
-  @IsTest
-  static void testGetPromotionIdsHelpers_emptyInput() {
-    Set<Id> emptySet = new Set<Id>();
-    System.assertEquals(0, PromotionTriggerHandler.getPromotionIdsWithStores(null).size());
-    System.assertEquals(0, PromotionTriggerHandler.getPromotionIdsWithStores(emptySet).size());
-    System.assertEquals(0, PromotionTriggerHandler.getPromotionIdsWithItems(null).size());
-    System.assertEquals(0, PromotionTriggerHandler.getPromotionIdsWithItems(emptySet).size());
+  private static String alternatePicklistValue(Schema.DescribeFieldResult fieldDescribe, String currentValue) {
+    for (String value : activePicklistValues(fieldDescribe)) {
+      if (value != currentValue) {
+        return value;
+      }
+    }
+    return currentValue + '_CHANGED';
   }
 
-  // 26.04.22 하나 추가: 특정 매장/품목 연결 레코드 존재 시 판정 검증
-  @IsTest
-  static void testGetPromotionIdsHelpers_withData() {
-    Promotion p = [SELECT Id FROM Promotion LIMIT 1];
-
-    // 매장(Account) + PromotionAccount__c 연결
-    Account acc = new Account(Name = 'Test Store ' + getUniqueString('A'));
-    insert acc;
-
-    PromotionAccount__c pa = new PromotionAccount__c(PromotionId__c = p.Id, AccountId__c = acc.Id);
-    insert pa;
-
-    // 품목(Product2) + PromotionProduct 연결
-    Product2 prod = new Product2(Name = 'Test Product ' + getUniqueString('P'), IsActive = true);
-    insert prod;
-
-    PromotionProduct pp = new PromotionProduct(PromotionId = p.Id, ProductId = prod.Id);
-    insert pp;
-
-    Set<Id> pIds = new Set<Id>{ p.Id };
-
-    Set<Id> storeResult = PromotionTriggerHandler.getPromotionIdsWithStores(pIds);
-    Set<Id> itemResult = PromotionTriggerHandler.getPromotionIdsWithItems(pIds);
-
-    System.assert(storeResult.contains(p.Id), '특정 매장 연결 Promotion이 집합에 포함되어야 함');
-    System.assert(itemResult.contains(p.Id), '특정 품목 연결 Promotion이 집합에 포함되어야 함');
+  private static List<String> activePicklistValues(Schema.DescribeFieldResult fieldDescribe) {
+    List<String> values = new List<String>();
+    for (Schema.PicklistEntry entry : fieldDescribe.getPicklistValues()) {
+      if (entry.isActive()) {
+        values.add(entry.getValue());
+      }
+    }
+    System.assert(!values.isEmpty(), fieldDescribe.getName() + ' should have at least one active picklist value.');
+    return values;
   }
 }

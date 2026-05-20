@@ -1,5 +1,15 @@
 @IsTest
 private class ErpAsyncCallbackPublisherTest {
+    private class McCalloutMock implements HttpCalloutMock {
+        public HttpResponse respond(HttpRequest req) {
+            HttpResponse res = new HttpResponse();
+            res.setStatusCode(200);
+            res.setHeader('Content-Type', 'application/json');
+            res.setBody('{"result":"ok"}');
+            return res;
+        }
+    }
+
     private static HttpErrorException makeHttpError(String body) {
         HttpErrorException he = new HttpErrorException();
         he.statusCode = 400;
@@ -20,6 +30,8 @@ private class ErpAsyncCallbackPublisherTest {
 
     @IsTest
     static void test_onFailure_httpError_with_json_message_single_record() {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
         ErpAsyncCallbackPublisher p = new ErpAsyncCallbackPublisher();
 
         HttpErrorException he = makeHttpError(
@@ -39,6 +51,8 @@ private class ErpAsyncCallbackPublisherTest {
 
     @IsTest
     static void test_onFailure_httpError_with_non_json_body_single_record_with_sobject() {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
         ErpAsyncCallbackPublisher p = new ErpAsyncCallbackPublisher();
 
         HttpErrorException he = makeHttpError('NOT_JSON_TEXT');
@@ -55,6 +69,8 @@ private class ErpAsyncCallbackPublisherTest {
 
     @IsTest
     static void test_onFailure_string_errorMessage_recordId() {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
         ErpAsyncCallbackPublisher p = new ErpAsyncCallbackPublisher();
 
         Contact c = new Contact(LastName = 'Test3');
@@ -74,6 +90,8 @@ private class ErpAsyncCallbackPublisherTest {
 
     @IsTest
     static void test_onFailure_httpError_set_recordIds() {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
         ErpAsyncCallbackPublisher p = new ErpAsyncCallbackPublisher();
 
         Contact c = new Contact(LastName = 'Test4');
@@ -99,6 +117,8 @@ private class ErpAsyncCallbackPublisherTest {
 
     @IsTest
     static void test_onFailure_httpError_null_responseBody() {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
         ErpAsyncCallbackPublisher p = new ErpAsyncCallbackPublisher();
 
         HttpErrorException he = makeHttpError(null);
@@ -173,6 +193,8 @@ private class ErpAsyncCallbackPublisherTest {
 
     @IsTest
     static void test_onFailure_exception_overloads_noop() {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
         ErpAsyncCallbackPublisher p = new ErpAsyncCallbackPublisher();
 
         Contact c = new Contact(LastName = 'Test6');

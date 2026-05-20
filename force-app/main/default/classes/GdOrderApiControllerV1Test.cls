@@ -209,7 +209,7 @@ private class GdOrderApiControllerV1Test {
     GdOrderApiControllerV1.setOrderService(orderService);
     GdOrderApiControllerV1.setOrderItemService(new MockOrderItemService());
     GdOrderApiControllerV1.setOrderDepositService(new MockOrderDepositService());
-    setupRest('POST', '{"orderNo":"ORD-001"}');
+    setupRest('POST', '{"orderNo":"ORD-001","TransactionJournal":{"type":"deposit"}}');
 
     Test.startTest();
     GdOrderApiControllerV1.createOrder();
@@ -248,7 +248,7 @@ private class GdOrderApiControllerV1Test {
     GdOrderApiControllerV1.setOrderService(orderService);
     GdOrderApiControllerV1.setOrderItemService(new MockOrderItemService());
     GdOrderApiControllerV1.setOrderDepositService(orderDepositService);
-    setupRest('POST', '{"orderNo":"ORD-001"}');
+    setupRest('POST', '{"orderNo":"ORD-001","TransactionJournal":{"type":"deposit"}}');
 
     Test.startTest();
     GdOrderApiControllerV1.createOrder();

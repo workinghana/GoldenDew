@@ -29,6 +29,15 @@ private class GdEcopointApiControllerTest {
     public List<PointDebitDTO> debitSpecificPoints(TransactionJournal t, List<LoyaltyLedger> l) {
       return null;
     }
+    public List<PointDebitDTO> debitSpecificPointsV2(TransactionJournal t, List<LoyaltyLedger> l) {
+      return null;
+    }
+    public List<PointDebitDTO> debitSpecificPointsV3(TransactionJournal t, Map<Id, Decimal> m) {
+      return null;
+    }
+    public List<GdSaleApiController.PointDebitDTO> debitPointsCustom(TransactionJournal t) {
+      return null;
+    }
     public List<PointCreditDTO> creditPointsOnPurchaseByGrade(Map<String, Object> r) {
       return null;
     }
@@ -107,6 +116,15 @@ private class GdEcopointApiControllerTest {
       return null;
     }
     public List<PointDebitDTO> debitSpecificPoints(TransactionJournal t, List<LoyaltyLedger> l) {
+      return null;
+    }
+    public List<PointDebitDTO> debitSpecificPointsV2(TransactionJournal t, List<LoyaltyLedger> l) {
+      return null;
+    }
+    public List<PointDebitDTO> debitSpecificPointsV3(TransactionJournal t, Map<Id, Decimal> m) {
+      return null;
+    }
+    public List<GdSaleApiController.PointDebitDTO> debitPointsCustom(TransactionJournal t) {
       return null;
     }
     public List<PointCreditDTO> creditPointsOnPurchaseByGrade(Map<String, Object> r) {

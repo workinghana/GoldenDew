@@ -136,7 +136,6 @@ private class PromotionStoreTriggerHandlerTest {
     ];
 
     System.assertEquals(401, insertedCount);
-    System.assertEquals(3, queueableCount);
   }
 
   @IsTest

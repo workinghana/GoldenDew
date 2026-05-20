@@ -1,6 +1,18 @@
 @IsTest
 private class GdPointServiceImplCoverageTest {
+  private class McCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"result":"ok"}');
+      return res;
+    }
+  }
+
   private static void setupData() {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
     if ([SELECT COUNT() FROM LoyaltyProgramMember WHERE MembershipNumber = 'GP-COV-001'] > 0) {
       return;
     }

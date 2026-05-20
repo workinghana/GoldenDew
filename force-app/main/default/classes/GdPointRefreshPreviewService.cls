@@ -350,8 +350,10 @@ public without sharing class GdPointRefreshPreviewService {
     Map<Id, List<SourceDeposit>> depositByOrderId = groupDepositsByOrderId(deposits);
     Map<Id, BusinessOrderState> orderById = loadBusinessOrders(memberId, deposits);
     Map<String, TierRate> tierRateByPointType = loadTierRateByPointType(memberId);
+    TierRate optionCOldSaleEtcRate = buildOptionCOldSaleEtcRate(tierRateByPointType);
     Map<Id, Decimal> excludeAmountByOrderId = loadExcludeAmountByOrderId(orderById.keySet());
     Map<Id, List<PromotionPointRule>> promotionRuleByPromotionId = loadPromotionRuleByPromotionId(collectPromotionIds(orderById), memberId);
+    Map<Id, Boolean> optionCOldOrderById = buildOptionCOldOrderById(deposits, openDate, useCreatedDateCutoff, migrationCutoffDateTime);
 
     List<GdPointRefreshEngine.PointEvent> events = new List<GdPointRefreshEngine.PointEvent>();
     Integer seq = 1000;
@@ -367,8 +369,14 @@ public without sharing class GdPointRefreshPreviewService {
       if (orderState.businessDate < openDate && orderDeposits.isEmpty()) {
         continue;
       }
+      Boolean isOptionCOldSale = optionCOldOrderById.containsKey(orderState.orderId) && optionCOldOrderById.get(orderState.orderId) == true;
 
       if (orderState.isReturn == true) {
+        BusinessOrderState originalSale = orderState.originalOrderId == null ? null : orderById.get(orderState.originalOrderId);
+        Boolean isOriginalOptionCOldSale =
+          originalSale != null &&
+          optionCOldOrderById.containsKey(originalSale.orderId) &&
+          optionCOldOrderById.get(originalSale.orderId) == true;
         Decimal pointCancelAmount = sumPointAmount(orderDeposits, true, false);
         if (pointCancelAmount > 0) {
           GdPointRefreshEngine.PointEvent debitCancel = new GdPointRefreshEngine.PointEvent(
@@ -389,8 +397,10 @@ public without sharing class GdPointRefreshPreviewService {
           excludeAmountByOrderId.get(orderState.orderId)
         );
         if (creditCancelBase > 0) {
-          BusinessOrderState originalSale = orderState.originalOrderId == null ? null : orderById.get(orderState.originalOrderId);
-          for (TierRate rate : effectiveTierRates(tierRateByPointType, originalSale == null ? null : originalSale.promotionExcludedPointTypes)) {
+          List<TierRate> cancelRates = isOriginalOptionCOldSale
+            ? optionCOldSaleRates(optionCOldSaleEtcRate)
+            : effectiveTierRates(tierRateByPointType, originalSale == null ? null : originalSale.promotionExcludedPointTypes);
+          for (TierRate rate : cancelRates) {
             Decimal cancelPoints = calculatePoints(creditCancelBase, rate.rate);
             if (cancelPoints <= 0) {
               continue;
@@ -403,28 +413,32 @@ public without sharing class GdPointRefreshPreviewService {
             );
             creditCancel.sequence = seq++;
             creditCancel.saleNo = originalSale == null ? null : originalSale.saleNo;
-            creditCancel.originKey = buildCreditOriginKey(memberNo, openDate, originalSale, rate.pointTypeCode);
+            creditCancel.originKey = isOriginalOptionCOldSale
+              ? buildOptionCOldSaleCreditOriginKey(originalSale)
+              : buildCreditOriginKey(memberNo, openDate, originalSale, rate.pointTypeCode);
             creditCancel.pointTypeCode = rate.pointTypeCode;
             creditCancel.notes = 'BUSINESS_RETURN_CREDIT_CANCEL;RETURN=' + orderState.saleNo;
             events.add(creditCancel);
           }
-          for (PromotionPointRule rule : promotionRulesForOrder(originalSale, promotionRuleByPromotionId)) {
-            Decimal cancelPoints = calculatePoints(creditCancelBase, rule.rate) * rule.multiplier;
-            if (cancelPoints <= 0) {
-              continue;
+          if (!isOriginalOptionCOldSale) {
+            for (PromotionPointRule rule : promotionRulesForOrder(originalSale, promotionRuleByPromotionId)) {
+              Decimal cancelPoints = calculatePoints(creditCancelBase, rule.rate) * rule.multiplier;
+              if (cancelPoints <= 0) {
+                continue;
+              }
+              GdPointRefreshEngine.PointEvent creditCancel = new GdPointRefreshEngine.PointEvent(
+                'CREDIT_CANCEL:RETURN_PROMO:' + String.valueOf(orderState.orderId) + ':' + rule.pointTypeCode,
+                GdPointRefreshEngine.EVENT_CREDIT_CANCEL,
+                orderState.businessDate,
+                cancelPoints
+              );
+              creditCancel.sequence = seq++;
+              creditCancel.saleNo = originalSale == null ? null : originalSale.saleNo;
+              creditCancel.originKey = buildPromotionCreditOriginKey(memberNo, openDate, originalSale, rule.pointTypeCode);
+              creditCancel.pointTypeCode = rule.pointTypeCode;
+              creditCancel.notes = 'BUSINESS_RETURN_PROMOTION_CREDIT_CANCEL;RETURN=' + orderState.saleNo;
+              events.add(creditCancel);
             }
-            GdPointRefreshEngine.PointEvent creditCancel = new GdPointRefreshEngine.PointEvent(
-              'CREDIT_CANCEL:RETURN_PROMO:' + String.valueOf(orderState.orderId) + ':' + rule.pointTypeCode,
-              GdPointRefreshEngine.EVENT_CREDIT_CANCEL,
-              orderState.businessDate,
-              cancelPoints
-            );
-            creditCancel.sequence = seq++;
-            creditCancel.saleNo = originalSale == null ? null : originalSale.saleNo;
-            creditCancel.originKey = buildPromotionCreditOriginKey(memberNo, openDate, originalSale, rule.pointTypeCode);
-            creditCancel.pointTypeCode = rule.pointTypeCode;
-            creditCancel.notes = 'BUSINESS_RETURN_PROMOTION_CREDIT_CANCEL;RETURN=' + orderState.saleNo;
-            events.add(creditCancel);
           }
         }
 
@@ -447,8 +461,10 @@ public without sharing class GdPointRefreshPreviewService {
           excludeAmountByOrderId.get(orderState.orderId)
         );
         if (deletedCreditCancelBase > 0) {
-          BusinessOrderState originalSale = orderState.originalOrderId == null ? null : orderById.get(orderState.originalOrderId);
-          for (TierRate rate : effectiveTierRates(tierRateByPointType, originalSale == null ? null : originalSale.promotionExcludedPointTypes)) {
+          List<TierRate> restoreRates = isOriginalOptionCOldSale
+            ? optionCOldSaleRates(optionCOldSaleEtcRate)
+            : effectiveTierRates(tierRateByPointType, originalSale == null ? null : originalSale.promotionExcludedPointTypes);
+          for (TierRate rate : restoreRates) {
             Decimal restorePoints = calculatePoints(deletedCreditCancelBase, rate.rate);
             if (restorePoints <= 0) {
               continue;
@@ -464,41 +480,50 @@ public without sharing class GdPointRefreshPreviewService {
             creditRestore.pointTypeCode = rate.pointTypeCode;
             creditRestore.usagePriority = rate.usagePriority;
             creditRestore.expiryDate = originalSale == null || originalSale.businessDate == null ? orderState.businessDate.addYears(2) : originalSale.businessDate.addYears(2);
-            creditRestore.originKey = buildCreditOriginKey(memberNo, openDate, originalSale, rate.pointTypeCode);
-            creditRestore.notes = 'BUSINESS_RETURN_DELETE_CREDIT_RESTORE;RETURN=' + orderState.saleNo;
+            creditRestore.originKey = isOriginalOptionCOldSale
+              ? buildOptionCOldSaleCreditOriginKey(originalSale)
+              : buildCreditOriginKey(memberNo, openDate, originalSale, rate.pointTypeCode);
+            creditRestore.notes = isOriginalOptionCOldSale
+              ? 'OPTC_OLD_SALE_ETC_ACCRUAL_RESTORE;RETURN=' + orderState.saleNo
+              : 'BUSINESS_RETURN_DELETE_CREDIT_RESTORE;RETURN=' + orderState.saleNo;
             events.add(creditRestore);
           }
-          for (PromotionPointRule rule : promotionRulesForOrder(originalSale, promotionRuleByPromotionId)) {
-            Decimal restorePoints = calculatePoints(deletedCreditCancelBase, rule.rate) * rule.multiplier;
-            if (restorePoints <= 0) {
-              continue;
+          if (!isOriginalOptionCOldSale) {
+            for (PromotionPointRule rule : promotionRulesForOrder(originalSale, promotionRuleByPromotionId)) {
+              Decimal restorePoints = calculatePoints(deletedCreditCancelBase, rule.rate) * rule.multiplier;
+              if (restorePoints <= 0) {
+                continue;
+              }
+              GdPointRefreshEngine.PointEvent creditRestore = new GdPointRefreshEngine.PointEvent(
+                'CREDIT:RETURN_DELETE_PROMO_RESTORE:' + String.valueOf(orderState.orderId) + ':' + rule.pointTypeCode,
+                GdPointRefreshEngine.EVENT_CREDIT,
+                orderState.businessDate,
+                restorePoints
+              );
+              creditRestore.sequence = seq++;
+              creditRestore.saleNo = originalSale == null ? null : originalSale.saleNo;
+              creditRestore.pointTypeCode = rule.pointTypeCode;
+              creditRestore.usagePriority = rule.usagePriority;
+              creditRestore.expiryDate = originalSale == null || originalSale.businessDate == null ? orderState.businessDate.addYears(2) : originalSale.businessDate.addYears(2);
+              creditRestore.originKey = buildPromotionCreditOriginKey(memberNo, openDate, originalSale, rule.pointTypeCode);
+              creditRestore.notes = 'BUSINESS_RETURN_DELETE_PROMOTION_CREDIT_RESTORE;RETURN=' + orderState.saleNo;
+              events.add(creditRestore);
             }
-            GdPointRefreshEngine.PointEvent creditRestore = new GdPointRefreshEngine.PointEvent(
-              'CREDIT:RETURN_DELETE_PROMO_RESTORE:' + String.valueOf(orderState.orderId) + ':' + rule.pointTypeCode,
-              GdPointRefreshEngine.EVENT_CREDIT,
-              orderState.businessDate,
-              restorePoints
-            );
-            creditRestore.sequence = seq++;
-            creditRestore.saleNo = originalSale == null ? null : originalSale.saleNo;
-            creditRestore.pointTypeCode = rule.pointTypeCode;
-            creditRestore.usagePriority = rule.usagePriority;
-            creditRestore.expiryDate = originalSale == null || originalSale.businessDate == null ? orderState.businessDate.addYears(2) : originalSale.businessDate.addYears(2);
-            creditRestore.originKey = buildPromotionCreditOriginKey(memberNo, openDate, originalSale, rule.pointTypeCode);
-            creditRestore.notes = 'BUSINESS_RETURN_DELETE_PROMOTION_CREDIT_RESTORE;RETURN=' + orderState.saleNo;
-            events.add(creditRestore);
           }
         }
       } else {
         Decimal creditBase = subtractExcludeAmount(sumAccrualEligibleAmount(orderDeposits, false, false), excludeAmountByOrderId.get(orderState.orderId));
         if (creditBase > 0) {
-          for (TierRate rate : effectiveTierRates(tierRateByPointType, orderState.promotionExcludedPointTypes)) {
+          List<TierRate> creditRates = isOptionCOldSale
+            ? optionCOldSaleRates(optionCOldSaleEtcRate)
+            : effectiveTierRates(tierRateByPointType, orderState.promotionExcludedPointTypes);
+          for (TierRate rate : creditRates) {
             Decimal creditPoints = calculatePoints(creditBase, rate.rate);
             if (creditPoints <= 0) {
               continue;
             }
             GdPointRefreshEngine.PointEvent credit = new GdPointRefreshEngine.PointEvent(
-              'CREDIT:SALE:' + String.valueOf(orderState.orderId) + ':' + rate.pointTypeCode,
+              isOptionCOldSale ? buildOptionCOldSaleCreditOriginKey(orderState) : 'CREDIT:SALE:' + String.valueOf(orderState.orderId) + ':' + rate.pointTypeCode,
               GdPointRefreshEngine.EVENT_CREDIT,
               orderState.businessDate,
               creditPoints
@@ -509,28 +534,30 @@ public without sharing class GdPointRefreshPreviewService {
             credit.usagePriority = rate.usagePriority;
             credit.expiryDate = orderState.businessDate.addYears(2);
             credit.originKey = credit.eventKey;
-            credit.notes = 'BUSINESS_SALE_CREDIT;SALE=' + orderState.saleNo;
+            credit.notes = isOptionCOldSale ? 'OPTC_OLD_SALE_ETC_ACCRUAL;SALE=' + orderState.saleNo : 'BUSINESS_SALE_CREDIT;SALE=' + orderState.saleNo;
             events.add(credit);
           }
-          for (PromotionPointRule rule : promotionRulesForOrder(orderState, promotionRuleByPromotionId)) {
-            Decimal promotionPoints = calculatePoints(creditBase, rule.rate) * rule.multiplier;
-            if (promotionPoints <= 0) {
-              continue;
+          if (!isOptionCOldSale) {
+            for (PromotionPointRule rule : promotionRulesForOrder(orderState, promotionRuleByPromotionId)) {
+              Decimal promotionPoints = calculatePoints(creditBase, rule.rate) * rule.multiplier;
+              if (promotionPoints <= 0) {
+                continue;
+              }
+              GdPointRefreshEngine.PointEvent credit = new GdPointRefreshEngine.PointEvent(
+                'CREDIT:PROMO_SALE:' + String.valueOf(orderState.orderId) + ':' + rule.pointTypeCode,
+                GdPointRefreshEngine.EVENT_CREDIT,
+                orderState.businessDate,
+                promotionPoints
+              );
+              credit.sequence = seq++;
+              credit.saleNo = orderState.saleNo;
+              credit.pointTypeCode = rule.pointTypeCode;
+              credit.usagePriority = rule.usagePriority;
+              credit.expiryDate = orderState.businessDate.addYears(2);
+              credit.originKey = credit.eventKey;
+              credit.notes = 'BUSINESS_PROMOTION_CREDIT;SALE=' + orderState.saleNo;
+              events.add(credit);
             }
-            GdPointRefreshEngine.PointEvent credit = new GdPointRefreshEngine.PointEvent(
-              'CREDIT:PROMO_SALE:' + String.valueOf(orderState.orderId) + ':' + rule.pointTypeCode,
-              GdPointRefreshEngine.EVENT_CREDIT,
-              orderState.businessDate,
-              promotionPoints
-            );
-            credit.sequence = seq++;
-            credit.saleNo = orderState.saleNo;
-            credit.pointTypeCode = rule.pointTypeCode;
-            credit.usagePriority = rule.usagePriority;
-            credit.expiryDate = orderState.businessDate.addYears(2);
-            credit.originKey = credit.eventKey;
-            credit.notes = 'BUSINESS_PROMOTION_CREDIT;SALE=' + orderState.saleNo;
-            events.add(credit);
           }
         }
 
@@ -550,7 +577,10 @@ public without sharing class GdPointRefreshPreviewService {
 
         Decimal deletedCreditBase = subtractExcludeAmount(sumAccrualEligibleAmount(orderDeposits, false, true), excludeAmountByOrderId.get(orderState.orderId));
         if (deletedCreditBase > 0) {
-          for (TierRate rate : effectiveTierRates(tierRateByPointType, orderState.promotionExcludedPointTypes)) {
+          List<TierRate> cancelRates = isOptionCOldSale
+            ? optionCOldSaleRates(optionCOldSaleEtcRate)
+            : effectiveTierRates(tierRateByPointType, orderState.promotionExcludedPointTypes);
+          for (TierRate rate : cancelRates) {
             Decimal cancelPoints = calculatePoints(deletedCreditBase, rate.rate);
             if (cancelPoints <= 0) {
               continue;
@@ -563,28 +593,30 @@ public without sharing class GdPointRefreshPreviewService {
             );
             creditCancel.sequence = seq++;
             creditCancel.saleNo = orderState.saleNo;
-            creditCancel.originKey = 'CREDIT:SALE:' + String.valueOf(orderState.orderId) + ':' + rate.pointTypeCode;
+            creditCancel.originKey = isOptionCOldSale ? buildOptionCOldSaleCreditOriginKey(orderState) : 'CREDIT:SALE:' + String.valueOf(orderState.orderId) + ':' + rate.pointTypeCode;
             creditCancel.pointTypeCode = rate.pointTypeCode;
-            creditCancel.notes = 'BUSINESS_SALE_DELETE_CREDIT_CANCEL;SALE=' + orderState.saleNo;
+            creditCancel.notes = isOptionCOldSale ? 'OPTC_OLD_SALE_ETC_ACCRUAL_CANCEL;SALE=' + orderState.saleNo : 'BUSINESS_SALE_DELETE_CREDIT_CANCEL;SALE=' + orderState.saleNo;
             events.add(creditCancel);
           }
-          for (PromotionPointRule rule : promotionRulesForOrder(orderState, promotionRuleByPromotionId)) {
-            Decimal cancelPoints = calculatePoints(deletedCreditBase, rule.rate) * rule.multiplier;
-            if (cancelPoints <= 0) {
-              continue;
+          if (!isOptionCOldSale) {
+            for (PromotionPointRule rule : promotionRulesForOrder(orderState, promotionRuleByPromotionId)) {
+              Decimal cancelPoints = calculatePoints(deletedCreditBase, rule.rate) * rule.multiplier;
+              if (cancelPoints <= 0) {
+                continue;
+              }
+              GdPointRefreshEngine.PointEvent creditCancel = new GdPointRefreshEngine.PointEvent(
+                'CREDIT_CANCEL:PROMO_SALE_DELETE:' + String.valueOf(orderState.orderId) + ':' + rule.pointTypeCode,
+                GdPointRefreshEngine.EVENT_CREDIT_CANCEL,
+                orderState.businessDate,
+                cancelPoints
+              );
+              creditCancel.sequence = seq++;
+              creditCancel.saleNo = orderState.saleNo;
+              creditCancel.originKey = 'CREDIT:PROMO_SALE:' + String.valueOf(orderState.orderId) + ':' + rule.pointTypeCode;
+              creditCancel.pointTypeCode = rule.pointTypeCode;
+              creditCancel.notes = 'BUSINESS_SALE_DELETE_PROMOTION_CREDIT_CANCEL;SALE=' + orderState.saleNo;
+              events.add(creditCancel);
             }
-            GdPointRefreshEngine.PointEvent creditCancel = new GdPointRefreshEngine.PointEvent(
-              'CREDIT_CANCEL:PROMO_SALE_DELETE:' + String.valueOf(orderState.orderId) + ':' + rule.pointTypeCode,
-              GdPointRefreshEngine.EVENT_CREDIT_CANCEL,
-              orderState.businessDate,
-              cancelPoints
-            );
-            creditCancel.sequence = seq++;
-            creditCancel.saleNo = orderState.saleNo;
-            creditCancel.originKey = 'CREDIT:PROMO_SALE:' + String.valueOf(orderState.orderId) + ':' + rule.pointTypeCode;
-            creditCancel.pointTypeCode = rule.pointTypeCode;
-            creditCancel.notes = 'BUSINESS_SALE_DELETE_PROMOTION_CREDIT_CANCEL;SALE=' + orderState.saleNo;
-            events.add(creditCancel);
           }
         }
 
@@ -854,6 +886,31 @@ public without sharing class GdPointRefreshPreviewService {
     return cutoff != null && createdDate != null && createdDate > cutoff;
   }
 
+  private static Map<Id, Boolean> buildOptionCOldOrderById(
+    List<SourceDeposit> deposits,
+    Date openDate,
+    Boolean useCreatedDateCutoff,
+    Datetime migrationCutoffDateTime
+  ) {
+    Map<Id, Boolean> result = new Map<Id, Boolean>();
+    if (deposits == null) {
+      return result;
+    }
+    for (SourceDeposit deposit : deposits) {
+      if (deposit == null || deposit.orderId == null) {
+        continue;
+      }
+      if (isLiveBusinessEvent(deposit.businessDate, deposit.createdDate, openDate, useCreatedDateCutoff, migrationCutoffDateTime)
+        && deposit.businessDate < openDate
+      ) {
+        result.put(deposit.orderId, true);
+      } else if (!result.containsKey(deposit.orderId)) {
+        result.put(deposit.orderId, false);
+      }
+    }
+    return result;
+  }
+
   private static Datetime defaultMigrationCutoff(Date openDate) {
     return openDate == null ? null : TimeUtil.dateToUtcStartOfDay(openDate);
   }
@@ -905,6 +962,47 @@ public without sharing class GdPointRefreshPreviewService {
       result.put(oi.OrderId, current + (unitPrice * qty));
     }
     return result;
+  }
+
+  private static TierRate buildOptionCOldSaleEtcRate(Map<String, TierRate> tierRateByPointType) {
+    if (tierRateByPointType == null || !tierRateByPointType.containsKey('01')) {
+      return null;
+    }
+    TierRate purchaseRate = tierRateByPointType.get('01');
+    if (purchaseRate == null || purchaseRate.rate == null || purchaseRate.rate <= 0) {
+      return null;
+    }
+
+    TierRate rate = new TierRate();
+    rate.pointTypeCode = '04';
+    rate.pointTypeName = 'Option C Etc Point';
+    rate.usagePriority = loadUsagePriorityByPointType('04');
+    rate.rate = purchaseRate.rate;
+    return rate;
+  }
+
+  private static List<TierRate> optionCOldSaleRates(TierRate optionCOldSaleEtcRate) {
+    List<TierRate> result = new List<TierRate>();
+    if (optionCOldSaleEtcRate != null) {
+      result.add(optionCOldSaleEtcRate);
+    }
+    return result;
+  }
+
+  private static Integer loadUsagePriorityByPointType(String pointTypeCode) {
+    if (String.isBlank(pointTypeCode)) {
+      return 999;
+    }
+    List<LoyaltyPgmCurrencySubtype> rows = [
+      SELECT UsagePriorityNumber
+      FROM LoyaltyPgmCurrencySubtype
+      WHERE PointTypeCode__c = :pointTypeCode
+      LIMIT 1
+    ];
+    if (rows.isEmpty() || rows[0].UsagePriorityNumber == null) {
+      return 999;
+    }
+    return Integer.valueOf(rows[0].UsagePriorityNumber);
   }
 
   private static Set<Id> collectPromotionIds(Map<Id, BusinessOrderState> orderById) {
@@ -1130,6 +1228,13 @@ public without sharing class GdPointRefreshPreviewService {
       return 'OPENING:' + memberNo + ':' + pointTypeCode;
     }
     return 'CREDIT:SALE:' + String.valueOf(originalSale.orderId) + ':' + pointTypeCode;
+  }
+
+  private static String buildOptionCOldSaleCreditOriginKey(BusinessOrderState originalSale) {
+    if (originalSale == null || originalSale.orderId == null) {
+      return null;
+    }
+    return 'OPTC_OLD_SALE_ETC:CREDIT:' + String.valueOf(originalSale.orderId) + ':04';
   }
 
   private static String buildPromotionCreditOriginKey(String memberNo, Date openDate, BusinessOrderState originalSale, String pointTypeCode) {

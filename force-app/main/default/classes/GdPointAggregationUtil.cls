@@ -37,8 +37,7 @@ public with sharing class GdPointAggregationUtil {
         TransactionJournal.OrderId__c,
         TransactionJournal.JournalSubType.Name
       FROM LoyaltyLedger
-      WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId
-        AND IsDeleted = FALSE
+      WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId AND IsDeleted = FALSE
       ORDER BY CreatedDate ASC
       LIMIT 50000
     ];
@@ -57,7 +56,8 @@ public with sharing class GdPointAggregationUtil {
       }
 
       String subtypeName = ledger.LoyaltyPgmCrcySubtype == null ? null : ledger.LoyaltyPgmCrcySubtype.Name;
-      String journalSubTypeName = ledger.TransactionJournal == null || ledger.TransactionJournal.JournalSubType == null
+      String journalSubTypeName = ledger.TransactionJournal == null ||
+        ledger.TransactionJournal.JournalSubType == null
         ? null
         : ledger.TransactionJournal.JournalSubType.Name;
       Decimal points = ledger.Points == null ? 0 : ledger.Points;
@@ -108,9 +108,7 @@ public with sharing class GdPointAggregationUtil {
           Points,
           ActionType
         FROM LoyaltyLedgerTraceability
-        WHERE DebitLoyaltyLedgerId IN :debitLedgerIds
-          AND ActionType IN ('Debit', 'CreditCancellation')
-          AND IsDeleted = FALSE
+        WHERE DebitLoyaltyLedgerId IN :debitLedgerIds AND ActionType IN ('Debit', 'CreditCancellation') AND IsDeleted = FALSE
         LIMIT 50000
       ]) {
         if (trace == null || trace.LoyaltyPgmCurrencySubtypeId == null) {
@@ -183,16 +181,18 @@ public with sharing class GdPointAggregationUtil {
       AggrRebuildValue value = targetByKey.get(key);
       LoyaltyAggrSubPointExprLedger__c row = existingByKey.get(key);
       if (row == null) {
-        inserts.add(new LoyaltyAggrSubPointExprLedger__c(
-          LoyaltyProgramMemberId__c = value.memberId,
-          CurrencySubTypeId__c = value.subtypeId,
-          ExpiryDate__c = value.expiryDate,
-          CurrencySubTypeName__c = value.subtypeName,
-          AccruedPoints__c = value.accruedPoints,
-          RedeemedPoints__c = value.redeemedPoints,
-          ExpiredPoints__c = value.expiredPoints,
-          LoyaltyProgramCurrencyId__c = pointCurrencyId
-        ));
+        inserts.add(
+          new LoyaltyAggrSubPointExprLedger__c(
+            LoyaltyProgramMemberId__c = value.memberId,
+            CurrencySubTypeId__c = value.subtypeId,
+            ExpiryDate__c = value.expiryDate,
+            CurrencySubTypeName__c = value.subtypeName,
+            AccruedPoints__c = value.accruedPoints,
+            RedeemedPoints__c = value.redeemedPoints,
+            ExpiredPoints__c = value.expiredPoints,
+            LoyaltyProgramCurrencyId__c = pointCurrencyId
+          )
+        );
       } else {
         row.CurrencySubTypeName__c = value.subtypeName;
         row.AccruedPoints__c = value.accruedPoints;
@@ -256,9 +256,8 @@ public with sharing class GdPointAggregationUtil {
     if (!creditBucketsBySourceAndSubtype.containsKey(sourceKey)) {
       creditBucketsBySourceAndSubtype.put(sourceKey, new List<CreditLedgerBucket>());
     }
-    creditBucketsBySourceAndSubtype.get(sourceKey).add(
-      new CreditLedgerBucket(ledger.LoyaltyPgmCrcySubtypeId, ledger.ExpiryDate, subtypeName, points == null ? 0 : points)
-    );
+    creditBucketsBySourceAndSubtype.get(sourceKey)
+      .add(new CreditLedgerBucket(ledger.LoyaltyPgmCrcySubtypeId, ledger.ExpiryDate, subtypeName, points == null ? 0 : points));
   }
 
   private static void applyMissingCreditCancellationFallback(
@@ -277,7 +276,8 @@ public with sharing class GdPointAggregationUtil {
         continue;
       }
 
-      String journalSubTypeName = debitLedger.TransactionJournal == null || debitLedger.TransactionJournal.JournalSubType == null
+      String journalSubTypeName = debitLedger.TransactionJournal == null ||
+        debitLedger.TransactionJournal.JournalSubType == null
         ? null
         : debitLedger.TransactionJournal.JournalSubType.Name;
       if (!isAccrualReversalSubType(journalSubTypeName)) {

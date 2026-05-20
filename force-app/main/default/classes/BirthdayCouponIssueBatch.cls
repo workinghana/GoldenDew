@@ -25,7 +25,7 @@ public with sharing class BirthdayCouponIssueBatch implements Database.Batchable
 
     // 26.05.01 GD 수정 - 법정 생년월일로 변경
     String monthStr = String.valueOf(thisMonth).leftPad(2, '0');
-    String likePattern = '__' + monthStr + '__'; 
+    String likePattern = '__' + monthStr + '__';
 
     String soql =
       'SELECT Id, LoyaltyMemberId, LoyaltyTierId, ' +
@@ -306,43 +306,46 @@ public with sharing class BirthdayCouponIssueBatch implements Database.Batchable
           }
         }
 
-        // 8) 발급 성공 voucherId 재조회 → ERP DTO 생성 + 최종 성공 집계
+        // 업글레이드 쿠폰 금액 0원으로 수정
         normalizeIssuedUpgradeVouchers(issuedVoucherIdSet);
-        if (!issuedVoucherIdSet.isEmpty()) {
-          List<Voucher> issued = [
-            SELECT Id, LoyaltyProgramMemberId, LoyaltyProgramMember.Contact.MemberNo__c, VoucherDefinition.CouponManNo__c, VoucherCode
-            FROM Voucher
-            WHERE Id IN :issuedVoucherIdSet
-          ];
 
-          ErpCouponReqDto.IssueRequest couponIssueReq = new ErpCouponReqDto.IssueRequest();
-          couponIssueReq.couponDetailModels = new List<ErpCouponReqDto.CouponDetailModel>();
+        // ! ERP 동기화 하지 않음.
+        // 8) 발급 성공 voucherId 재조회 → ERP DTO 생성 + 최종 성공 집계
+        // if (!issuedVoucherIdSet.isEmpty()) {
+        //   List<Voucher> issued = [
+        //     SELECT Id, LoyaltyProgramMemberId, LoyaltyProgramMember.Contact.MemberNo__c, VoucherDefinition.CouponManNo__c, VoucherCode
+        //     FROM Voucher
+        //     WHERE Id IN :issuedVoucherIdSet
+        //   ];
 
-          Set<Id> voucherIdsForCallback = new Set<Id>();
+        //   ErpCouponReqDto.IssueRequest couponIssueReq = new ErpCouponReqDto.IssueRequest();
+        //   couponIssueReq.couponDetailModels = new List<ErpCouponReqDto.CouponDetailModel>();
 
-          for (Voucher v : issued) {
-            String couponManNo = v.VoucherDefinition.CouponManNo__c;
-            String memberNo = v.LoyaltyProgramMember.Contact.MemberNo__c;
-            String voucherCode = v.VoucherCode;
+        //   Set<Id> voucherIdsForCallback = new Set<Id>();
 
-            if (String.isBlank(couponManNo) || String.isBlank(memberNo)) {
-              failMsgs.add('ERP mapping missing. voucherId=' + v.Id);
-              continue;
-            }
+        //   for (Voucher v : issued) {
+        //     String couponManNo = v.VoucherDefinition.CouponManNo__c;
+        //     String memberNo = v.LoyaltyProgramMember.Contact.MemberNo__c;
+        //     String voucherCode = v.VoucherCode;
 
-            couponIssueReq.couponDetailModels.add(new ErpCouponReqDto.CouponDetailModel(couponManNo, voucherCode, memberNo, UserInfo.getName()));
+        //     if (String.isBlank(couponManNo) || String.isBlank(memberNo)) {
+        //       failMsgs.add('ERP mapping missing. voucherId=' + v.Id);
+        //       continue;
+        //     }
 
-            // 최종 성공은 "Voucher 재조회 성공" 기준으로 member 집계
-            successIds.add((String) v.LoyaltyProgramMemberId);
-            voucherIdsForCallback.add(v.Id);
-          }
+        //     couponIssueReq.couponDetailModels.add(new ErpCouponReqDto.CouponDetailModel(couponManNo, voucherCode, memberNo, UserInfo.getName()));
 
-          if (couponIssueReq.couponDetailModels != null && !couponIssueReq.couponDetailModels.isEmpty()) {
-            System.enqueueJob(
-              new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), voucherIdsForCallback)
-            );
-          }
-        }
+        //     // 최종 성공은 "Voucher 재조회 성공" 기준으로 member 집계
+        //     successIds.add((String) v.LoyaltyProgramMemberId);
+        //     voucherIdsForCallback.add(v.Id);
+        //   }
+
+        //   if (couponIssueReq.couponDetailModels != null && !couponIssueReq.couponDetailModels.isEmpty()) {
+        //     System.enqueueJob(
+        //       new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), voucherIdsForCallback)
+        //     );
+        //   }
+        // }
       }
 
       // member 단위 성공/실패 정리

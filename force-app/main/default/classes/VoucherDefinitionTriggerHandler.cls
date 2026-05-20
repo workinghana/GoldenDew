@@ -80,11 +80,12 @@ public with sharing class VoucherDefinitionTriggerHandler extends TriggerHandler
 
       for (VoucherDefinition vd : vdList) {
         try {
-          ErpCouponMasterReqDto.IssueRequest req = new ErpCouponMasterReqDto.IssueRequest(vd);
+          // ! ERP 동기화 X
+          // ErpCouponMasterReqDto.IssueRequest req = new ErpCouponMasterReqDto.IssueRequest(vd);
 
-          logger.setRequestBody(JSON.serialize(req));
+          // logger.setRequestBody(JSON.serialize(req));
 
-          System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.CREATE_MASTER, req, new ErpCouponAsyncCallback(), vd.Id));
+          // System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.CREATE_MASTER, req, new ErpCouponAsyncCallback(), vd.Id));
 
           successIds.add((String) vd.Id);
         } catch (CustomException ce) {
@@ -155,7 +156,8 @@ public with sharing class VoucherDefinitionTriggerHandler extends TriggerHandler
 
           logger.setRequestBody(JSON.serialize(req));
 
-          System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.DELETE_MASTER, req, new ErpCouponAsyncCallback(), vd.Id));
+          // ! ERP 동기화 x
+          // System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.DELETE_MASTER, req, new ErpCouponAsyncCallback(), vd.Id));
 
           successIds.add((String) vd.Id);
         } catch (Exception ex) {
@@ -293,7 +295,8 @@ public with sharing class VoucherDefinitionTriggerHandler extends TriggerHandler
           System.debug('vdOld : ' + vdOld);
 
           // ErpCouponJob에 UPDATE_MASTER가 없다면 CREATE_MASTER로 통일해도 됨(ERP가 upsert라면)
-          System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.UPDATE_MASTER, req, new ErpCouponAsyncCallback(), vdId, vdOld));
+          // ! ERP 동기화 x
+          // System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.UPDATE_MASTER, req, new ErpCouponAsyncCallback(), vdId, vdOld));
 
           successIds.add((String) vdId);
         } catch (Exception ex) {

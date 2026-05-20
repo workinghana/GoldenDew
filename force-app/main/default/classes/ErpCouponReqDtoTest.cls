@@ -1,5 +1,15 @@
 @IsTest
 private class ErpCouponReqDtoTest {
+  private class McCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"result":"ok"}');
+      return res;
+    }
+  }
+
   @IsTest
   static void opEnum_containsExpectedValues() {
     System.assertEquals('ISSUE_OP', String.valueOf(ErpCouponReqDto.Op.ISSUE_OP));
@@ -101,11 +111,10 @@ private class ErpCouponReqDtoTest {
   }
 
   private static Voucher createVoucher(String couponManNo, String memberNo, String voucherCode, String statusValue) {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
     LoyaltyProgram program = new LoyaltyProgram(Name = 'Program ' + voucherCode, IsPrimary = true);
     insert program;
-
-    Product2 productRecord = new Product2(Name = 'Product ' + voucherCode, IsActive = true);
-    insert productRecord;
 
     Account companyAccount = new Account(Name = 'Company ' + voucherCode, CompanyCode__c = '1000');
     insert companyAccount;
@@ -114,11 +123,11 @@ private class ErpCouponReqDtoTest {
       Name = 'Test Coupon ' + voucherCode,
       LoyaltyProgramId = program.Id,
       IsActive = true,
-      ProductId = productRecord.Id,
       ExpirationType = 'FixedDate',
       ExpirationDate = Date.today().addDays(30),
       EffectiveDate = Date.today(),
-      Type = 'ProductOrService',
+      Type = 'FixedValue',
+      FaceValue = 1000,
       AccountId__c = companyAccount.Id,
       CouponTypeCode__c = '01',
       ResponsibleDepartment__c = 'Marketing',

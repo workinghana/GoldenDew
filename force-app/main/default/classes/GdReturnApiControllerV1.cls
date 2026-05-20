@@ -108,9 +108,7 @@ global with sharing class GdReturnApiControllerV1 {
 
       // === [Option C 분기 flag — 표준 로직 후 응답 wrap 용] ===
       // IsEnabled=false 또는 신규 거래 시 false → wrap 없이 표준 응답 그대로
-      Boolean shouldBranchOptC = GdMigrationUtil.shouldApplyOptionCBranchBySaleNo(
-        (String) reqData.get('OriginalOrderId')
-      );
+      Boolean shouldBranchOptC = GdMigrationUtil.shouldApplyOptionCBranchBySaleNo((String) reqData.get('OriginalOrderId'));
 
       {
         // 반품 처리
@@ -221,8 +219,20 @@ global with sharing class GdReturnApiControllerV1 {
       // 반품 상세 삭제
       getReturnItemService().deleteReturnItem(orderId);
 
-      // ! 반품 입금 전체 삭제 사용 여부 : 보류
-      // // 반품 입금 전체 삭제
+      // [반품 삭제 시 적립 복원 fix 2026-05-15]
+      //   배경: 기존 deleteReturn 흐름이 restoreEcoPointsFromReturn (에코) 만 호출하여 Purchase Accrual
+      //         (구매/사은 적립) 의 취소 TJ 가 그대로 살아있는 결함. 재반품 시 중복 Cancel Purchase Accrual
+      //         발행되어 회원 잔액이 음수가 됨 (회원 269999800255: LMC -36000P).
+      //   해결: 주석 처리되어 비활성화 되어 있던 deleteAllReturnDeposits 호출 활성화.
+      //         deleteAllReturnDeposits 내부에서 각 반품 입금 TJ 별로 처리:
+      //           - Cancel Purchase Accrual → creditSepcificPoints 로 적립 복원
+      //           - Point Redeem Cancel → RESTORE Debit 로 Cancel Credit 재소비
+      //           - Coupon Redeem Cancel → 쿠폰 사용 재발행
+      //           - 모든 TJ IsDel=true 처리
+      //         단 Api Forced Debit 에코 cancel TJ 는 deleteAllReturnDeposits 분기 매칭 안 됨
+      //         (cancelPurchaseAccrualJstId 등 아님) → IsDel 만 처리. 그래서 별도로
+      //         restoreEcoPointsFromReturn 호출 유지 필요 (SOQL IsDel 필터 없으므로 순서 무관).
+      // 반품 입금 전체 삭제 (Purchase Accrual 복원 포함)
       // getReturnDepositService().deleteAllReturnDeposits(orderId);
 
       // 에코포인트 적립 취소 건 복원 Start.
@@ -287,12 +297,14 @@ global with sharing class GdReturnApiControllerV1 {
       try {
         List<Order> rtnOrderList = [
           SELECT OriginalOrderId__c, OriginalOrderId__r.SaleNo__c
-          FROM Order WHERE Id = :orderId LIMIT 1
+          FROM Order
+          WHERE Id = :orderId
+          LIMIT 1
         ];
         String origSaleNo = (!rtnOrderList.isEmpty() && rtnOrderList[0].OriginalOrderId__r != null)
-          ? rtnOrderList[0].OriginalOrderId__r.SaleNo__c : null;
-        if (String.isNotBlank(origSaleNo)
-            && GdMigrationUtil.shouldApplyOptionCBranchBySaleNo(origSaleNo)) {
+          ? rtnOrderList[0].OriginalOrderId__r.SaleNo__c
+          : null;
+        if (String.isNotBlank(origSaleNo) && GdMigrationUtil.shouldApplyOptionCBranchBySaleNo(origSaleNo)) {
           result = GdReturnDeleteBranchHandler.wrapResponseForOldReturn(result, saleNo, logger);
         }
       } catch (Exception e) {

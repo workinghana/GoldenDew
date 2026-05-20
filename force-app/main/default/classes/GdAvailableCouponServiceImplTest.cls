@@ -1,5 +1,14 @@
 @IsTest
 private class GdAvailableCouponServiceImplTest {
+    private class McCalloutMock implements HttpCalloutMock {
+        public HttpResponse respond(HttpRequest req) {
+            HttpResponse res = new HttpResponse();
+            res.setStatusCode(200);
+            res.setHeader('Content-Type', 'application/json');
+            res.setBody('{"result":"ok"}');
+            return res;
+        }
+    }
 
     /* =====================================================
      * 가짜 ID 생성 헬퍼 (SObject key prefix 기반)
@@ -35,6 +44,16 @@ private class GdAvailableCouponServiceImplTest {
     }
 
     private static String firstVoucherDefinitionType() {
+        for (Schema.PicklistEntry entry : VoucherDefinition.Type.getDescribe().getPicklistValues()) {
+            if (entry.getValue() == 'FixedValue') {
+                return entry.getValue();
+            }
+        }
+        for (Schema.PicklistEntry entry : VoucherDefinition.Type.getDescribe().getPicklistValues()) {
+            if (entry.getValue() != 'ProductOrService' && entry.getValue() != '제품 또는 서비스') {
+                return entry.getValue();
+            }
+        }
         return VoucherDefinition.Type.getDescribe().getPicklistValues()[0].getValue();
     }
 
@@ -43,6 +62,8 @@ private class GdAvailableCouponServiceImplTest {
     }
 
     private static ExpiredCouponFixture createExpiredCouponFixture() {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
         String uniqueKey = String.valueOf(Datetime.now().getTime());
         String memberNo = 'MEM-EXPIRED-' + uniqueKey;
         String voucherCode = 'EXPIRED-' + uniqueKey;

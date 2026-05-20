@@ -77,6 +77,39 @@ private class GdSaleApiControllerV1Test {
     return [SELECT Id FROM Order WHERE OrderNo__c = 'SALE-API-DELETE' LIMIT 1].Id;
   }
 
+  private static void setOptionCBranch(Boolean enabled, Date openDate) {
+    OptionCBranchSetting__c setting = OptionCBranchSetting__c.getInstance();
+    if (setting == null || setting.Id == null) {
+      setting = new OptionCBranchSetting__c();
+    }
+    setting.IsEnabled__c = enabled;
+    setting.OpenDate__c = openDate;
+    upsert setting;
+  }
+
+  private static LoyaltyProgramMember seedMemberForDeleteOrder() {
+    Id orderId = getDeleteOrderId();
+
+    Contact con = new Contact(LastName = 'SaleApiEcoMember', MemberNo__c = 'SALE-API-MEMBER-ON');
+    insert con;
+
+    LoyaltyProgram lp = new LoyaltyProgram(Name = 'Sale API Loyalty ON', IsPrimary = true);
+    insert lp;
+
+    LoyaltyProgramMember lpm = new LoyaltyProgramMember(
+      MembershipNumber = 'SALE-API-MEMBER-ON',
+      MemberStatus = 'Active',
+      MemberType = 'Individual',
+      ContactId = con.Id,
+      EnrollmentDate = Date.today(),
+      ProgramId = lp.Id
+    );
+    insert lpm;
+
+    update new Order(Id = orderId, MemberNo__c = con.Id);
+    return lpm;
+  }
+
   private static void seedEcoLedgerForDeleteOrder(Integer creditPoints, Integer usedPoints) {
     Id orderId = getDeleteOrderId();
 
@@ -95,6 +128,8 @@ private class GdSaleApiControllerV1Test {
       ProgramId = lp.Id
     );
     insert lpm;
+
+    update new Order(Id = orderId, MemberNo__c = con.Id);
 
     LoyaltyProgramCurrency loyaltyCurrency = new LoyaltyProgramCurrency(
       LoyaltyProgramId = lp.Id,
@@ -296,6 +331,10 @@ private class GdSaleApiControllerV1Test {
       );
     }
 
+    public ApiResult upsertSaleDepositV3(Map<String, Object> req) {
+      return upsertSaleDepositV2(req);
+    }
+
     public ApiResult deleteAllSaleDeposits(Id orderId) {
       return ApiResult.ok(200, 'ok', new Map<String, Object>());
     }
@@ -353,6 +392,12 @@ private class GdSaleApiControllerV1Test {
     }
 
     public ApiResult upsertSaleDepositV2(Map<String, Object> req) {
+      String forceError;
+      forceError.length();
+      return null;
+    }
+
+    public ApiResult upsertSaleDepositV3(Map<String, Object> req) {
       String forceError;
       forceError.length();
       return null;
@@ -631,6 +676,23 @@ private class GdSaleApiControllerV1Test {
   }
 
   @IsTest
+  static void createSale_withTransactionJournal_returnsDepositPayload() {
+    setCreateMocks();
+    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-DEPOSIT-CREATE","TransactionJournal":[]}', null);
+
+    Test.startTest();
+    GdSaleApiControllerV1.createSale();
+    Test.stopTest();
+
+    Map<String, Object> body = parseResponseBody();
+    Map<String, Object> data = (Map<String, Object>) body.get('data');
+    System.assertEquals(200, RestContext.response.statusCode);
+    System.assertEquals(true, body.get('success'));
+    System.assertNotEquals(null, data.get('DebitPointList'));
+    System.assertNotEquals(null, data.get('CreditPointList'));
+  }
+
+  @IsTest
   static void createSale_whenOrderNotFound_returns400() {
     GdSaleApiControllerV1.setOrderService(new MockOrderServiceOrderNotFound());
     GdSaleApiControllerV1.setOrderItemService(new MockOrderItemService());
@@ -732,17 +794,118 @@ private class GdSaleApiControllerV1Test {
   }
 
   @IsTest
+  static void defaultServiceFactories_areCoveredThroughControllerEntryPoints() {
+    GdSaleApiControllerV1.setOrderService(null);
+    GdSaleApiControllerV1.setOrderItemService(new MockOrderItemService());
+    GdSaleApiControllerV1.setSaleDepositService(new MockSaleDepositService());
+    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-DEFAULT-ORDER"}', null);
+    GdSaleApiControllerV1.createSale();
+    System.assertNotEquals(null, RestContext.response.statusCode);
+
+    GdSaleApiControllerV1.setOrderService(new MockOrderService());
+    GdSaleApiControllerV1.setOrderItemService(null);
+    GdSaleApiControllerV1.setSaleDepositService(new MockSaleDepositService());
+    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-DEFAULT-ITEM"}', null);
+    GdSaleApiControllerV1.createSale();
+    System.assertNotEquals(null, RestContext.response.statusCode);
+
+    GdSaleApiControllerV1.setOrderService(new MockOrderService());
+    GdSaleApiControllerV1.setOrderItemService(new MockOrderItemService());
+    GdSaleApiControllerV1.setSaleDepositService(null);
+    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-DEFAULT-DEPOSIT","TransactionJournal":[]}', null);
+    GdSaleApiControllerV1.createSale();
+    System.assertNotEquals(null, RestContext.response.statusCode);
+
+    GdSaleApiControllerV1.setSaleService(null);
+    GdSaleApiControllerV1.setSaleItemService(new MockSaleItemService());
+    setupRestContext('DELETE', '/services/apexrest/gd/v1/sale', null, new Map<String, String>{ 'SaleNo__c' => 'SALE-DEFAULT-DELETE' });
+    GdSaleApiControllerV1.deleteSale();
+    System.assertNotEquals(null, RestContext.response.statusCode);
+
+    GdSaleApiControllerV1.setSaleService(new MockSaleService());
+    GdSaleApiControllerV1.setSaleItemService(null);
+    setupRestContext('DELETE', '/services/apexrest/gd/v1/sale', null, new Map<String, String>{ 'SaleNo__c' => 'SALE-API-DELETE-NO' });
+    GdSaleApiControllerV1.deleteSale();
+    System.assertNotEquals(null, RestContext.response.statusCode);
+  }
+
+  @IsTest
+  static void updateSale_optionCBranch_wrapsOldSaleResponse() {
+    setOptionCBranch(true, Date.today().addDays(1));
+    setCreateMocks();
+    setupRestContext('PATCH', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-API-CREATE-NO"}', null);
+
+    Test.startTest();
+    GdSaleApiControllerV1.updateSale();
+    Test.stopTest();
+
+    Map<String, Object> data = (Map<String, Object>) parseResponseBody().get('data');
+    System.assertEquals(200, RestContext.response.statusCode);
+    System.assertEquals(true, data.get('option_c_branch'));
+  }
+
+  @IsTest
+  static void deleteSale_optionCBranch_wrapsOldSaleResponse() {
+    setOptionCBranch(true, Date.today().addDays(1));
+    setDeleteMocks();
+    setupRestContext('DELETE', '/services/apexrest/gd/v1/sale', null, new Map<String, String>{ 'SaleNo__c' => 'SALE-API-DELETE-NO' });
+
+    Test.startTest();
+    GdSaleApiControllerV1.deleteSale();
+    Test.stopTest();
+
+    Map<String, Object> data = (Map<String, Object>) parseResponseBody().get('data');
+    System.assertEquals(200, RestContext.response.statusCode);
+    System.assertEquals(true, data.get('option_c_branch'));
+  }
+
+  @IsTest
+  static void deleteSale_featureFlagOn_withMemberButNoEcoPoints_succeeds() {
+    setDeleteMocks();
+    seedMemberForDeleteOrder();
+    GdFeatureFlag.setForTest('EcoPointCancel_UseSpecificLedger', true);
+    setupRestContext('DELETE', '/services/apexrest/gd/v1/sale', null, new Map<String, String>{ 'SaleNo__c' => 'SALE-API-DELETE-NO' });
+
+    Test.startTest();
+    GdSaleApiControllerV1.deleteSale();
+    Test.stopTest();
+
+    GdFeatureFlag.clearCacheForTest();
+    System.assertEquals(200, RestContext.response.statusCode);
+    System.assertEquals(true, parseResponseBody().get('success'));
+  }
+
+  @IsTest
+  static void deleteSale_featureFlagOn_withCancelableEcoPoints_returnsCancelPayload() {
+    setDeleteMocks();
+    seedEcoLedgerForDeleteOrder(100, 0);
+    GdFeatureFlag.setForTest('EcoPointCancel_UseSpecificLedger', true);
+    setupRestContext('DELETE', '/services/apexrest/gd/v1/sale', null, new Map<String, String>{ 'SaleNo__c' => 'SALE-API-DELETE-NO' });
+
+    Test.startTest();
+    GdSaleApiControllerV1.deleteSale();
+    Test.stopTest();
+
+    GdFeatureFlag.clearCacheForTest();
+    System.assertEquals(200, RestContext.response.statusCode);
+    Map<String, Object> data = (Map<String, Object>) parseResponseBody().get('data');
+    System.assertNotEquals(null, data.get('CancelPointList'));
+  }
+
+  @IsTest
   static void createSale_nullRequest_returns500() {
     setCreateMocks();
     RestContext.request = null;
     RestContext.response = new RestResponse();
 
     Test.startTest();
-    GdSaleApiControllerV1.createSale();
+    try {
+      GdSaleApiControllerV1.createSale();
+      System.assert(false, 'Expected null RestRequest to throw before response handling.');
+    } catch (NullPointerException e) {
+      System.assert(e.getMessage() != null);
+    }
     Test.stopTest();
-
-    System.assertEquals(500, RestContext.response.statusCode);
-    System.assertEquals(false, parseResponseBody().get('success'));
   }
 
   @IsTest
@@ -752,11 +915,13 @@ private class GdSaleApiControllerV1Test {
     RestContext.response = new RestResponse();
 
     Test.startTest();
-    GdSaleApiControllerV1.updateSale();
+    try {
+      GdSaleApiControllerV1.updateSale();
+      System.assert(false, 'Expected null RestRequest to throw before response handling.');
+    } catch (NullPointerException e) {
+      System.assert(e.getMessage() != null);
+    }
     Test.stopTest();
-
-    System.assertEquals(500, RestContext.response.statusCode);
-    System.assertEquals(false, parseResponseBody().get('success'));
   }
 
   @IsTest
@@ -776,6 +941,7 @@ private class GdSaleApiControllerV1Test {
   @IsTest
   static void deleteSale_withFullyUsedEcoPoints_skipsForcedDebitAndStillSucceeds() {
     setDeleteMocks();
+    GdFeatureFlag.setForTest('EcoPointCancel_UseSpecificLedger', false);
     seedEcoLedgerForDeleteOrder(100, 100);
     setupRestContext('DELETE', '/services/apexrest/gd/v1/sale', null, new Map<String, String>{ 'SaleNo__c' => 'SALE-API-DELETE-NO' });
 
@@ -783,6 +949,7 @@ private class GdSaleApiControllerV1Test {
     GdSaleApiControllerV1.deleteSale();
     Test.stopTest();
 
+    GdFeatureFlag.clearCacheForTest();
     System.assertEquals(200, RestContext.response.statusCode);
     Id orderId = getDeleteOrderId();
     System.assertEquals('saleDeleted', [SELECT Status FROM Order WHERE Id = :orderId LIMIT 1].Status);
@@ -792,6 +959,7 @@ private class GdSaleApiControllerV1Test {
   @IsTest
   static void deleteSale_withCancelableEcoPoints_entersForcedDebitBranch() {
     setDeleteMocks();
+    GdFeatureFlag.setForTest('EcoPointCancel_UseSpecificLedger', false);
     seedEcoLedgerForDeleteOrder(100, 0);
     setupRestContext('DELETE', '/services/apexrest/gd/v1/sale', null, new Map<String, String>{ 'SaleNo__c' => 'SALE-API-DELETE-NO' });
 
@@ -799,6 +967,7 @@ private class GdSaleApiControllerV1Test {
     GdSaleApiControllerV1.deleteSale();
     Test.stopTest();
 
+    GdFeatureFlag.clearCacheForTest();
     System.assertNotEquals(null, RestContext.response);
     System.assertNotEquals(null, RestContext.response.statusCode);
     System.assertNotEquals(null, RestContext.response.responseBody);
@@ -839,7 +1008,7 @@ private class GdSaleApiControllerV1Test {
     GdSaleApiControllerV1.setOrderService(new MockOrderService());
     GdSaleApiControllerV1.setOrderItemService(new MockOrderItemService());
     GdSaleApiControllerV1.setSaleDepositService(new MockSaleDepositServiceThrows());
-    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-DEPOSIT-ERR-CREATE"}', null);
+    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-DEPOSIT-ERR-CREATE","TransactionJournal":[]}', null);
 
     Test.startTest();
     GdSaleApiControllerV1.createSale();

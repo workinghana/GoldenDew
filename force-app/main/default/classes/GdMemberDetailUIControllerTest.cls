@@ -1,9 +1,20 @@
 @IsTest(SeeAllData=true)
 private class GdMemberDetailUIControllerTest {
+  private class McCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"result":"ok"}');
+      return res;
+    }
+  }
+
   // ------------------------------------------------------------
   // Helpers
   // ------------------------------------------------------------
   private static Contact makeContact() {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
     Contact c = new Contact();
     c.LastName = 'TestContact';
     c.Phone = '02-111-2222';

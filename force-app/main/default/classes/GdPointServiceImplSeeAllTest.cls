@@ -1,5 +1,15 @@
 @IsTest(SeeAllData=true)
 private class GdPointServiceImplSeeAllTest {
+  private class McCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"result":"ok"}');
+      return res;
+    }
+  }
+
   private class GradeSeed {
     String gradeCode;
     TransactionJournal tj;
@@ -313,6 +323,7 @@ private class GdPointServiceImplSeeAllTest {
 
   @IsTest
   static void cover_gradeBased_paths_with_manual_seed() {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
     GdPointServiceImpl svc = new GdPointServiceImpl();
 
     Test.startTest();
@@ -547,6 +558,7 @@ private class GdPointServiceImplSeeAllTest {
 
   @IsTest
   static void cover_cancelPointRedemption_with_manual_expired_seed() {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
     GdPointServiceImpl svc = new GdPointServiceImpl();
 
     Test.startTest();
@@ -686,6 +698,7 @@ private class GdPointServiceImplSeeAllTest {
 
   @IsTest
   static void cover_cancelPointRedemption_with_manual_partial_expired_seed() {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
     GdPointServiceImpl svc = new GdPointServiceImpl();
 
     Test.startTest();
@@ -825,6 +838,7 @@ private class GdPointServiceImplSeeAllTest {
 
   @IsTest
   static void cover_cancelPointRedemption_with_manual_unexpired_seed() {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
     GdPointServiceImpl svc = new GdPointServiceImpl();
 
     Test.startTest();

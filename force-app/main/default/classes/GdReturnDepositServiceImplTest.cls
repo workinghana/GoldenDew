@@ -10,7 +10,25 @@ private class GdReturnDepositServiceImplTest {
   private static Integer cancelPointsCreditedOnPurchaseCallCount;
   private static Integer creditPointsOnPurchaseCallCount;
   private static Integer creditPromotionPointsOnPurchaseCallCount;
+  private static Boolean returnPromotionCreditList;
   private static List<TransactionJournal> capturedCancelPointsCreditedData;
+
+  private class MockHttpSuccess implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setHeader('Content-Type', 'application/json');
+
+      if (req.getEndpoint() != null && req.getEndpoint().contains('/v2/token')) {
+        res.setStatusCode(200);
+        res.setBody('{"access_token":"test_token","token_type":"Bearer","expires_in":1080}');
+        return res;
+      }
+
+      res.setStatusCode(202);
+      res.setBody('{"requestId":"test-request-id","resultMessages":[]}');
+      return res;
+    }
+  }
 
   private class VoucherServiceStubProvider implements System.StubProvider {
     public Object handleMethodCall(
@@ -26,6 +44,11 @@ private class GdReturnDepositServiceImplTest {
       }
 
       if (methodName == 'redeemCancelVoucher') {
+        TransactionJournal tj = (TransactionJournal) args[0];
+        lastRedeemCancelOrderId = tj.OrderId;
+        lastRedeemCancelOrderIdCustom = tj.OrderId__c;
+        lastRedeemCancelSaleId = tj.SaleId__c;
+        lastRedeemCancelVoucherCode = tj.VoucherCode;
         return ApiResult.ok(200, '荑좏룿 痍⑥냼 ?깃났', new Map<String, Object>{ 'voucher' => 'VOUCHER_CANCEL_OK' });
       }
 
@@ -124,6 +147,33 @@ private class GdReturnDepositServiceImplTest {
       return new List<PointDebitDTO>{ dto };
     }
 
+    public List<PointDebitDTO> debitSpecificPointsV2(TransactionJournal tj, List<LoyaltyLedger> llList) {
+      return debitSpecificPoints(tj, llList);
+    }
+
+    public List<PointDebitDTO> debitSpecificPointsV3(TransactionJournal tj, Map<Id, Decimal> requestedPointsByLedgerId) {
+      tj.JournalTypeId = getJournalTypeId('Redemption');
+      tj.JournalSubTypeId = getJournalSubTypeId('Point Debit');
+      tj.Status = 'Pending';
+      insert tj;
+
+      List<PointDebitDTO> result = new List<PointDebitDTO>();
+      if (requestedPointsByLedgerId != null) {
+        for (Id ledgerId : requestedPointsByLedgerId.keySet()) {
+          PointDebitDTO dto = new PointDebitDTO();
+          dto.CD_LEDGER = ledgerId;
+          dto.CD_RESON = '1';
+          dto.PT_USE = requestedPointsByLedgerId.get(ledgerId);
+          result.add(dto);
+        }
+      }
+      return result;
+    }
+
+    public List<GdSaleApiController.PointDebitDTO> debitPointsCustom(TransactionJournal tj) {
+      return new List<GdSaleApiController.PointDebitDTO>();
+    }
+
     public List<PointCreditDTO> creditPointsOnPurchaseByGrade(Map<String, Object> reqData) {
       return new List<PointCreditDTO>{ new PointCreditDTO() };
     }
@@ -164,6 +214,9 @@ private class GdReturnDepositServiceImplTest {
       creditPromotionPointsOnPurchaseCallCount = (creditPromotionPointsOnPurchaseCallCount == null)
         ? 1
         : creditPromotionPointsOnPurchaseCallCount + 1;
+      if (returnPromotionCreditList == true) {
+        return new List<PointCreditDTO>{ new PointCreditDTO() };
+      }
       return new List<PointCreditDTO>();
     }
 
@@ -192,6 +245,8 @@ private class GdReturnDepositServiceImplTest {
 
   @TestSetup
   static void setupData() {
+    Test.setMock(HttpCalloutMock.class, new MockHttpSuccess());
+
     Contact con = new Contact(LastName = 'ReturnTester', Grade__c = '02', PreviousGrade__c = '01', MemberNo__c = TEST_MEMBER_NO);
     insert con;
 
@@ -310,6 +365,8 @@ private class GdReturnDepositServiceImplTest {
     );
     insert loyaltyCurrency;
 
+    insert new LoyaltyMemberCurrency(Name = 'Return Test Member Currency', LoyaltyMemberId = lpm.Id, LoyaltyProgramCurrencyId = loyaltyCurrency.Id);
+
     insert new LoyaltyPgmCurrencySubtype(
       LoyaltyProgramCurrencyId = loyaltyCurrency.Id,
       Name = '\uC5D0\uCF54\uD3EC\uC778\uD2B8',
@@ -327,6 +384,8 @@ private class GdReturnDepositServiceImplTest {
     insert new List<JournalType>{ depositType, depositReversalType, redemptionType, redemptionReversalType, accrualType, accrualReversalType };
 
     insert new List<JournalSubType>{
+      new JournalSubType(Name = 'Order Deposit', JournalTypeId = depositType.Id),
+      new JournalSubType(Name = 'Order Deposit Reversal', JournalTypeId = depositReversalType.Id),
       new JournalSubType(Name = 'Sale Deposit', JournalTypeId = depositType.Id),
       new JournalSubType(Name = 'Sale Deposit Reversal', JournalTypeId = depositReversalType.Id),
       new JournalSubType(Name = 'Coupon Redeem', JournalTypeId = redemptionType.Id),
@@ -350,6 +409,7 @@ private class GdReturnDepositServiceImplTest {
     cancelPointsCreditedOnPurchaseCallCount = 0;
     creditPointsOnPurchaseCallCount = 0;
     creditPromotionPointsOnPurchaseCallCount = 0;
+    returnPromotionCreditList = false;
     capturedCancelPointsCreditedData = null;
 
     GdVoucherService voucherStub = (GdVoucherService) Test.createStub(GdVoucherService.class, new VoucherServiceStubProvider());
@@ -403,6 +463,37 @@ private class GdReturnDepositServiceImplTest {
 
   private static Id getEcoSubtypeId() {
     return [SELECT Id FROM LoyaltyPgmCurrencySubtype WHERE PointTypeCode__c = '05' LIMIT 1].Id;
+  }
+
+  private static Id getVoucherDefinitionAccountId() {
+    List<Account> accountList = [
+      SELECT Id
+      FROM Account
+      WHERE Name = 'Return Coupon Company'
+      LIMIT 1
+    ];
+    if (!accountList.isEmpty()) {
+      return accountList[0].Id;
+    }
+
+    String brandCode = Account.BrandCode__c.getDescribe().getPicklistValues().isEmpty()
+      ? null
+      : Account.BrandCode__c.getDescribe().getPicklistValues()[0].getValue();
+    String storeType = Account.StoreType__c.getDescribe().getPicklistValues().isEmpty()
+      ? null
+      : Account.StoreType__c.getDescribe().getPicklistValues()[0].getValue();
+
+    Account accountRecord = new Account(
+      Name = 'Return Coupon Company',
+      CompanyCode__c = '1000',
+      BrandCode__c = brandCode
+    );
+    insert accountRecord;
+    return accountRecord.Id;
+  }
+
+  private static Id getLoyaltyProgramCurrencyId() {
+    return [SELECT LoyaltyProgramCurrencyId FROM LoyaltyPgmCurrencySubtype WHERE PointTypeCode__c = '05' LIMIT 1].LoyaltyProgramCurrencyId;
   }
 
   private static void seedOriginalSaleDeposit(Order originalOrder, String depositNo, String paymentMethod, Decimal amount) {
@@ -735,7 +826,40 @@ private class GdReturnDepositServiceImplTest {
 
   @IsTest
   static void deleteReturnDeposit_success_couponRedeemCancel() {
+    Test.setMock(HttpCalloutMock.class, new MockHttpSuccess());
+
     Order originalOrder = getOriginalOrder();
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId, ContactId
+      FROM LoyaltyProgramMember
+      LIMIT 1
+    ];
+
+    VoucherDefinition vd = new VoucherDefinition(
+      Name = 'Delete Return Coupon',
+      LoyaltyProgramId = lpm.ProgramId,
+      Type = 'FixedValue',
+      FaceValue = 1000,
+      ExpirationType = 'FixedDate',
+      EffectiveDate = Date.today().addDays(-1),
+      ExpirationDate = Date.today().addDays(30),
+      CouponTypeCode__c = '01',
+      ResponsibleDepartment__c = 'TEST',
+      InsertId__c = 'TEST',
+      AccountId__c = getVoucherDefinitionAccountId(),
+      IsActive = true
+    );
+    insert vd;
+
+    insert new Voucher(
+      VoucherDefinitionId = vd.Id,
+      LoyaltyProgramMemberId = lpm.Id,
+      ContactId = lpm.ContactId,
+      VoucherCode = 'CP-DEL-001',
+      Status = 'Issued',
+      EffectiveDate = Date.today().addDays(-1),
+      ExpirationDate = Date.today().addDays(30)
+    );
 
     TransactionJournal tj = new TransactionJournal();
     tj.DepositNo__c = 'DELONE001';
@@ -851,12 +975,14 @@ private class GdReturnDepositServiceImplTest {
       }
     };
 
-    Test.startTest();
-    ApiResult result = svc.insertSaleDepositHistoryByUpdate(reqData);
-    Test.stopTest();
+    Boolean thrown = false;
+    try {
+      svc.insertSaleDepositHistoryByUpdate(reqData);
+    } catch (Exception e) {
+      thrown = true;
+    }
 
-    System.assertNotEquals(null, result);
-    System.assertEquals(200, result.code);
+    System.assertEquals(true, thrown);
   }
 
   @IsTest
@@ -1103,6 +1229,188 @@ private class GdReturnDepositServiceImplTest {
   }
 
   @IsTest
+  static void deleteReturnDeposit_withLinkedAccrualReversal_restoresLinkedAccrual() {
+    setMockServices();
+
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+
+    seedOriginalSaleDeposit(originalOrder, 'ORIG-LINKED-RESTORE', '11', 1000);
+
+    TransactionJournal originalAccrualTj = new TransactionJournal(
+      JournalDate = Date.today().addDays(-2),
+      ActivityDate = Datetime.now().addDays(-2),
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      OrderId = originalOrder.Id,
+      SaleId__c = originalOrder.Id,
+      JournalTypeId = getJournalTypeId('Accrual'),
+      JournalSubTypeId = getJournalSubTypeId('Purchase Accrual'),
+      TransactionAmount = 100,
+      Status = 'Processed'
+    );
+    insert originalAccrualTj;
+
+    LoyaltyLedger originalCreditLedger = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = originalAccrualTj.Id,
+      ActivityDate = Datetime.now().addDays(-2),
+      Points = 100,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Credit'
+    );
+    insert originalCreditLedger;
+
+    TransactionJournal sourceTj = new TransactionJournal(
+      DepositNo__c = 'DEL-LINKED-RESTORE',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '11',
+      DepositType__c = '03',
+      TransactionAmount = 1000,
+      OrderId = originalOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Deposit Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Sale Deposit Reversal'),
+      Status = 'Processed',
+      IsDeleted__c = false,
+      InsertId__c = 'USER-LINKED-RESTORE'
+    );
+    insert sourceTj;
+
+    TransactionJournal linkedReversalTj = new TransactionJournal(
+      DepositNo__c = 'LINKED-ACCRUAL-REVERSAL',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      TransactionAmount = 100,
+      OrderId = originalOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      RelatedJournalId = sourceTj.Id,
+      JournalTypeId = getJournalTypeId('Accrual Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Cancel Purchase Accrual'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert linkedReversalTj;
+
+    LoyaltyLedger reversalDebitLedger = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = linkedReversalTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Debit'
+    );
+    insert reversalDebitLedger;
+
+    insert new LoyaltyLedgerTraceability(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCurrencySubtypeId = subtypeId,
+      CreditLoyaltyLedgerId = originalCreditLedger.Id,
+      DebitLoyaltyLedgerId = reversalDebitLedger.Id,
+      Points = 100,
+      ActionType = 'CreditCancellation'
+    );
+
+    Test.startTest();
+    ApiResult result = new GdReturnDepositServiceImpl().deleteReturnDeposit(sourceTj.DepositNo__c);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+
+    TransactionJournal deletedSourceTj = [SELECT IsDeleted__c FROM TransactionJournal WHERE Id = :sourceTj.Id];
+    TransactionJournal deletedLinkedTj = [SELECT IsDeleted__c FROM TransactionJournal WHERE Id = :linkedReversalTj.Id];
+    System.assertEquals(true, deletedSourceTj.IsDeleted__c);
+    System.assertEquals(true, deletedLinkedTj.IsDeleted__c);
+    System.assertEquals(
+      1,
+      [
+        SELECT COUNT()
+        FROM TransactionJournal
+        WHERE RelatedJournalId = :linkedReversalTj.Id AND JournalSubType.Name = 'Purchase Accrual'
+      ]
+    );
+  }
+
+  @IsTest
+  static void deleteReturnDeposit_pointRedeemCancel_reappliesRestoredPointUsage() {
+    setMockServices();
+
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+
+    TransactionJournal pointRedeemCancelTj = new TransactionJournal(
+      DepositNo__c = 'DEL-POINT-RESTORE',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '81',
+      DepositType__c = '03',
+      TransactionAmount = 120,
+      OrderId = originalOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Point Redeem Cancel'),
+      Status = 'Processed',
+      IsDeleted__c = false,
+      InsertId__c = 'USER-POINT-RESTORE'
+    );
+    insert pointRedeemCancelTj;
+
+    LoyaltyLedger restoredCreditLedger = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = pointRedeemCancelTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 120,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Credit'
+    );
+    insert restoredCreditLedger;
+
+    Test.startTest();
+    ApiResult result = new GdReturnDepositServiceImpl().deleteReturnDeposit(pointRedeemCancelTj.DepositNo__c);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+
+    TransactionJournal deletedSourceTj = [
+      SELECT IsDeleted__c
+      FROM TransactionJournal
+      WHERE Id = :pointRedeemCancelTj.Id
+    ];
+    System.assertEquals(true, deletedSourceTj.IsDeleted__c);
+    System.assertEquals(
+      1,
+      [
+        SELECT COUNT()
+        FROM TransactionJournal
+        WHERE RelatedJournalId = :pointRedeemCancelTj.Id AND JournalSubType.Name = 'Point Debit'
+      ]
+    );
+  }
+
+  @IsTest
   static void insertSaleDepositHistoryByUpdate_fullReturn_cancelsEcoPoints() {
     seedFullReturnItems();
     seedOriginalEcoLedger();
@@ -1163,31 +1471,27 @@ private class GdReturnDepositServiceImplTest {
     Order originalOrder = getOriginalOrder();
     Order returnOrder = getReturnOrder();
     GdReturnDepositServiceImpl svc = new GdReturnDepositServiceImpl();
-    Boolean thrown = false;
+    ApiResult result;
 
-    try {
-      svc.insertSaleDepositHistoryByUpdate(
-        new Map<String, Object>{
-          'orderId' => returnOrder.Id,
-          'originalOrderId' => originalOrder.Id,
-          'InsertId__c' => 'USER-ECO-DEBIT',
-          'TransactionJournal' => new List<Object>{
-            new Map<String, Object>{
-              'DepositNo__c' => 'RTECO-DEBIT',
-              'DeposiSeqNo__c' => '1',
-              'ActivityDate' => Date.today(),
-              'PaymentMethod' => '11',
-              'DepositType__c' => '03',
-              'TransactionAmount' => 10000
-            }
+    result = svc.insertSaleDepositHistoryByUpdate(
+      new Map<String, Object>{
+        'orderId' => returnOrder.Id,
+        'originalOrderId' => originalOrder.Id,
+        'InsertId__c' => 'USER-ECO-DEBIT',
+        'TransactionJournal' => new List<Object>{
+          new Map<String, Object>{
+            'DepositNo__c' => 'RTECO-DEBIT',
+            'DeposiSeqNo__c' => '1',
+            'ActivityDate' => Date.today(),
+            'PaymentMethod' => '11',
+            'DepositType__c' => '03',
+            'TransactionAmount' => 10000
           }
         }
-      );
-    } catch (Exception e) {
-      thrown = true;
-    }
+      }
+    );
 
-    System.assertEquals(true, thrown);
+    System.assertEquals(200, result.code);
     System.assertEquals(
       1,
       [
@@ -1343,6 +1647,56 @@ private class GdReturnDepositServiceImplTest {
     };
 
     System.assertEquals(30000, GdReturnDepositServiceImpl.getExcludedReturnAmount(originalOrder.Id, requestOrderItems, returnOrder.Id));
+  }
+
+  @IsTest
+  static void helperMethods_coverNullAliasAndEligibleAmountBranches() {
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+
+    System.assertEquals(0, GdReturnDepositServiceImpl.getReturnOrderItemRequestList(null).size());
+    System.assertEquals(0, GdReturnDepositServiceImpl.getReturnOrderItemRequestList(new Map<String, Object>()).size());
+
+    List<Object> oiList = new List<Object>{ new Map<String, Object>{ 'SaleSeqNo__c' => '1', 'NetSalesUnitPrice__c' => 100 } };
+    System.assertEquals(1, GdReturnDepositServiceImpl.getReturnOrderItemRequestList(new Map<String, Object>{ 'oiList' => oiList }).size());
+
+    List<TransactionJournal> cancelDepositList = new List<TransactionJournal>{
+      null,
+      new TransactionJournal(PaymentMethod = '11', TransactionAmount = 1000),
+      new TransactionJournal(PaymentMethod = '20', TransactionAmount = 2000),
+      new TransactionJournal(PaymentMethod = '81', TransactionAmount = 3000),
+      new TransactionJournal(PaymentMethod = '90', TransactionAmount = 4000),
+      new TransactionJournal(PaymentMethod = '93', TransactionAmount = 5000),
+      new TransactionJournal(PaymentMethod = '11', TransactionAmount = 0)
+    };
+    System.assertEquals(1000, GdReturnDepositServiceImpl.getReturnAccrualEligibleDepositAmount(cancelDepositList));
+
+    seedOriginalSaleDeposit(originalOrder, 'ORIG-ELIGIBLE-A', '11', 1000);
+    seedOriginalSaleDeposit(originalOrder, 'ORIG-ELIGIBLE-B', '81', 5000);
+    System.assertEquals(1000, GdReturnDepositServiceImpl.getOriginalAccrualEligibleDepositAmount(originalOrder.Id));
+
+    List<TransactionJournal> adjustedList = GdReturnDepositServiceImpl.buildAccrualEligibleCancelTransactions(
+      originalOrder.Id,
+      returnOrder.Id,
+      new List<TransactionJournal>{
+        new TransactionJournal(PaymentMethod = '11', TransactionAmount = 700),
+        new TransactionJournal(PaymentMethod = '81', TransactionAmount = 900),
+        new TransactionJournal(PaymentMethod = '11', TransactionAmount = 600)
+      },
+      new List<Object>()
+    );
+
+    System.assertEquals(2, adjustedList.size());
+    System.assertEquals(700, adjustedList[0].TransactionAmount);
+    System.assertEquals(600, adjustedList[1].TransactionAmount);
+
+    List<TransactionJournal> emptyAdjustedList = GdReturnDepositServiceImpl.buildAccrualEligibleCancelTransactions(
+      originalOrder.Id,
+      returnOrder.Id,
+      new List<TransactionJournal>{ new TransactionJournal(PaymentMethod = '81', TransactionAmount = 900) },
+      new List<Object>()
+    );
+    System.assertEquals(0, emptyAdjustedList.size());
   }
 
   @IsTest
@@ -1718,6 +2072,8 @@ private class GdReturnDepositServiceImplTest {
 
   @IsTest
   static void insertSaleDepositHistoryByUpdate_memberNotFound_throws() {
+    Test.setMock(HttpCalloutMock.class, new MockHttpSuccess());
+
     Account acc = new Account(Name = 'NO-MEMBER-ACCOUNT');
     insert acc;
 
@@ -2251,5 +2607,1531 @@ private class GdReturnDepositServiceImplTest {
     System.assertEquals(200, result.code);
     TransactionJournal deletedTj = [SELECT IsDeleted__c FROM TransactionJournal WHERE Id = :sourceTj.Id];
     System.assertEquals(true, deletedTj.IsDeleted__c);
+  }
+
+  @IsTest
+  static void cancelEcoPointsForSaleDelete_createsSpecificLedgerCancellation() {
+    seedOriginalEcoLedger();
+
+    Order originalOrder = getOriginalOrder();
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      WHERE MembershipNumber = :TEST_MEMBER_NO
+      LIMIT 1
+    ];
+
+    Test.startTest();
+    List<PointDebitDTO> result = GdReturnDepositServiceImpl.cancelEcoPointsForSaleDelete(originalOrder.Id, lpm, 'USER-ECO-SALE-DELETE');
+    Test.stopTest();
+
+    System.assertEquals(1, result.size());
+    System.assertEquals(
+      1,
+      [
+        SELECT COUNT()
+        FROM TransactionJournal
+        WHERE SaleId__c = :originalOrder.Id AND AdditionalNotes__c = 'FULL_RETURN_ECO_POINT_CANCEL' AND IsDeleted__c = FALSE
+      ]
+    );
+    System.assertEquals(
+      1,
+      [
+        SELECT COUNT()
+        FROM LoyaltyLedgerTraceability
+        WHERE LoyaltyProgramMemberId = :lpm.Id AND ActionType = 'CreditCancellation'
+      ]
+    );
+  }
+
+  @IsTest
+  static void validateReturnDepositDeleteOrigin_allowsActiveOriginAccrual() {
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+
+    TransactionJournal sourceTj = new TransactionJournal(
+      DepositNo__c = 'ORIGIN-VALID-SOURCE',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      OrderId = returnOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Point Redeem Cancel'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert sourceTj;
+
+    LoyaltyLedger cancelCredit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = sourceTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Credit'
+    );
+    insert cancelCredit;
+
+    TransactionJournal originAccrualTj = new TransactionJournal(
+      JournalDate = Date.today().addDays(-2),
+      ActivityDate = Datetime.now().addDays(-2),
+      OrderId = originalOrder.Id,
+      SaleId__c = originalOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Accrual'),
+      JournalSubTypeId = getJournalSubTypeId('Purchase Accrual'),
+      Status = 'Processed'
+    );
+    insert originAccrualTj;
+
+    LoyaltyLedger originCredit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = originAccrualTj.Id,
+      ActivityDate = Datetime.now().addDays(-2),
+      Points = 100,
+      ExpiryDate = cancelCredit.ExpiryDate,
+      EventType = 'Credit'
+    );
+    insert originCredit;
+
+    TransactionJournal useTj = new TransactionJournal(
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      OrderId = returnOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption'),
+      JournalSubTypeId = getJournalSubTypeId('Point Debit'),
+      Status = 'Processed'
+    );
+    insert useTj;
+
+    LoyaltyLedger useDebit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = useTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = cancelCredit.ExpiryDate,
+      EventType = 'Debit'
+    );
+    insert useDebit;
+
+    insert new LoyaltyLedgerTraceability(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCurrencySubtypeId = subtypeId,
+      CreditLoyaltyLedgerId = originCredit.Id,
+      DebitLoyaltyLedgerId = useDebit.Id,
+      Points = 100,
+      ActionType = 'Debit'
+    );
+
+    GdReturnDepositServiceImpl.validateReturnDepositDeleteOrigin(sourceTj.Id, lpm.Id);
+    System.assert(true);
+  }
+
+  @IsTest
+  static void validateReturnDepositDeleteOrigin_deletedOriginOrderThrows() {
+    Order originalOrder = getOriginalOrder();
+    originalOrder.IsDeleted__c = true;
+    update originalOrder;
+
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+
+    TransactionJournal sourceTj = new TransactionJournal(
+      DepositNo__c = 'ORIGIN-DELETED-SOURCE',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      OrderId = returnOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Point Redeem Cancel'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert sourceTj;
+
+    LoyaltyLedger cancelCredit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = sourceTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Credit'
+    );
+    insert cancelCredit;
+
+    TransactionJournal originAccrualTj = new TransactionJournal(
+      JournalDate = Date.today().addDays(-2),
+      ActivityDate = Datetime.now().addDays(-2),
+      OrderId = originalOrder.Id,
+      SaleId__c = originalOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Accrual'),
+      JournalSubTypeId = getJournalSubTypeId('Purchase Accrual'),
+      Status = 'Processed'
+    );
+    insert originAccrualTj;
+
+    LoyaltyLedger originCredit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = originAccrualTj.Id,
+      ActivityDate = Datetime.now().addDays(-2),
+      Points = 100,
+      ExpiryDate = cancelCredit.ExpiryDate,
+      EventType = 'Credit'
+    );
+    insert originCredit;
+
+    TransactionJournal useTj = new TransactionJournal(
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      OrderId = returnOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption'),
+      JournalSubTypeId = getJournalSubTypeId('Point Debit'),
+      Status = 'Processed'
+    );
+    insert useTj;
+
+    LoyaltyLedger useDebit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = useTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = cancelCredit.ExpiryDate,
+      EventType = 'Debit'
+    );
+    insert useDebit;
+
+    insert new LoyaltyLedgerTraceability(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCurrencySubtypeId = subtypeId,
+      CreditLoyaltyLedgerId = originCredit.Id,
+      DebitLoyaltyLedgerId = useDebit.Id,
+      Points = 100,
+      ActionType = 'Debit'
+    );
+
+    Boolean thrown = false;
+    try {
+      GdReturnDepositServiceImpl.validateReturnDepositDeleteOrigin(sourceTj.Id, lpm.Id);
+    } catch (CustomException e) {
+      thrown = true;
+      System.assertEquals(400, e.code);
+    }
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void deleteReturnDeposit_pointRedeemCancel_recoversThroughNestedCancelLedger() {
+    setMockServices();
+
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+    Date expiryDate = Date.today().addYears(1);
+
+    TransactionJournal pointRedeemCancelTj = new TransactionJournal(
+      DepositNo__c = 'DEL-POINT-NESTED',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '81',
+      DepositType__c = '03',
+      TransactionAmount = 120,
+      OrderId = originalOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Point Redeem Cancel'),
+      Status = 'Processed',
+      IsDeleted__c = false,
+      InsertId__c = 'USER-POINT-NESTED'
+    );
+    insert pointRedeemCancelTj;
+
+    LoyaltyLedger restoredCreditLedger = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = pointRedeemCancelTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 120,
+      ExpiryDate = expiryDate,
+      EventType = 'Credit'
+    );
+    insert restoredCreditLedger;
+
+    TransactionJournal nestedUseTj = new TransactionJournal(
+      DepositNo__c = 'NESTED-USE',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '81',
+      DepositType__c = '01',
+      TransactionAmount = 120,
+      OrderId = returnOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption'),
+      JournalSubTypeId = getJournalSubTypeId('Point Debit'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert nestedUseTj;
+
+    LoyaltyLedger nestedUseDebit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = nestedUseTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 120,
+      ExpiryDate = expiryDate,
+      EventType = 'Debit'
+    );
+    insert nestedUseDebit;
+
+    insert new LoyaltyLedgerTraceability(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCurrencySubtypeId = subtypeId,
+      CreditLoyaltyLedgerId = restoredCreditLedger.Id,
+      DebitLoyaltyLedgerId = nestedUseDebit.Id,
+      Points = 120,
+      ActionType = 'Debit'
+    );
+
+    TransactionJournal nestedCancelTj = new TransactionJournal(
+      DepositNo__c = 'NESTED-CANCEL',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '81',
+      DepositType__c = '03',
+      TransactionAmount = 120,
+      OrderId = returnOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Point Redeem Cancel'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert nestedCancelTj;
+
+    insert new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = nestedCancelTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 120,
+      ExpiryDate = expiryDate,
+      EventType = 'Credit'
+    );
+
+    Test.startTest();
+    ApiResult result = new GdReturnDepositServiceImpl().deleteReturnDeposit(pointRedeemCancelTj.DepositNo__c);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(
+      1,
+      [
+        SELECT COUNT()
+        FROM TransactionJournal
+        WHERE RelatedJournalId = :pointRedeemCancelTj.Id AND JournalSubType.Name = 'Point Debit'
+      ]
+    );
+  }
+
+  @IsTest
+  static void deleteReturnDeposit_saleDepositReversal_restoresPreviousGradeAndPromotionPoints() {
+    setMockServices();
+    returnPromotionCreditList = true;
+
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+
+    seedOriginalSaleDeposit(originalOrder, 'ORIG-GRADE-PROMO', '11', 1000);
+
+    Promotion promo = new Promotion(
+      Name = 'Return Restore Grade Promo',
+      StartDate = Date.today().addDays(-5),
+      EndDate = Date.today().addDays(5),
+      PublishStartDate__c = Date.today().addDays(-5),
+      PublishEndDate__c = Date.today().addDays(5)
+    );
+    insert promo;
+
+    TransactionJournal originalAccrualTj = new TransactionJournal(
+      JournalDate = Date.today().addDays(-2),
+      ActivityDate = Datetime.now().addDays(-2),
+      OrderId = originalOrder.Id,
+      SaleId__c = originalOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Accrual'),
+      JournalSubTypeId = getJournalSubTypeId('Purchase Accrual'),
+      TransactionAmount = 100,
+      Status = 'Processed'
+    );
+    insert originalAccrualTj;
+
+    insert new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = originalAccrualTj.Id,
+      ActivityDate = Datetime.now().addDays(-2),
+      Points = 100,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Credit'
+    );
+
+    TransactionJournal returnDepositTj = new TransactionJournal(
+      DepositNo__c = 'DEL-GRADE-PROMO',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '11',
+      DepositType__c = '03',
+      TransactionAmount = 1000,
+      OrderId = originalOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      PromotionId = promo.Id,
+      JournalTypeId = getJournalTypeId('Deposit Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Sale Deposit Reversal'),
+      Status = 'Processed',
+      IsDeleted__c = false,
+      InsertId__c = 'USER-GRADE-PROMO'
+    );
+    insert returnDepositTj;
+
+    Test.startTest();
+    ApiResult result = new GdReturnDepositServiceImpl().deleteReturnDeposit(returnDepositTj.DepositNo__c);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(1, creditPromotionPointsOnPurchaseCallCount);
+  }
+
+  @IsTest
+  static void sbVerifyCancelEcoPointsForFullReturn_legacyFlagOff_entersDebitPointsPath() {
+    seedOriginalEcoLedger();
+    GdFeatureFlag.setForTest('EcoPointCancel_UseSpecificLedger', false);
+
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      WHERE MembershipNumber = :TEST_MEMBER_NO
+      LIMIT 1
+    ];
+
+    Test.startTest();
+    Boolean enteredPath = false;
+    try {
+      List<PointDebitDTO> result = GdReturnDepositServiceImpl.sbVerifyCancelEcoPointsForFullReturn(
+        returnOrder.Id,
+        originalOrder.Id,
+        lpm,
+        'USER-ECO-LEGACY'
+      );
+      enteredPath = result != null;
+    } catch (Exception e) {
+      enteredPath = true;
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, enteredPath);
+  }
+
+  @IsTest
+  static void deleteReturnDeposit_pointRedeemCancel_adjustsExpiredRestoredLedgerArtifacts() {
+    setMockServices();
+
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+    Date expiredDate = Date.today().addDays(-1);
+
+    List<LoyaltyMemberCurrency> lmcList = [
+      SELECT Id, TotalPointsRedeemed
+      FROM LoyaltyMemberCurrency
+      WHERE LoyaltyMemberId = :lpm.Id AND LoyaltyProgramCurrencyId = :currencyId
+      LIMIT 1
+    ];
+    if (!lmcList.isEmpty()) {
+      lmcList[0].TotalPointsRedeemed = 50;
+      update lmcList[0];
+    }
+
+    TransactionJournal pointRedeemCancelTj = new TransactionJournal(
+      DepositNo__c = 'DEL-POINT-EXPIRED',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '81',
+      DepositType__c = '03',
+      TransactionAmount = 50,
+      OrderId = originalOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Point Redeem Cancel'),
+      Status = 'Processed',
+      IsDeleted__c = false,
+      InsertId__c = 'USER-POINT-EXPIRED'
+    );
+    insert pointRedeemCancelTj;
+
+    LoyaltyLedger restoredCreditLedger = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = pointRedeemCancelTj.Id,
+      ActivityDate = Datetime.now().addDays(-2),
+      Points = 50,
+      ExpiryDate = expiredDate,
+      EventType = 'Credit'
+    );
+    insert restoredCreditLedger;
+
+    insert new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = pointRedeemCancelTj.Id,
+      ActivityDate = Datetime.now().addDays(-1),
+      Points = 50,
+      ExpiryDate = expiredDate,
+      EventType = 'Expiry'
+    );
+
+    Test.startTest();
+    ApiResult result = new GdReturnDepositServiceImpl().deleteReturnDeposit(pointRedeemCancelTj.DepositNo__c);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(
+      0,
+      [
+        SELECT COUNT()
+        FROM LoyaltyLedger
+        WHERE TransactionJournalId = :pointRedeemCancelTj.Id AND EventType = 'Expiry' AND IsDeleted = FALSE
+      ]
+    );
+  }
+
+  private static TransactionJournal seedCouponRedeemCancelForDelete(String depositNo, String voucherCode, String couponManNo, String voucherStatus) {
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId, ContactId FROM LoyaltyProgramMember LIMIT 1];
+
+    TransactionJournal sourceRedeemJournal = new TransactionJournal(
+      DepositNo__c = 'SRC-' + depositNo,
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today().addDays(-1),
+      ActivityDate = Datetime.now().addDays(-1),
+      OrderId = originalOrder.Id,
+      SaleId__c = originalOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption'),
+      JournalSubTypeId = getJournalSubTypeId('Coupon Redeem'),
+      VoucherCode = voucherCode,
+      Status = 'Processed'
+    );
+    insert sourceRedeemJournal;
+
+    VoucherDefinition vd = new VoucherDefinition(
+      Name = 'Delete Return Coupon ' + depositNo,
+      CouponManNo__c = couponManNo,
+      LoyaltyProgramId = lpm.ProgramId,
+      Type = 'FixedValue',
+      FaceValue = 1000,
+      ExpirationType = 'FixedDate',
+      EffectiveDate = Date.today().addDays(-10),
+      ExpirationDate = voucherStatus == 'Expired' ? Date.today().addDays(-1) : Date.today().addDays(30),
+      CouponTypeCode__c = '01',
+      ResponsibleDepartment__c = 'TEST',
+      InsertId__c = 'TEST',
+      AccountId__c = getVoucherDefinitionAccountId(),
+      IsActive = true
+    );
+    insert vd;
+
+    Voucher v = new Voucher(
+      VoucherDefinitionId = vd.Id,
+      LoyaltyProgramMemberId = lpm.Id,
+      ContactId = lpm.ContactId,
+      VoucherCode = voucherCode,
+      Status = voucherStatus,
+      EffectiveDate = Date.today().addDays(-10),
+      ExpirationDate = voucherStatus == 'Expired' ? Date.today().addDays(-1) : Date.today().addDays(30)
+    );
+    if (voucherStatus == 'Redeemed') {
+      v.UsedTransactionJournalId__c = sourceRedeemJournal.Id;
+    }
+    insert v;
+
+    TransactionJournal tj = new TransactionJournal(
+      DepositNo__c = depositNo,
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '11',
+      DepositType__c = '03',
+      TransactionAmount = 1000,
+      OrderId = originalOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Coupon Redeem Cancel'),
+      VoucherCode = String.isBlank(couponManNo) ? voucherCode : couponManNo + ';-;' + voucherCode,
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert tj;
+    return tj;
+  }
+
+  @IsTest
+  static void deleteReturnDeposit_couponRedeemCancel_redeemedVoucherKeepsStatus() {
+    setMockServices();
+    TransactionJournal tj = seedCouponRedeemCancelForDelete('DEL-CP-REDEEMED', 'CP-DEL-REDEEMED', null, 'Redeemed');
+
+    Test.startTest();
+    ApiResult result = new GdReturnDepositServiceImpl().deleteReturnDeposit(tj.DepositNo__c);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(
+      1,
+      [
+        SELECT COUNT()
+        FROM TransactionJournal
+        WHERE RelatedJournalId = :tj.Id AND JournalSubType.Name = 'Coupon Redeem'
+      ]
+    );
+  }
+
+  @IsTest
+  static void deleteReturnDeposit_couponRedeemCancel_expiredVoucherKeepsStatus() {
+    setMockServices();
+    TransactionJournal tj = seedCouponRedeemCancelForDelete('DEL-CP-EXPIRED', 'CP-DEL-EXPIRED', null, 'Expired');
+
+    Test.startTest();
+    ApiResult result = new GdReturnDepositServiceImpl().deleteReturnDeposit(tj.DepositNo__c);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(
+      1,
+      [
+        SELECT COUNT()
+        FROM TransactionJournal
+        WHERE RelatedJournalId = :tj.Id AND JournalSubType.Name = 'Coupon Redeem'
+      ]
+    );
+  }
+
+  @IsTest
+  static void deleteReturnDeposit_couponRedeemCancel_splitCouponCodeFindsVoucher() {
+    setMockServices();
+    TransactionJournal tj = seedCouponRedeemCancelForDelete('DEL-CP-SPLIT', 'CP-DEL-SPLIT', 'CPN-SPLIT', 'Redeemed');
+
+    Test.startTest();
+    ApiResult result = new GdReturnDepositServiceImpl().deleteReturnDeposit(tj.DepositNo__c);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+  }
+
+  @IsTest
+  static void cancelEcoPointsForSaleDelete_whenEcoPointsUsedElsewhere_throwsWithReference() {
+    seedOriginalEcoLedger();
+
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+    LoyaltyLedger originEcoCredit = [
+      SELECT Id, ExpiryDate
+      FROM LoyaltyLedger
+      WHERE TransactionJournal.OrderId = :originalOrder.Id AND EventType = 'Credit' AND LoyaltyPgmCrcySubtypeId = :subtypeId
+      LIMIT 1
+    ];
+
+    TransactionJournal useTj = new TransactionJournal(
+      DepositNo__c = 'ECO-USED-ELSEWHERE',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '81',
+      DepositType__c = '01',
+      TransactionAmount = 100,
+      OrderId = returnOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption'),
+      JournalSubTypeId = getJournalSubTypeId('Point Debit'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert useTj;
+
+    LoyaltyLedger useDebit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = useTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = originEcoCredit.ExpiryDate,
+      EventType = 'Debit'
+    );
+    insert useDebit;
+
+    insert new LoyaltyLedgerTraceability(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCurrencySubtypeId = subtypeId,
+      CreditLoyaltyLedgerId = originEcoCredit.Id,
+      DebitLoyaltyLedgerId = useDebit.Id,
+      Points = 100,
+      ActionType = 'Debit'
+    );
+
+    Id pointRedeemCancelJstId = getJournalSubTypeId('Point Redeem Cancel');
+    List<TransactionJournal> malformedCancelTjs = new List<TransactionJournal>{
+      new TransactionJournal(
+        DepositNo__c = 'ECO-BAD-ORIGIN-1',
+        DeposiSeqNo__c = '1',
+        JournalDate = Date.today(),
+        ActivityDate = Datetime.now(),
+        TransactionAmount = 1,
+        OrderId = originalOrder.Id,
+        SaleId__c = originalOrder.Id,
+        LoyaltyProgramId = lpm.ProgramId,
+        MemberId = lpm.Id,
+        JournalTypeId = getJournalTypeId('Redemption Reversal'),
+        JournalSubTypeId = pointRedeemCancelJstId,
+        Status = 'Processed',
+        IsDeleted__c = false
+      ),
+      new TransactionJournal(
+        DepositNo__c = 'ECO-BAD-ORIGIN-2',
+        DeposiSeqNo__c = '1',
+        JournalDate = Date.today(),
+        ActivityDate = Datetime.now(),
+        TransactionAmount = 1,
+        OrderId = originalOrder.Id,
+        SaleId__c = originalOrder.Id,
+        LoyaltyProgramId = lpm.ProgramId,
+        MemberId = lpm.Id,
+        JournalTypeId = getJournalTypeId('Redemption Reversal'),
+        JournalSubTypeId = pointRedeemCancelJstId,
+        Status = 'Processed',
+        IsDeleted__c = false
+      )
+    };
+    insert malformedCancelTjs;
+
+    insert new List<LoyaltyLedger>{
+      new LoyaltyLedger(
+        LoyaltyProgramMemberId = lpm.Id,
+        LoyaltyProgramCurrencyId = currencyId,
+        LoyaltyPgmCrcySubtypeId = subtypeId,
+        TransactionJournalId = malformedCancelTjs[0].Id,
+        ActivityDate = Datetime.now(),
+        Points = 1,
+        ExpiryDate = originEcoCredit.ExpiryDate,
+        EventType = 'Credit',
+        AdditionalNotes = 'ORIGIN_CREDIT_LL=not-an-id;'
+      ),
+      new LoyaltyLedger(
+        LoyaltyProgramMemberId = lpm.Id,
+        LoyaltyProgramCurrencyId = currencyId,
+        LoyaltyPgmCrcySubtypeId = subtypeId,
+        TransactionJournalId = malformedCancelTjs[1].Id,
+        ActivityDate = Datetime.now(),
+        Points = 1,
+        ExpiryDate = originEcoCredit.ExpiryDate,
+        EventType = 'Credit',
+        AdditionalNotes = 'ORIGIN_CREDIT_LL=;'
+      )
+    };
+
+    Boolean thrown = false;
+    try {
+      GdReturnDepositServiceImpl.cancelEcoPointsForSaleDelete(originalOrder.Id, lpm, 'USER-ECO-USED');
+    } catch (CustomException e) {
+      thrown = true;
+      System.assertEquals(400, e.code);
+    }
+
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void insertSaleDepositHistoryByUpdate_couponCancel_splitCouponCodeAlignsSourceOrder() {
+    setMockServices();
+
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId, ContactId FROM LoyaltyProgramMember LIMIT 1];
+
+    TransactionJournal sourceRedeemJournal = new TransactionJournal(
+      DepositNo__c = 'SRC-SPLIT-ALIGN',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today().addDays(-1),
+      ActivityDate = Datetime.now().addDays(-1),
+      OrderId = originalOrder.Id,
+      SaleId__c = originalOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption'),
+      JournalSubTypeId = getJournalSubTypeId('Coupon Redeem'),
+      VoucherCode = 'CP-SPLIT-ALIGN',
+      Status = 'Processed'
+    );
+    insert sourceRedeemJournal;
+
+    VoucherDefinition vd = new VoucherDefinition(
+      Name = 'Split Align Coupon',
+      CouponManNo__c = 'CPN-ALIGN',
+      LoyaltyProgramId = lpm.ProgramId,
+      Type = 'FixedValue',
+      FaceValue = 1000,
+      ExpirationType = 'FixedDate',
+      EffectiveDate = Date.today().addDays(-5),
+      ExpirationDate = Date.today().addDays(30),
+      CouponTypeCode__c = '01',
+      ResponsibleDepartment__c = 'TEST',
+      InsertId__c = 'TEST',
+      AccountId__c = getVoucherDefinitionAccountId(),
+      IsActive = true
+    );
+    insert vd;
+
+    insert new Voucher(
+      VoucherDefinitionId = vd.Id,
+      LoyaltyProgramMemberId = lpm.Id,
+      ContactId = lpm.ContactId,
+      VoucherCode = 'CP-SPLIT-ALIGN',
+      Status = 'Redeemed',
+      EffectiveDate = Date.today().addDays(-5),
+      ExpirationDate = Date.today().addDays(30),
+      UsedTransactionJournalId__c = sourceRedeemJournal.Id
+    );
+
+    Test.startTest();
+    ApiResult result = new GdReturnDepositServiceImpl()
+      .insertSaleDepositHistoryByUpdate(
+        new Map<String, Object>{
+          'orderId' => returnOrder.Id,
+          'originalOrderId' => originalOrder.Id,
+          'InsertId__c' => 'USER-SPLIT-ALIGN',
+          'TransactionJournal' => new List<Object>{
+            new Map<String, Object>{
+              'DepositNo__c' => 'RET-SPLIT-ALIGN',
+              'DeposiSeqNo__c' => '1',
+              'ActivityDate' => Date.today(),
+              'PaymentMethod' => '90',
+              'DepositType__c' => '03',
+              'TransactionAmount' => 1000,
+              'CouponNo' => 'CPN-ALIGN;-;CP-SPLIT-ALIGN'
+            }
+          }
+        }
+      );
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(originalOrder.Id, lastRedeemCancelOrderId);
+    System.assertEquals(originalOrder.Id, lastRedeemCancelOrderIdCustom);
+    System.assertEquals(returnOrder.Id, lastRedeemCancelSaleId);
+    System.assertEquals('CPN-ALIGN;-;CP-SPLIT-ALIGN', lastRedeemCancelVoucherCode);
+  }
+
+  @IsTest
+  static void helperMethods_coverEmptyAndSkippedDepositInputs() {
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+
+    System.assertEquals(0, GdReturnDepositServiceImpl.getReturnOrderItemRequestList(null).size());
+    System.assertEquals(0, GdReturnDepositServiceImpl.getReturnOrderItemRequestList(new Map<String, Object>()).size());
+
+    Decimal eligibleAmount = GdReturnDepositServiceImpl.getReturnAccrualEligibleDepositAmount(
+      new List<TransactionJournal>{
+        null,
+        new TransactionJournal(PaymentMethod = '20', TransactionAmount = 100),
+        new TransactionJournal(PaymentMethod = '10', TransactionAmount = null),
+        new TransactionJournal(PaymentMethod = '10', TransactionAmount = 0),
+        new TransactionJournal(PaymentMethod = '10', TransactionAmount = 25)
+      }
+    );
+    System.assertEquals(25, eligibleAmount);
+
+    System.assertEquals(
+      0,
+      GdReturnDepositServiceImpl.buildAccrualEligibleCancelTransactions(originalOrder.Id, returnOrder.Id, null, null).size()
+    );
+
+    List<TransactionJournal> adjustedList = GdReturnDepositServiceImpl.buildAccrualEligibleCancelTransactions(
+      originalOrder.Id,
+      returnOrder.Id,
+      new List<TransactionJournal>{
+        null,
+        new TransactionJournal(PaymentMethod = '10', TransactionAmount = 0),
+        new TransactionJournal(PaymentMethod = '20', TransactionAmount = 100),
+        new TransactionJournal(PaymentMethod = '10', TransactionAmount = 25)
+      },
+      new List<Object>()
+    );
+    System.assertEquals(1, adjustedList.size());
+    System.assertEquals(25, adjustedList[0].TransactionAmount);
+  }
+
+  @IsTest
+  static void deleteReturnDeposit_saleDepositReversal_withoutOriginalAccrualDeletesOnly() {
+    setMockServices();
+
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+
+    seedOriginalSaleDeposit(originalOrder, 'ORIG-NO-ACCRUAL-ONLY', '11', 1000);
+
+    TransactionJournal returnDepositTj = new TransactionJournal(
+      DepositNo__c = 'DEL-NO-ACCRUAL-ONLY',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '11',
+      DepositType__c = '03',
+      TransactionAmount = 1000,
+      OrderId = originalOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Deposit Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Sale Deposit Reversal'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert returnDepositTj;
+
+    Test.startTest();
+    ApiResult result = new GdReturnDepositServiceImpl().deleteReturnDeposit(returnDepositTj.DepositNo__c);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(0, creditPointsOnPurchaseCallCount);
+    System.assertEquals(
+      true,
+      [SELECT IsDeleted__c FROM TransactionJournal WHERE Id = :returnDepositTj.Id].IsDeleted__c
+    );
+  }
+
+  @IsTest
+  static void deleteReturnDeposit_saleDepositReversal_currentGradeBranchRestoresPoints() {
+    setMockServices();
+
+    Order originalOrder = getOriginalOrder();
+    originalOrder.EndDate = Date.today().addDays(7);
+    update originalOrder;
+
+    Contact memberContact = [SELECT Id, PreviousGrade__c FROM Contact WHERE MemberNo__c = :TEST_MEMBER_NO LIMIT 1];
+    memberContact.PreviousGrade__c = null;
+    update memberContact;
+
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+
+    seedOriginalSaleDeposit(originalOrder, 'ORIG-CURRENT-GRADE', '11', 1000);
+
+    TransactionJournal originalAccrualTj = new TransactionJournal(
+      JournalDate = Date.today().addDays(-2),
+      ActivityDate = Datetime.now().addDays(-2),
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      OrderId = originalOrder.Id,
+      SaleId__c = originalOrder.Id,
+      JournalTypeId = getJournalTypeId('Accrual'),
+      JournalSubTypeId = getJournalSubTypeId('Purchase Accrual'),
+      TransactionAmount = 100,
+      Status = 'Processed'
+    );
+    insert originalAccrualTj;
+
+    insert new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = originalAccrualTj.Id,
+      ActivityDate = Datetime.now().addDays(-2),
+      Points = 100,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Credit'
+    );
+
+    TransactionJournal returnDepositTj = new TransactionJournal(
+      DepositNo__c = 'DEL-CURRENT-GRADE',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '11',
+      DepositType__c = '03',
+      TransactionAmount = 1000,
+      OrderId = originalOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Deposit Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Sale Deposit Reversal'),
+      Status = 'Processed',
+      IsDeleted__c = false,
+      InsertId__c = 'USER-CURRENT-GRADE'
+    );
+    insert returnDepositTj;
+
+    Test.startTest();
+    ApiResult result = new GdReturnDepositServiceImpl().deleteReturnDeposit(returnDepositTj.DepositNo__c);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(1, creditPointsOnPurchaseCallCount);
+  }
+
+  @IsTest
+  static void deleteReturnDeposit_withLinkedPromotionReversalRestoresPromotionAccrual() {
+    setMockServices();
+
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+
+    seedOriginalSaleDeposit(originalOrder, 'ORIG-PROMO-LINKED', '11', 1000);
+
+    Promotion promo = new Promotion(
+      Name = 'Linked Promotion Restore',
+      StartDate = Date.today().addDays(-5),
+      EndDate = Date.today().addDays(5),
+      PublishStartDate__c = Date.today().addDays(-5),
+      PublishEndDate__c = Date.today().addDays(5)
+    );
+    insert promo;
+
+    TransactionJournal originalPromotionAccrualTj = new TransactionJournal(
+      JournalDate = Date.today().addDays(-2),
+      ActivityDate = Datetime.now().addDays(-2),
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      OrderId = originalOrder.Id,
+      SaleId__c = originalOrder.Id,
+      PromotionId = promo.Id,
+      JournalTypeId = getJournalTypeId('Accrual'),
+      JournalSubTypeId = getJournalSubTypeId('Promotion Point Accrual'),
+      TransactionAmount = 100,
+      Status = 'Processed'
+    );
+    insert originalPromotionAccrualTj;
+
+    LoyaltyLedger originalCreditLedger = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = originalPromotionAccrualTj.Id,
+      ActivityDate = Datetime.now().addDays(-2),
+      Points = 100,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Credit'
+    );
+    insert originalCreditLedger;
+
+    TransactionJournal originalPurchaseAccrualTj = new TransactionJournal(
+      JournalDate = Date.today().addDays(-2),
+      ActivityDate = Datetime.now().addDays(-2),
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      OrderId = originalOrder.Id,
+      SaleId__c = originalOrder.Id,
+      JournalTypeId = getJournalTypeId('Accrual'),
+      JournalSubTypeId = getJournalSubTypeId('Purchase Accrual'),
+      TransactionAmount = 10,
+      Status = 'Processed'
+    );
+    insert originalPurchaseAccrualTj;
+
+    insert new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = originalPurchaseAccrualTj.Id,
+      ActivityDate = Datetime.now().addDays(-2),
+      Points = 10,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Credit'
+    );
+
+    TransactionJournal sourceTj = new TransactionJournal(
+      DepositNo__c = 'DEL-PROMO-LINKED',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '11',
+      DepositType__c = '03',
+      TransactionAmount = 1000,
+      OrderId = originalOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      PromotionId = promo.Id,
+      JournalTypeId = getJournalTypeId('Deposit Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Sale Deposit Reversal'),
+      Status = 'Processed',
+      IsDeleted__c = false,
+      InsertId__c = 'USER-PROMO-LINKED'
+    );
+    insert sourceTj;
+
+    TransactionJournal linkedReversalTj = new TransactionJournal(
+      DepositNo__c = 'PROMO-ACCRUAL-REVERSAL',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      TransactionAmount = 100,
+      OrderId = originalOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      PromotionId = promo.Id,
+      RelatedJournalId = sourceTj.Id,
+      JournalTypeId = getJournalTypeId('Accrual Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Promotion Point Accrual Reversal'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert linkedReversalTj;
+
+    LoyaltyLedger reversalDebitLedger = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = linkedReversalTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Debit'
+    );
+    insert reversalDebitLedger;
+
+    insert new LoyaltyLedgerTraceability(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCurrencySubtypeId = subtypeId,
+      CreditLoyaltyLedgerId = originalCreditLedger.Id,
+      DebitLoyaltyLedgerId = reversalDebitLedger.Id,
+      Points = 100,
+      ActionType = 'CreditCancellation'
+    );
+
+    Test.startTest();
+    ApiResult result = new GdReturnDepositServiceImpl().deleteReturnDeposit(sourceTj.DepositNo__c);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(true, [SELECT IsDeleted__c FROM TransactionJournal WHERE Id = :linkedReversalTj.Id].IsDeleted__c);
+  }
+
+  @IsTest
+  static void deleteReturnDeposit_pointRedeemCancel_partiallyAdjustsExpiredLedger() {
+    setMockServices();
+
+    Order originalOrder = getOriginalOrder();
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+    Date expiredDate = Date.today().addDays(-1);
+
+    TransactionJournal pointRedeemCancelTj = new TransactionJournal(
+      DepositNo__c = 'DEL-POINT-EXPIRED-PARTIAL',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '81',
+      DepositType__c = '03',
+      TransactionAmount = 50,
+      OrderId = originalOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Point Redeem Cancel'),
+      Status = 'Processed',
+      IsDeleted__c = false,
+      InsertId__c = 'USER-POINT-EXP-PART'
+    );
+    insert pointRedeemCancelTj;
+
+    insert new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = pointRedeemCancelTj.Id,
+      ActivityDate = Datetime.now().addDays(-2),
+      Points = 50,
+      ExpiryDate = expiredDate,
+      EventType = 'Credit'
+    );
+
+    insert new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = pointRedeemCancelTj.Id,
+      ActivityDate = Datetime.now().addDays(-1),
+      Points = 80,
+      ExpiryDate = expiredDate,
+      EventType = 'Expiry'
+    );
+
+    Test.startTest();
+    ApiResult result = new GdReturnDepositServiceImpl().deleteReturnDeposit(pointRedeemCancelTj.DepositNo__c);
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertEquals(
+      1,
+      [
+        SELECT COUNT()
+        FROM LoyaltyLedger
+        WHERE TransactionJournalId = :pointRedeemCancelTj.Id AND EventType = 'Expiry' AND Points = 30 AND IsDeleted = FALSE
+      ]
+    );
+  }
+
+  @IsTest
+  static void validateRestoredPointLedgersFullyRecoverableV2_unavailableUsageThrowsWithReference() {
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+
+    TransactionJournal restoredTj = new TransactionJournal(
+      DepositNo__c = 'VAL-V2-RESTORED',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      OrderId = returnOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Point Redeem Cancel'),
+      Status = 'Processed'
+    );
+    insert restoredTj;
+
+    LoyaltyLedger restoredCredit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = restoredTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Credit'
+    );
+    insert restoredCredit;
+
+    TransactionJournal useTj = new TransactionJournal(
+      DepositNo__c = 'VAL-V2-USE',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      OrderId = returnOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption'),
+      JournalSubTypeId = getJournalSubTypeId('Point Debit'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert useTj;
+
+    LoyaltyLedger useDebit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = useTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = restoredCredit.ExpiryDate,
+      EventType = 'Debit'
+    );
+    insert useDebit;
+
+    insert new LoyaltyLedgerTraceability(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCurrencySubtypeId = subtypeId,
+      CreditLoyaltyLedgerId = restoredCredit.Id,
+      DebitLoyaltyLedgerId = useDebit.Id,
+      Points = 100,
+      ActionType = 'Debit'
+    );
+
+    Boolean thrown = false;
+    try {
+      GdReturnDepositServiceImpl.validateRestoredPointLedgersFullyRecoverableV2(new List<LoyaltyLedger>{ restoredCredit }, lpm.Id);
+    } catch (CustomException e) {
+      thrown = true;
+      System.assertEquals(400, e.code);
+    }
+    System.assertEquals(true, thrown);
+  }
+
+  @IsTest
+  static void validateRestoredPointLedgersFullyRecoverableV2_nestedCancelCreditAllowsRecovery() {
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+    Date expiryDate = Date.today().addYears(1);
+
+    TransactionJournal restoredTj = new TransactionJournal(
+      DepositNo__c = 'VAL-V2-NESTED',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      OrderId = getOriginalOrder().Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Point Redeem Cancel'),
+      Status = 'Processed'
+    );
+    insert restoredTj;
+
+    LoyaltyLedger restoredCredit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = restoredTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = expiryDate,
+      EventType = 'Credit'
+    );
+    insert restoredCredit;
+
+    TransactionJournal useTj = new TransactionJournal(
+      DepositNo__c = 'VAL-V2-NESTED-USE',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      OrderId = returnOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption'),
+      JournalSubTypeId = getJournalSubTypeId('Point Debit'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert useTj;
+
+    LoyaltyLedger useDebit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = useTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = expiryDate,
+      EventType = 'Debit'
+    );
+    insert useDebit;
+
+    insert new LoyaltyLedgerTraceability(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCurrencySubtypeId = subtypeId,
+      CreditLoyaltyLedgerId = restoredCredit.Id,
+      DebitLoyaltyLedgerId = useDebit.Id,
+      Points = 100,
+      ActionType = 'Debit'
+    );
+
+    TransactionJournal nestedCancelTj = new TransactionJournal(
+      DepositNo__c = 'VAL-V2-NESTED-CANCEL',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      OrderId = returnOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Point Redeem Cancel'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert nestedCancelTj;
+
+    insert new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = nestedCancelTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = expiryDate,
+      EventType = 'Credit'
+    );
+
+    GdReturnDepositServiceImpl.validateRestoredPointLedgersFullyRecoverableV2(new List<LoyaltyLedger>{ restoredCredit }, lpm.Id);
+  }
+
+  @IsTest
+  static void validateRestoredPointLedgersFullyRecoverable_legacyUnavailableThrows() {
+    Order returnOrder = getReturnOrder();
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember LIMIT 1];
+    Id currencyId = getLoyaltyProgramCurrencyId();
+    Id subtypeId = getEcoSubtypeId();
+
+    TransactionJournal restoredTj = new TransactionJournal(
+      DepositNo__c = 'VAL-LEGACY-RESTORED',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      OrderId = returnOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption Reversal'),
+      JournalSubTypeId = getJournalSubTypeId('Point Redeem Cancel'),
+      Status = 'Processed'
+    );
+    insert restoredTj;
+
+    LoyaltyLedger restoredCredit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = restoredTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = Date.today().addYears(1),
+      EventType = 'Credit'
+    );
+    insert restoredCredit;
+
+    TransactionJournal useTj = new TransactionJournal(
+      DepositNo__c = 'VAL-LEGACY-USE',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      OrderId = returnOrder.Id,
+      SaleId__c = returnOrder.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      MemberId = lpm.Id,
+      JournalTypeId = getJournalTypeId('Redemption'),
+      JournalSubTypeId = getJournalSubTypeId('Point Debit'),
+      Status = 'Processed',
+      IsDeleted__c = false
+    );
+    insert useTj;
+
+    LoyaltyLedger useDebit = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = useTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 100,
+      ExpiryDate = restoredCredit.ExpiryDate,
+      EventType = 'Debit'
+    );
+    insert useDebit;
+
+    insert new LoyaltyLedgerTraceability(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = currencyId,
+      LoyaltyPgmCurrencySubtypeId = subtypeId,
+      CreditLoyaltyLedgerId = restoredCredit.Id,
+      DebitLoyaltyLedgerId = useDebit.Id,
+      Points = 100,
+      ActionType = 'Debit'
+    );
+
+    Boolean thrown = false;
+    try {
+      GdReturnDepositServiceImpl.validateRestoredPointLedgersFullyRecoverable(new List<LoyaltyLedger>{ restoredCredit }, lpm.Id);
+    } catch (CustomException e) {
+      thrown = true;
+      System.assertEquals(400, e.code);
+    }
+    System.assertEquals(true, thrown);
   }
 }

@@ -126,7 +126,8 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
       List<Object> depositList = ValidationUtil.listObjValidation(reqData.get('TransactionJournal'), 'TransactionJournal', true);
       String memberNo = ValidationUtil.stringValidation(reqData.get('MemberNo__c'), 'MemberNo__c', true);
       String orderId = ValidationUtil.stringValidation(reqData.get('orderId'), 'orderId', true);
-      String promotionNo = ValidationUtil.stringValidation(reqData.get('PromotionNo__c'), 'PromotionNo__c', false);
+      String promotionNo = ValidationUtil.stringValidation(reqData.get('PromotionNo__c'), 'PromotionNo__c', false); // 프로모션 번호 // 기존 로직
+      // String promotionId = ValidationUtil.stringValidation(reqData.get('promotionId'), 'promotionId', false); // 프로모션 Id  // 신규 로직 (26.05.18 CS)
       String insertId = ValidationUtil.stringValidation(reqData.get('InsertId__c'), 'InsertId__c', false); // 등록자
       Decimal actualPaymentAmount = ValidationUtil.decimalValidation(reqData.get('ActualPaymentAmount__c'), 'ActualPaymentAmount__c', false); // 판매 금액
       String storeCode = ValidationUtil.stringValidation(reqData.get('StoreCode__c'), 'StoreCode__c', true); // 매장 코드
@@ -135,28 +136,46 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
 
       String storeTypeFour = ValidationUtil.stringValidation(reqData.get('storeTypeFour'), 'storeTypeFour', false); // 매장구분4
 
-      Boolean isExclude = false; // 포인트 적립 제외 여부
-      Decimal excludeAmount = 0; // 포인트 적립 제외 금액
-      Decimal earnableAmount = 0; // 적립 가능 품목 금액 합계
-      // Decimal totalAvailablePointUsageAmount = 0; // 포인트 사용 가능 금액 합계
+      // 26.05.19 CS - 포인트 적립/사용 정책 OrderItem 단위 분리 반영
+      //   정책 매트릭스 (OrderItem 단위 판정):
+      //     [a] 일반 OI (IsExclude=false)                              → 적립 ✅, 사용 ✅
+      //     [b] 사은품 OI (IsExclude=true, 원주문 Type!='03' 또는 null) → 적립 ❌, 사용 ❌
+      //     [c] 수선 OI (IsExclude=true, 원주문 Type='03')              → 적립 ❌, 사용 ✅
+      //   판정 키: OrderItem.OrderId__c → Order.Type='03' 인 경우만 수선 OI.
+      //   변수 의미:
+      //     - earnableAmount : 적립 가능 OI 양 (적립 계산 + 사용 한도 포함)
+      //     - repairAmount   : 수선 OI 양        (사용 한도 포함, 적립 계산은 excludeAmount 로 차감)
+      //     - excludeAmount  : 적립 제외 OI 양  (수선 + 사은품, 적립 시 결제 합에서 차감)
+      //   가드:
+      //     - L375 차단 가드: isExclude=true && repairAmount==0 (사은품-only 일반 주문 만 차단).
+      //     - L404 한도 가드: totalPointsToUse > (earnableAmount + repairAmount).
+      //   안전망: 결제 한도 가드 (L411) + debitPointsCustom 잔액 가드.
 
-      // List<Object> oiList = (List<Object>) reqData.get('oiList');
-      // for (Object v : oiList) {
-      //   OrderItem oi = (OrderItem) v;
+      Boolean isExclude = true; // 포인트 적립 제외 여부 (모든 OI 가 IsExclude=true 면 true 유지)
+      Decimal excludeAmount = 0; // 포인트 적립 제외 금액 (수선 + 사은품 합계)
+      Decimal earnableAmount = 0; // 적립 가능 품목 금액 합계 (일반 OI)
+      Decimal repairAmount = 0; // 수선 OI 금액 합계 (적립 불가 + 사용 가능)
 
-      //   if (oi.IsExclude__c != null) {
-      //     if (oi.IsExclude__c == true) {
-      //       System.debug('해당 상품은 포인트 적립 제외 대상입니다.'); // 포인트 적립 불가 항목
-      //       isExclude = oi.IsExclude__c;
-      //       excludeAmount += (oi.NetSalesUnitPrice__c != null) ? oi.NetSalesUnitPrice__c : 0;
-      //     } else {
-      //       System.debug('해당 상품은 포인트 적립 대상입니다.'); // 포인트 적립 가능 항목
-      //       earnableAmount += (oi.NetSalesUnitPrice__c != null) ? oi.NetSalesUnitPrice__c : 0;
-      //     }
-      //   }
-      // }
-
+      // OI.OrderId__c → Order.Type='03' 판정용 일괄 조회
       List<Object> oiList = (List<Object>) reqData.get('oiList');
+      Set<Id> sourceOrderIdSet = new Set<Id>();
+      for (Object v : oiList) {
+        OrderItem oi = (OrderItem) v;
+        if (oi.OrderId__c != null) {
+          try {
+            sourceOrderIdSet.add((Id) oi.OrderId__c);
+          } catch (Exception ignore) {
+            // 잘못된 Id 형식이면 무시
+          }
+        }
+      }
+      Map<Id, Order> sourceOrderById = new Map<Id, Order>();
+      if (!sourceOrderIdSet.isEmpty()) {
+        for (Order o : [SELECT Id, Type FROM Order WHERE Id IN :sourceOrderIdSet]) {
+          sourceOrderById.put(o.Id, o);
+        }
+      }
+
       for (Object v : oiList) {
         OrderItem oi = (OrderItem) v;
         // 26.05.05 CS - Quantity 반영. 단가만 합산하던 기존 로직은 다개 수량 케이스에서 1개분 금액만 처리되는 버그.
@@ -164,11 +183,29 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         Decimal qty = oi.Quantity != null ? oi.Quantity : 1;
         Decimal itemAmount = unitPrice * qty;
 
-        if (oi.IsExclude__c == false) {
-          isExclude = false; // 하나라도 false면 계속 false 유지
-          earnableAmount += itemAmount; // 적립 가능 품목 금액 합계
-        } else {
+        if (oi.IsExclude__c == true) {
           excludeAmount += itemAmount; // 포인트 적립 제외 금액
+
+          // 수선 OI 판정: OrderId__c 가 가리키는 원주문 Type='03'
+          Boolean isRepairItem = false;
+          if (oi.OrderId__c != null) {
+            try {
+              Order src = sourceOrderById.get((Id) oi.OrderId__c);
+              if (src != null && src.Type == '03') {
+                isRepairItem = true;
+              }
+            } catch (Exception ignore) {
+              isRepairItem = false;
+            }
+          }
+          if (isRepairItem) {
+            repairAmount += itemAmount; // 수선 OI: 사용 가능 한도에 누적
+          }
+          // 사은품 OI (수선 아닌 IsExclude=true) 는 어디에도 안 누적 → 사용 한도 0
+        } else {
+          // IsExclude__c == false 또는 null → 일반 적립 대상으로 분류
+          isExclude = false; // 적립 가능 OI 가 하나라도 있으면 일반 판매로 판정
+          earnableAmount += itemAmount; // 적립 가능 품목 금액 합계
         }
       }
 
@@ -184,7 +221,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         // if (promotionNo != null) {
         // System.debug('if (promotionNo != null) { 진입');
         List<Promotion> promotionList = [
-          SELECT Id, IsActive, StartDate, EndDate
+          SELECT Id, IsActive, StartDate, EndDate, PromotionNo__c
           FROM Promotion
           WHERE PromotionNo__c = :promotionNo AND PromotionNo__c != NULL
           LIMIT 1
@@ -216,13 +253,13 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         }
         if (String.isNotBlank(linkedOrderNo)) {
           List<TransactionJournal> linkedTjList = [
-            SELECT Promotion.PromotionNo__c
+            SELECT PromotionId
             FROM TransactionJournal
             WHERE Order.OrderNo__c = :linkedOrderNo AND PromotionId != NULL AND IsDeleted__c = FALSE
             ORDER BY CreatedDate ASC
             LIMIT 1
           ];
-          if (!linkedTjList.isEmpty() && linkedTjList[0].Promotion != null && linkedTjList[0].Promotion.PromotionNo__c == promotionNo) {
+          if (!linkedTjList.isEmpty() && linkedTjList[0].PromotionId != null && linkedTjList[0].PromotionId == p.Id) {
             isOrderLinkedSamePromotion = true;
           }
         }
@@ -357,15 +394,16 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
 
         // 포인트 사용 일 경우
         if ('81'.equals(paymentMethod)) {
-          if (isExclude) {
-            // 포인트 적립 제외 상품만 있을 경우, 포인트를 사용했을 때 => 에러 처리
+          // 26.05.19 CS - OI 단위 정책 분리:
+          //   - 일반 OI 있음 (isExclude=false): 통과 → 한도 가드(L404) 에서 처리.
+          //   - 수선 OI 있음 (repairAmount > 0): 통과 → 한도 가드에서 repairAmount 포함.
+          //   - 사은품-only (isExclude=true && repairAmount==0): 차단.
+          if (isExclude && repairAmount == 0) {
             throw new CustomException(400, '포인트 적립 제외 상품만 포함된 판매 건은 포인트를 사용할 수 없습니다.');
           }
           totalPointsToUse += tj.TransactionAmount;
 
           // 포인트 사용
-          // Long debitPointStartMs = Datetime.now().getTime();
-          // Integer debitPointStartCpu = Limits.getCpuTime();
           tj.ActivityDate = resolveSalePointUsageActivityDate((Id) orderId, requestSaleDate);
           // List<GdSaleApiController.PointDebitDTO> debitPointList = pointSvc.debitPoint(tj); // 기존
           List<GdSaleApiController.PointDebitDTO> debitPointList = pointSvc.debitPointsCustom(tj); // 신규 테스트
@@ -385,13 +423,16 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         }
       }
 
-      // logTiming('createSaleDepositHistory.depositLoop', totalStartMs, totalStartCpu);
-      if (totalPointsToUse > earnableAmount) {
-        // 포인트 사용 금액이 적립 가능 품목 금액보다 많을 경우 => 에러 처리
+      // 26.05.19 CS - 포인트 사용 한도 = 적립 가능 OI + 수선 OI 합계.
+      //   수선 OI (IsExclude=true + 원주문 Type='03') 는 적립 불가지만 사용 한도에 포함.
+      //   사은품 OI (IsExclude=true + 일반 주문) 는 한도에 미포함 → 위 L375 가드가 사은품-only 케이스 차단.
+      //   결제 한도(L411) 와 debitPointsCustom 잔액 가드가 추가 안전망.
+      Decimal pointUsableLimit = earnableAmount + repairAmount;
+      if (totalPointsToUse > pointUsableLimit) {
         throw new CustomException(
           400,
-          '포인트 사용은 적립 가능 품목 금액 합계까지만 사용 가능합니다. 총 적립 가능 품목 금액 : ' +
-            earnableAmount +
+          '포인트 사용은 적립 가능 품목 금액 합계까지만 사용 가능합니다. 사용 가능 한도 : ' +
+            pointUsableLimit +
             ' | 총 포인트 사용 금액 : ' +
             totalPointsToUse
         );
@@ -417,7 +458,6 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         Long insertStartMs = Datetime.now().getTime();
         Integer insertStartCpu = Limits.getCpuTime();
         List<Database.SaveResult> resultList = Database.insert(tjList);
-        // logTiming('createSaleDepositHistory.insertTransactionJournals', insertStartMs, insertStartCpu);
 
         for (Database.SaveResult result : resultList) {
           if (!result.isSuccess()) {
@@ -445,13 +485,12 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
             OrderId,
             Order.OrderNo__c,
             PromotionId,
-            LoyaltyProgramId
+            LoyaltyProgramId,
+            Order.PromotionId__c // 신규 코드 (26.05.18 CS)
           FROM TransactionJournal
           WHERE DepositNo__c IN :orderDepositNoSet
         ];
         List<TransactionJournal> updateTargetList = new List<TransactionJournal>();
-
-        // DebugUtil.pretty('orderDepositNoSet', orderDepositNoSet);
 
         for (TransactionJournal tj : queriedOrderDepositList) {
           String expectedOrderNo = orderDepositOrderNoByKey.get(tj.DepositNo__c);
@@ -460,6 +499,17 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
             continue;
           }
           tj.SaleId__c = orderId;
+
+          // 주문 입금 TJ에 PromotionId 가 없을 때 Order.PromotionId__c 로 채움.
+          //   배경: 주문에 promotion 없이 입금이 들어왔다가, 판매 등록 시 신규 입금 없이 주문 입금만 이관되는 경우
+          //         data[0].PromotionId == null 가드로 인해 creditPromotionPointsOnPurchase 가 즉시 종료되어
+          //         프로모션 혜택이 적용되지 않는 결함 해결.
+          //   정책: 기존 PromotionId 값이 있으면 보존 (덮어쓰지 않음).
+          // ? 주문 입금의 PromotionId 가 비었으면서 판매 등록 시 Promotion 이 존재할 때
+          if (tj.PromotionId == null && promotionId != null) {
+            tj.PromotionId = promotionId;
+          }
+
           updateTargetList.add(tj);
         }
 
@@ -467,7 +517,6 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           tjList.addAll(updateTargetList);
           update updateTargetList;
         }
-        // logTiming('createSaleDepositHistory.updateOrderDeposits', updateOrderDepositStartMs, updateOrderDepositStartCpu);
       }
 
       // 구매 시 포인트 적립 로직
@@ -1592,6 +1641,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
   }
 
   /**
+   * ! 사용 x
    * 판매 입금 전체 삭제
    */
   public ApiResult deleteAllSaleDeposits(Id orderId) {
@@ -1626,6 +1676,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
 
       Map<String, Object> pointRedemptionCanceled = new Map<String, Object>();
       for (TransactionJournal tj : tjList) {
+        Boolean isPointDebitV3InLoop = (tj.JournalSubTypeId == pointDebitJstId);
         if (tj.JournalSubTypeId == pointDebitJstId || tj.JournalSubTypeId == couponRedeemJstId) {
           TransactionJournal newTj = tj.clone(false, true, false, false); // (ID 복사 여부 | 관계 필드 복사 여부 | 생성 일시, 수정 일시 유지 여부 | 자동 등가 번호 유지 여부)
           newTj.DepositNo__c = 'del_' + tj.DepositNo__c;
@@ -1645,8 +1696,14 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           }
         }
 
-        tj.IsDeleted__c = true;
-        tj.DeleteDateTime__c = Datetime.now();
+        // [Paradigm 정합 fix 2026-05-15] deleteSaleDeposit V1/V2 와 동일 — Point Debit 케이스는
+        //   cancelPointRedemption_v3 가 Trace 보존 + Cancel Credit 발행으로 환불 완결.
+        //   IsDel=true 처리는 v2 잔재로 LMS 가용성 double-count 야기 → skip.
+        //   Coupon Redeem / Sale Deposit / Purchase Accrual 등 다른 TJ 는 기존 IsDel 처리 유지.
+        if (!isPointDebitV3InLoop) {
+          tj.IsDeleted__c = true;
+          tj.DeleteDateTime__c = Datetime.now();
+        }
       }
       update tjList;
       data.put('pointRedemptionCanceled', pointRedemptionCanceled);
@@ -1730,7 +1787,8 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           DepositNo__c,
           IsDeleted__c,
           DeleteDateTime__c,
-          VoucherCode
+          VoucherCode,
+          OrderId__r.PromotionId__c // 신규 로직 (26.05.18 CS)
         FROM TransactionJournal
         WHERE DepositNo__c = :depositNo AND IsDeleted__c = FALSE AND SaleId__c != NULL
         LIMIT 1
@@ -1791,14 +1849,31 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         }
       }
 
+      // [Paradigm 정합 fix 2026-05-15]
+      //   v3 paradigm (PointCancel_PreserveTrace ON) 의 cancelPointRedemption_v3 는 원 Debit Trace 를 보존하고
+      //   Cancel Credit 으로 환불 처리. 이 때 원 Point Debit TJ 의 IsDeleted__c=true 처리는 v2 잔재로,
+      //   LMS aggregate 가 원 LL 가용성을 추가로 복원시켜 환불 효과가 2배가 됨 (CAR_515003 결함).
+      //   해결: Point Debit + 비-OptionC + OrderId__c==null 분기는 IsDel/DeleteDateTime/'del_' prefix 처리 skip.
+      //   Coupon Redeem 케이스는 별개 paradigm 이므로 기존 IsDel 처리 유지.
+      //   적립 cancel 케이스 (outer else 블록) 도 적립 TJ 자체 삭제 의도이므로 기존 처리 유지.
+      Boolean isPointDebitV3Path = (tjList[0].JournalSubTypeId == pointDebitJstId) && !isOptionCOldSale && tjList[0].OrderId__c == null;
+
       // 주문에서 넘어온 입금 건일 경우
       if (tjList[0].OrderId__c != null) {
         tjList[0].SaleId__c = null;
-      } else {
+
+        // [Promotion 복원] sale 등록 시 부착했던 promotion 을 주문 원본 상태로 되돌림.
+        //   판매 입금이 다른 sale 로 재이관(carry-over)될 때 잘못된 promotion 이 남아있지 않도록.
+        //   Order.PromotionId__c 가 null 이면 (주문 등록 시 promotion 없음) → null 로 복원.
+        //   Order.PromotionId__c 가 P 이면 (주문 등록 시 promotion 있음) → P 로 복원 (변경 없음).
+        Id orderOriginalPromotionId = (tjList[0].OrderId__r.PromotionId__c != null) ? tjList[0].OrderId__r.PromotionId__c : null;
+        tjList[0].PromotionId = orderOriginalPromotionId;
+      } else if (!isPointDebitV3Path) {
         tjList[0].IsDeleted__c = true;
         tjList[0].DeleteDateTime__c = Datetime.now();
         tjList[0].DepositNo__c = 'del_' + tjList[0].DepositNo__c; // Carson 수정 2026-04-14 추가
       }
+      // isPointDebitV3Path == true 시: v3 Trace 보존 — tjList[0] 무변경 (Cancel Credit 으로 환불 완결)
 
       update tjList[0];
       rebuildPointAggregationForSaleDepositMembers(tjList);
@@ -1812,6 +1887,7 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
   }
 
   /**
+   * ! 사용 X
    * 판매 입금 삭제 V2
    *
    * @version V2.0
@@ -1887,13 +1963,17 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
         data.put('purchasePointAccrualCanceled', purchasePointAccrualCanceled);
       }
 
+      // [Paradigm 정합 fix 2026-05-15] V1 과 동일 — v3 cancelPointRedemption 이 Trace 보존하므로 Point Debit IsDel 처리 skip.
+      Boolean isPointDebitV3PathV2 = (tjList[0].JournalSubTypeId == pointDebitJstId) && tjList[0].OrderId__c == null;
+
       // 주문에서 넘어온 입금 건일 경우
       if (tjList[0].OrderId__c != null) {
         tjList[0].SaleId__c = null;
-      } else {
+      } else if (!isPointDebitV3PathV2) {
         tjList[0].IsDeleted__c = true;
         tjList[0].DeleteDateTime__c = Datetime.now();
       }
+      // isPointDebitV3PathV2 == true 시: v3 Trace 보존 — tjList[0] 무변경
 
       update tjList[0];
       rebuildPointAggregationForSaleDepositMembers(tjList);

@@ -1,11 +1,21 @@
 @IsTest
 private class GdContactUiControllerTest {
+    private class McCalloutMock implements HttpCalloutMock {
+        public HttpResponse respond(HttpRequest req) {
+            HttpResponse res = new HttpResponse();
+            res.setStatusCode(200);
+            res.setHeader('Content-Type', 'application/json');
+            res.setBody('{"result":"ok"}');
+            return res;
+        }
+    }
 
     /* =====================================================
      * 정상 조회 (Controller 경로)
      * ===================================================== */
     @IsTest
     static void test_getMemberProfile_success() {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
 
         LoyaltyProgram program = new LoyaltyProgram(
             Name = 'VIP Program',
@@ -62,6 +72,7 @@ private class GdContactUiControllerTest {
      * ===================================================== */
     @IsTest
     static void test_dto_program_null() {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
 
         Contact c = new Contact(
             LastName = '테스터',
@@ -69,10 +80,10 @@ private class GdContactUiControllerTest {
         );
         insert c;
 
-        // DTO 생성자가 접근하는 모든 Contact 필드를 쿼리
+        // DTO 생성자가 접근하는 모든 Contact 필드를 쿼리 (LegalBirthdate__c 포함)
         c = [
             SELECT Id, Name, LastName, Phone, MobilePhone, Email, Birthdate,
-                   MemberNo__c, IsMarried__c, WeddingAnniversaryDate__c,
+                   LegalBirthdate__c, MemberNo__c, IsMarried__c, WeddingAnniversaryDate__c,
                    StoreMana__c, MailingStreet, MailingCity
             FROM Contact
             WHERE Id = :c.Id

@@ -1,7 +1,19 @@
 @IsTest
 private class GdMemberHistoryUIControllerTest {
+  private class McCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"result":"ok"}');
+      return res;
+    }
+  }
+
   @TestSetup
   static void setupData() {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
     LoyaltyProgram lp = new LoyaltyProgram(Name = 'History Program', IsPrimary = true);
     insert lp;
 
@@ -45,6 +57,8 @@ private class GdMemberHistoryUIControllerTest {
 
   @IsTest
   static void getMemberHistory_deletedMember_throws() {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
     LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
     Contact c = [SELECT Id FROM Contact WHERE MemberNo__c = 'MH-001' LIMIT 1];
     LoyaltyProgramMember temp = new LoyaltyProgramMember(

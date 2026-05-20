@@ -57,6 +57,38 @@ private class PromotionResDTOTest {
     ];
   }
 
+  private static Promotion reloadPromotion(Id promotionId) {
+    return [
+      SELECT
+        Id,
+        Name,
+        PromotionNo__c,
+        IsActive,
+        BrandCode__c,
+        TypeCode__c,
+        StartDate,
+        EndDate,
+        StartDateTime,
+        EndDateTime,
+        PublishStartDate__c,
+        PublishEndDate__c,
+        StatusCode__c,
+        IsCouponAllowed__c,
+        IsFixedAmountCouponAllowed__c,
+        IsRateCouponAllowed__c,
+        IsSpecificCouponAllowed__c,
+        IsPointUsageAllowed__c,
+        IsAllStore__c,
+        IsAllItem__c,
+        IsDiscountRateApplicable__c,
+        IsStoreSpecific__c,
+        HasTargetProductCondition__c
+      FROM Promotion
+      WHERE Id = :promotionId
+      LIMIT 1
+    ];
+  }
+
   @IsTest
   static void constructor_allFlagsTrue_returnsY() {
     Promotion p = buildPromotion(true);
@@ -93,6 +125,46 @@ private class PromotionResDTOTest {
     System.assertEquals('N', dto.YN_ALL_ITEM);
     System.assertEquals('N', dto.YN_ALL_COUPON);
     System.assertEquals('N', dto.YN_PROM_DC);
+  }
+
+  @IsTest
+  static void constructor_couponSubFlagTrue_setsYnUseCouponToY() {
+    Promotion p = buildPromotion(false);
+    p.IsRateCouponAllowed__c = true;
+    update p;
+
+    Promotion reloaded = reloadPromotion(p.Id);
+
+    Test.startTest();
+    PromotionResDTO dto = new PromotionResDTO(reloaded);
+    Test.stopTest();
+
+    System.assertEquals('Y', dto.YN_USE_COUPON);
+    System.assertEquals('N', dto.YN_USE_FIXED_COUPON);
+    System.assertEquals('Y', dto.YN_USE_RATE_COUPON);
+    System.assertEquals('N', dto.YN_USE_SPECIFIC_COUPON);
+  }
+
+  @IsTest
+  static void constructor_allCouponTrue_setsCouponSubFlagsToY() {
+    Promotion p = buildPromotion(false);
+    p.IsCouponAllowed__c = true;
+    p.IsFixedAmountCouponAllowed__c = false;
+    p.IsRateCouponAllowed__c = false;
+    p.IsSpecificCouponAllowed__c = false;
+    update p;
+
+    Promotion reloaded = reloadPromotion(p.Id);
+
+    Test.startTest();
+    PromotionResDTO dto = new PromotionResDTO(reloaded);
+    Test.stopTest();
+
+    System.assertEquals('Y', dto.YN_ALL_COUPON);
+    System.assertEquals('Y', dto.YN_USE_COUPON);
+    System.assertEquals('Y', dto.YN_USE_FIXED_COUPON);
+    System.assertEquals('Y', dto.YN_USE_RATE_COUPON);
+    System.assertEquals('Y', dto.YN_USE_SPECIFIC_COUPON);
   }
 
   @IsTest

@@ -5,6 +5,16 @@ private class CouponListUploadControllerV1Test {
   private static final String PRODUCT_CODE_HEADER = 'ProductCode';
   private static final String STORE_CODE_HEADER = 'StoreCode';
 
+  private class McCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"result":"ok"}');
+      return res;
+    }
+  }
+
   private static String uniq(String prefix) {
     return prefix + '_' + String.valueOf(Datetime.now().getTime()) + '_' + String.valueOf(Math.abs(Crypto.getRandomInteger()));
   }
@@ -189,6 +199,8 @@ private class CouponListUploadControllerV1Test {
 
   @IsTest
   static void test_parseCouponFile_success_and_fail_mix() {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
     Id memberId = createMember('M-001', true);
     createMember('M-002', false);
 

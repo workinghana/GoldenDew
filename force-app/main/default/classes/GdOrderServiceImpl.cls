@@ -35,6 +35,7 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       String orderStatus = ValidationUtil.stringValidation(reqData.get('OrderStatus__c'), 'OrderStatus__c', false); // 주문 상태 코드
       String insertId = ValidationUtil.stringValidationEx(reqData.get('InsertId__c'), 'InsertId__c', false, true); // 등록자
       Date poDate = ValidationUtil.dateValidation(reqData.get('PoDate'), 'PoDate', false); // 주문 일자
+      String promotionNo = ValidationUtil.stringValidation(reqData.get('PromotionNo__c'), 'PromotionNo__c', false); // 프로모션 번호
 
       // 주문번호(OrderNo__c) 중복 체크
       if ([SELECT COUNT() FROM Order WHERE OrderNo__c = :orderNo] > 0) {
@@ -64,6 +65,50 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       // Standard Pricebook 조회
       Id standardPricebookId = [SELECT Id FROM Pricebook2 WHERE IsStandard = TRUE LIMIT 1].Id;
 
+      Id promotionId;
+      if (!String.isEmpty(promotionNo)) {
+        List<Promotion> promotionList = [
+          SELECT Id, IsActive, StartDate, EndDate
+          FROM Promotion
+          WHERE PromotionNo__c = :promotionNo AND PromotionNo__c != NULL
+          LIMIT 1
+        ];
+        if (promotionList.isEmpty()) {
+          throw new CustomException(400, '해당 프로모션이 없습니다. ' + promotionNo);
+        }
+        if (promotionList[0].IsActive == false) {
+          throw new CustomException(400, '해당 프로모션은 비활성화 상태입니다. ' + promotionNo);
+        }
+
+        Promotion p = promotionList[0];
+        Date orderDate = poDate == null ? Date.today() : poDate;
+        if (p.StartDate != null && orderDate < p.StartDate) {
+          throw new CustomException(
+            400,
+            '주문 일자가 프로모션 적용 기간 이전입니다. (프로모션: ' +
+              promotionNo +
+              ', 시작일: ' +
+              String.valueOf(p.StartDate) +
+              ', 종료일: ' +
+              String.valueOf(p.EndDate) +
+              ')'
+          );
+        }
+        if (p.EndDate != null && orderDate > p.EndDate) {
+          throw new CustomException(
+            400,
+            '주문 일자가 프로모션 적용 기간 이후입니다. (프로모션: ' +
+              promotionNo +
+              ', 시작일: ' +
+              String.valueOf(p.StartDate) +
+              ', 종료일: ' +
+              String.valueOf(p.EndDate) +
+              ')'
+          );
+        }
+        promotionId = p.Id;
+      }
+
       Order o = new Order();
       o.AccountId = company.Id;
       o.StoreCode__c = store.Id;
@@ -77,6 +122,9 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       o.Pricebook2Id = standardPricebookId;
       o.InsertId__c = insertId;
       o.PoDate = poDate == null ? Date.today() : poDate;
+      if (promotionId != null) {
+        o.PromotionId__c = promotionId;
+      }
 
       Database.SaveResult result = Database.insert(o);
 
@@ -89,6 +137,9 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       data.put('orderId', o.Id);
       data.put('storeTypeFour', store.StoreTypeFour__c);
       data.put('storeType', store.StoreType__c);
+      if (promotionId != null) {
+        data.put('promotionId', promotionId);
+      }
 
       return ApiResult.ok(200, '주문 등록 완료', data);
     } catch (ValidationException ve) {
@@ -160,6 +211,7 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       String saleStatus = ValidationUtil.stringValidation(reqData.get('SaleStatus__c'), 'SaleStatus__c', false);
       Date saleDate = ValidationUtil.dateValidation(reqData.get('EndDate'), 'EndDate', false);
       String insertId = ValidationUtil.stringValidationEx(reqData.get('InsertId__c'), 'InsertId__c', false, true); // 등록자
+      String promotionNo = ValidationUtil.stringValidation(reqData.get('PromotionNo__c'), 'PromotionNo__c', false); // 프로모션 번호
 
       // 판매번호(SaleNo__c) 중복 체크
       if ([SELECT COUNT() FROM Order WHERE SaleNo__c = :saleNo] > 0) {
@@ -189,6 +241,20 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       // Standard Pricebook 조회
       Id standardPricebookId = [SELECT Id FROM Pricebook2 WHERE IsStandard = TRUE LIMIT 1].Id;
 
+      Id promotionId;
+      if (!String.isEmpty(promotionNo)) {
+        List<Promotion> promotionList = [
+          SELECT Id, IsActive, StartDate, EndDate
+          FROM Promotion
+          WHERE PromotionNo__c = :promotionNo AND PromotionNo__c != NULL
+          LIMIT 1
+        ];
+        if (promotionList.isEmpty()) {
+          throw new CustomException(400, '해당 프로모션이 없습니다. ' + promotionNo);
+        }
+        promotionId = promotionList[0].Id;
+      }
+
       Order o = new Order();
       o.AccountId = company.Id;
       o.StoreCode__c = store.Id;
@@ -205,6 +271,9 @@ public with sharing class GdOrderServiceImpl implements GdOrderService {
       }
       o.Pricebook2Id = standardPricebookId;
       o.InsertId__c = insertId;
+      if (promotionId != null) {
+        o.PromotionId__c = promotionId;
+      }
 
       Database.SaveResult insertResult = Database.insert(o);
 

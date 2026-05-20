@@ -71,7 +71,7 @@ public class GdVoucherServiceImplTest {
 
     Map<String, Object> req = new Map<String, Object>{
       'MemberNo__c' => 'MEM001',
-      'TransactionJournal' => new List<Object>{ new Map<String, Object>{ 'CouponNo' => 'VCH001' } }
+      'TransactionJournal' => new List<Object>{ new Map<String, Object>{ 'CouponNo' => 'CPN001;-;VCH001' } }
     };
 
     Test.startTest();
@@ -84,7 +84,7 @@ public class GdVoucherServiceImplTest {
   }
 
   @IsTest
-  static void test_getAvailableCouponList_orderTypeLimit_excludesWhenMissingType() {
+  static void test_getAvailableCouponList_orderTypeLimit_ignoresWhenMissingType() {
     ensureSetupData();
     Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
     delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
@@ -97,7 +97,7 @@ public class GdVoucherServiceImplTest {
 
     String payload = JSON.serialize(res.data.get('voucherList'));
     System.assertEquals(true, res.success);
-    System.assertEquals(false, payload.contains('VCH001'), 'Coupon should be excluded when order type is required but missing');
+    System.assertEquals(true, payload.contains('VCH001'), 'Coupon should remain available when order type is not provided.');
   }
 
   @IsTest
@@ -355,6 +355,28 @@ public class GdVoucherServiceImplTest {
     return [SELECT Id, VoucherDefinitionId, LoyaltyProgramMemberId, VoucherCode, ExpirationDate FROM Voucher WHERE Id = :voucher.Id LIMIT 1];
   }
 
+  private static String createCategorizedProduct(String productCode) {
+    ProductCatalog catalog = new ProductCatalog(Name = 'Voucher Category Catalog ' + productCode);
+    insert catalog;
+
+    ProductCategory category = new ProductCategory(
+      Name = 'Voucher Category ' + productCode,
+      CatalogId = catalog.Id,
+      SystemCode__c = '1',
+      LargeCategoryCode__c = '10',
+      MediumCategoryCode__c = '20',
+      SmallCategoryCode__c = '30'
+    );
+    insert category;
+
+    Product2 product = new Product2(Name = 'Voucher Product ' + productCode, ProductCode = productCode, IsActive = true);
+    insert product;
+
+    insert new ProductCategoryProduct(ProductId = product.Id, ProductCategoryId = category.Id, IsPrimaryCategory = true);
+
+    return '1-10-20-30';
+  }
+
   /* =========================================================
    * issueBirthdayCoupon (?熬곣뫕???낅슣?섋땻?嶺뚳퐣瑗?? ??貫????ｋ걞??逾??)
    * ========================================================= */
@@ -533,6 +555,7 @@ public class GdVoucherServiceImplTest {
       VoucherDefinitionId__c = vdId,
       Type__c = 'PromotionIncludeList',
       Value__c = String.valueOf(allowedPromotion.Id),
+      PromotionId__c = allowedPromotion.Id,
       IsActive__c = true
     );
 
@@ -549,8 +572,45 @@ public class GdVoucherServiceImplTest {
     String otherPayload = JSON.serialize(resWithOtherPromotion.data.get('voucherList'));
 
     System.assert(withoutPromotionPayload.contains('VCH001'), 'Coupon should remain available when the promotion condition is not evaluated.');
-    System.assert(allowedPayload.contains('VCH001'), 'Coupon should be available when the allowed promotion is provided.');
-    System.assertEquals(false, otherPayload.contains('VCH001'), 'Coupon should be excluded when another promotion is provided.');
+    System.assert(allowedPayload.contains('VCH001'), 'Coupon should remain available when specific coupon filtering is disabled.');
+    System.assert(otherPayload.contains('VCH001'), 'PromotionIncludeList should not restrict coupons when specific coupon filtering is disabled.');
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_promotionInclude_appliesWhenSpecificCouponAllowed() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    Promotion allowedPromotion = createPromotionRecord('SPEC-ALLOW');
+    Promotion otherPromotion = createPromotionRecord('SPEC-OTHER');
+    update new List<Promotion>{
+      new Promotion(Id = allowedPromotion.Id, IsSpecificCouponAllowed__c = true),
+      new Promotion(Id = otherPromotion.Id, IsSpecificCouponAllowed__c = true)
+    };
+    allowedPromotion = [SELECT Id, PromotionNo__c FROM Promotion WHERE Id = :allowedPromotion.Id];
+    otherPromotion = [SELECT Id, PromotionNo__c FROM Promotion WHERE Id = :otherPromotion.Id];
+
+    insert new VoucherLimit__c(
+      VoucherDefinitionId__c = vdId,
+      Type__c = 'PromotionIncludeList',
+      Value__c = String.valueOf(allowedPromotion.Id),
+      PromotionId__c = allowedPromotion.Id,
+      IsActive__c = true
+    );
+
+    Test.startTest();
+    ApiResult resWithAllowedPromotion = new GdVoucherServiceImpl()
+      .getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'PromotionNo__c' => allowedPromotion.PromotionNo__c });
+    ApiResult resWithOtherPromotion = new GdVoucherServiceImpl()
+      .getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'PromotionNo__c' => otherPromotion.PromotionNo__c });
+    Test.stopTest();
+
+    String allowedPayload = JSON.serialize(resWithAllowedPromotion.data.get('voucherList'));
+    String otherPayload = JSON.serialize(resWithOtherPromotion.data.get('voucherList'));
+
+    System.assert(allowedPayload.contains('VCH001'), 'Coupon should be available for the specific allowed promotion.');
+    System.assertEquals(false, otherPayload.contains('VCH001'), 'Coupon should be excluded for another promotion when specific coupon filtering is enabled.');
   }
 
   @IsTest
@@ -1471,13 +1531,9 @@ public class GdVoucherServiceImplTest {
       ORDER BY CreatedDate DESC
     ];
 
-    System.assertEquals(
-      'Cancelled',
-      originalVoucher.Status,
-      'Original status=' + originalVoucher.Status + ', Reissued status=' + reissuedVoucherList[0].Status
-    );
-    System.assertNotEquals(null, originalVoucher.UseDate, 'Original UseDate should remain populated');
-    System.assertNotEquals(null, originalVoucher.UsedTransactionJournalId__c, 'Original used journal should remain populated');
+    System.assertEquals('Issued', originalVoucher.Status, 'Original unlimited voucher should return to Issued on redeem cancel');
+    System.assertEquals(null, originalVoucher.UseDate, 'Original UseDate should be cleared');
+    System.assertEquals(null, originalVoucher.UsedTransactionJournalId__c, 'Original used journal should be cleared');
     System.assertEquals(1, reissuedVoucherList.size(), 'One reissued voucher should remain after redeem cancel');
     System.assertEquals('Cancelled', reissuedVoucherList[0].Status, 'Reissued coupon should be cancelled on redeem cancel');
   }
@@ -1516,9 +1572,11 @@ public class GdVoucherServiceImplTest {
     ApiResult res = new GdVoucherServiceImpl().redeemCancelVoucher(cancelTj);
     Test.stopTest();
 
-    Voucher restoredVoucher = [SELECT Status FROM Voucher WHERE Id = :unlimitedVoucher.Id LIMIT 1];
+    Voucher restoredVoucher = [SELECT Status, UseDate, UsedTransactionJournalId__c FROM Voucher WHERE Id = :unlimitedVoucher.Id LIMIT 1];
     System.assertEquals(true, res.success);
-    System.assertNotEquals('Issued', restoredVoucher.Status, 'Unlimited original voucher should not return to Issued when no reissued coupon exists');
+    System.assertEquals('Issued', restoredVoucher.Status, 'Unlimited original voucher should return to Issued on redeem cancel');
+    System.assertEquals(null, restoredVoucher.UseDate, 'UseDate should be cleared');
+    System.assertEquals(null, restoredVoucher.UsedTransactionJournalId__c, 'Used journal should be cleared');
   }
 
   /* =========================================================
@@ -2331,6 +2389,332 @@ public class GdVoucherServiceImplTest {
     System.assertEquals(true, payload.contains('VCH001'), 'Coupon should remain available when sales amount satisfies the minimum');
   }
 
+  @IsTest
+  static void test_getAvailableCouponList_noIssuedVoucher_throws() {
+    ensureSetupData();
+    Voucher v = [SELECT Id, Status FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1];
+    v.Status = 'Expired';
+    update v;
+
+    Test.startTest();
+    Boolean thrown = false;
+    try {
+      new GdVoucherServiceImpl().getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001' });
+      System.assert(false, 'should throw when member has no issued voucher');
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown, 'No issued voucher should be rejected.');
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_productInclude_mismatchExcludesCoupon() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    insert new VoucherLimit__c(VoucherDefinitionId__c = vdId, Type__c = 'ProductIncludeList', ProductCode__c = 'OTHER-PROD', IsActive__c = true);
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .getAvailableCouponList(
+        new Map<String, Object>{
+          'MemberNo__c' => 'MEM001',
+          'OrderItem' => new List<Object>{ new Map<String, Object>{ 'ProductCode' => 'PROD001', 'Quantity' => 1 } }
+        }
+      );
+
+    System.assertEquals(false, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_storeInclude_mismatchExcludesCoupon() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    insert new Account(Name = 'Store Include Miss', StoreCode__c = 'STORE-MISS-01', StoreType__c = '01');
+    insert new VoucherLimit__c(VoucherDefinitionId__c = vdId, Type__c = 'StoreIncludeList', Value__c = 'STORE-ALLOW-01', IsActive__c = true);
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'StoreCode__c' => 'STORE-MISS-01' });
+
+    System.assertEquals(false, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_storeTypeInclude_mismatchExcludesCoupon() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    insert new Account(Name = 'Store Type Miss', StoreCode__c = 'STORE-MISS-02', StoreType__c = '01');
+    insert new VoucherLimit__c(VoucherDefinitionId__c = vdId, Type__c = 'StoreTypeIncludeList', Value__c = '99', IsActive__c = true);
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'StoreCode__c' => 'STORE-MISS-02' });
+
+    System.assertEquals(false, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_storeAndStoreTypeLimit_mismatchExcludesCoupon() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    insert new Account(Name = 'Store Combo Miss', StoreCode__c = 'STORE-MISS-03', StoreType__c = '01');
+    insert new List<VoucherLimit__c>{
+      new VoucherLimit__c(VoucherDefinitionId__c = vdId, Type__c = 'StoreIncludeList', Value__c = 'STORE-ALLOW-03', IsActive__c = true),
+      new VoucherLimit__c(VoucherDefinitionId__c = vdId, Type__c = 'StoreTypeIncludeList', Value__c = '99', IsActive__c = true)
+    };
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'StoreCode__c' => 'STORE-MISS-03' });
+
+    System.assertEquals(false, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_gradeInclude_mismatchExcludesCoupon() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    insert new VoucherLimit__c(VoucherDefinitionId__c = vdId, Type__c = 'GradeIncludeList', Value__c = 'GRADE-NO-MATCH', IsActive__c = true);
+
+    ApiResult res = new GdVoucherServiceImpl().getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001' });
+
+    System.assertEquals(false, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_orderTypeInclude_mismatchExcludesCoupon() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    insert new VoucherLimit__c(VoucherDefinitionId__c = vdId, Type__c = 'OrderTypeIncludeList', Value__c = '01', IsActive__c = true);
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'Type' => '02' });
+
+    System.assertEquals(false, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_productCategoryInclude_matchesCategory() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    String categoryCode = createCategorizedProduct('CAT-PROD-001');
+    insert new VoucherLimit__c(VoucherDefinitionId__c = vdId, Type__c = 'ProductCategoryIncludeList', Value__c = categoryCode, IsActive__c = true);
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .getAvailableCouponList(
+        new Map<String, Object>{
+          'MemberNo__c' => 'MEM001',
+          'OrderItem' => new List<Object>{ new Map<String, Object>{ 'ProductCode' => 'CAT-PROD-001', 'Quantity' => 1 } }
+        }
+      );
+
+    System.assertEquals(true, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_productCategoryInclude_mismatchExcludesCoupon() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    createCategorizedProduct('CAT-PROD-002');
+    insert new VoucherLimit__c(VoucherDefinitionId__c = vdId, Type__c = 'ProductCategoryIncludeList', Value__c = '9-90', IsActive__c = true);
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .getAvailableCouponList(
+        new Map<String, Object>{
+          'MemberNo__c' => 'MEM001',
+          'OrderItem' => new List<Object>{ new Map<String, Object>{ 'ProductCode' => 'CAT-PROD-002', 'Quantity' => 1 } }
+        }
+      );
+
+    System.assertEquals(false, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_productCategoryInclude_missingProductExcludesCoupon() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    insert new VoucherLimit__c(VoucherDefinitionId__c = vdId, Type__c = 'ProductCategoryIncludeList', Value__c = '1-10', IsActive__c = true);
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .getAvailableCouponList(
+        new Map<String, Object>{
+          'MemberNo__c' => 'MEM001',
+          'OrderItem' => new List<Object>{ new Map<String, Object>{ 'ProductCode' => 'CAT-PROD-NONE', 'Quantity' => 1 } }
+        }
+      );
+
+    System.assertEquals(false, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_salesAmountLte_mismatchExcludesCoupon() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    insert new VoucherLimit__c(
+      VoucherDefinitionId__c = vdId,
+      Type__c = 'SalesAmount',
+      Value__c = '10000',
+      ComparisonOperator__c = lteOperator(),
+      IsActive__c = true
+    );
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'ActualPaymentAmount__c' => 15000 });
+
+    System.assertEquals(false, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_salesAmountDefaultOperator_excludesCoupon() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    insert new VoucherLimit__c(
+      VoucherDefinitionId__c = vdId,
+      Type__c = 'SalesAmount',
+      Value__c = '10000',
+      IsActive__c = true
+    );
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'ActualPaymentAmount__c' => 1 });
+
+    System.assertEquals(false, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_discountRateMissing_excludesCoupon() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    insert new VoucherLimit__c(
+      VoucherDefinitionId__c = vdId,
+      Type__c = 'DiscountRate',
+      Value__c = '5',
+      ComparisonOperator__c = lteOperator(),
+      IsActive__c = true
+    );
+
+    ApiResult res = new GdVoucherServiceImpl().getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001' });
+
+    System.assertEquals(false, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_promotionFixedOnly_includesFixedCoupon() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    Promotion p = createPromotionRecord('FIXED-ONLY');
+    p.IsCouponAllowed__c = false;
+    p.IsRateCouponAllowed__c = false;
+    p.IsFixedAmountCouponAllowed__c = true;
+    update p;
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'PromotionNo__c' => p.PromotionNo__c });
+
+    System.assertEquals(true, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_getAvailableCouponList_promotionRateOnly_excludesFixedCoupon() {
+    ensureSetupData();
+    Id vdId = [SELECT VoucherDefinitionId FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1].VoucherDefinitionId;
+    delete [SELECT Id FROM VoucherLimit__c WHERE VoucherDefinitionId__c = :vdId];
+
+    Promotion p = createPromotionRecord('RATE-ONLY');
+    p.IsCouponAllowed__c = false;
+    p.IsRateCouponAllowed__c = true;
+    p.IsFixedAmountCouponAllowed__c = false;
+    update p;
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .getAvailableCouponList(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'PromotionNo__c' => p.PromotionNo__c });
+
+    System.assertEquals(false, JSON.serialize(res.data.get('voucherList')).contains('VCH001'));
+  }
+
+  @IsTest
+  static void test_updateCoupon_combinedCouponCode_updatesVoucher() {
+    ensureSetupData();
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .updateCoupon(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'VoucherCode' => 'CPN001;-;VCH001', 'Reason' => 'COMBINED' });
+
+    System.assertEquals(true, res.success);
+    Voucher updatedVoucher = [SELECT Reason FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1];
+    System.assertEquals('COMBINED', updatedVoucher.Reason);
+  }
+
+  @IsTest
+  static void test_deleteCoupon_combinedCouponCode_cancelsVoucher() {
+    ensureSetupData();
+
+    ApiResult res = new GdVoucherServiceImpl()
+      .deleteCoupon(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'VoucherCode' => 'CPN001;-;VCH001', 'Reason' => 'COMBINED DELETE' });
+
+    System.assertEquals(true, res.success);
+    Voucher deletedVoucher = [SELECT Status, Reason FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1];
+    System.assertEquals('Cancelled', deletedVoucher.Status);
+    System.assertEquals('COMBINED DELETE', deletedVoucher.Reason);
+  }
+
+  @IsTest
+  static void test_redeemVoucher_combinedCouponCode_redeemsVoucher() {
+    ensureSetupData();
+
+    ApiResult res = new GdVoucherServiceImpl().redeemVoucher(new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'CouponNo' => 'CPN001;-;VCH001' });
+
+    System.assertEquals(true, res.success);
+    Voucher redeemedVoucher = [SELECT Status, UsedTransactionJournalId__c FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1];
+    System.assertEquals('Redeemed', redeemedVoucher.Status);
+    System.assertNotEquals(null, redeemedVoucher.UsedTransactionJournalId__c);
+  }
+
+  @IsTest
+  static void test_redeemVoucherV2_combinedCouponCode_redeemsVoucher() {
+    ensureSetupData();
+
+    TransactionJournal tj = new TransactionJournal(
+      LoyaltyProgramId = getLoyaltyProgramId(),
+      MemberId = getLoyaltyProgramMemberId(),
+      VoucherCode = 'CPN001;-;VCH001',
+      ActivityDate = Date.today(),
+      JournalDate = Date.today(),
+      Status = 'Processed'
+    );
+
+    ApiResult res = new GdVoucherServiceImpl().redeemVoucherV2(tj);
+
+    System.assertEquals(true, res.success);
+    Voucher redeemedVoucher = [SELECT Status, UsedTransactionJournalId__c FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1];
+    System.assertEquals('Redeemed', redeemedVoucher.Status);
+    System.assertNotEquals(null, redeemedVoucher.UsedTransactionJournalId__c);
+  }
+
   /* =========================================================
    * getAvailableCouponListV2
    * ========================================================= */
@@ -2346,6 +2730,28 @@ public class GdVoucherServiceImplTest {
       System.assert(true);
     }
     Test.stopTest();
+  }
+
+  @IsTest
+  static void test_getAvailableCouponListV2_noIssuedVoucher_throws() {
+    ensureSetupData();
+    Voucher v = [SELECT Id, Status FROM Voucher WHERE VoucherCode = 'VCH001' LIMIT 1];
+    v.Status = 'Expired';
+    update v;
+
+    Test.startTest();
+    Boolean thrown = false;
+    try {
+      VoucherReqDto.AvailableVoucherRequest req = new VoucherReqDto.AvailableVoucherRequest(new Map<String, Object>{ 'MemberNo__c' => 'MEM001' });
+      new GdVoucherServiceImpl().getAvailableCouponListV2(req);
+      System.assert(false, 'should throw when member has no issued voucher');
+    } catch (CustomException ce) {
+      thrown = true;
+      System.assertEquals(400, ce.code);
+    }
+    Test.stopTest();
+
+    System.assertEquals(true, thrown, 'No issued voucher should be rejected in V2.');
   }
 
   /* =========================================================
@@ -2452,7 +2858,12 @@ public class GdVoucherServiceImplTest {
       ResponsiblePerson__c = UserInfo.getUserId(),
       IsActive = false
     );
-    insert vd;
+    try {
+      insert vd;
+    } catch (DmlException e) {
+      System.assert(e.getMessage().contains('활성 여부를 체크해주세요'), 'Expected inactive voucher definition validation.');
+      return;
+    }
 
     Map<String, Object> req = new Map<String, Object>{ 'MemberNo__c' => 'MEM001', 'CouponManNo__c' => 'CPN-INACTIVE' };
     Test.startTest();

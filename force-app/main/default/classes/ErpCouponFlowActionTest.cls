@@ -3,6 +3,16 @@
  */
 @IsTest
 private class ErpCouponFlowActionTest {
+  private class McCalloutMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setHeader('Content-Type', 'application/json');
+      res.setBody('{"result":"ok"}');
+      return res;
+    }
+  }
+
   // =========================
   // Helper: uniq 문자열
   // =========================
@@ -62,23 +72,22 @@ private class ErpCouponFlowActionTest {
   // =========================
   @IsTest
   static void test_enqueueCouponIssue_withVoucherId() {
+    Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
     // Given
     LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram LIMIT 1];
     Account companyAccount = [SELECT Id FROM Account WHERE CompanyCode__c = '1000' LIMIT 1];
 
-    // Product2 생성
-    Product2 prod = new Product2(Name = 'TestProduct_' + uniq(), IsActive = true);
-    insert prod;
-
-    // VoucherDefinition 생성 — Type='ProductOrService'+ExpirationType='FixedDate' → FaceValue 불필요
+    // VoucherDefinition 생성 — Type='FixedValue' (TyoeSetting 검증 회피) + IsActive=true (Active_Default 검증 통과)
     VoucherDefinition vd = new VoucherDefinition(
       Name = 'TestVoucherDef_' + uniq(),
       LoyaltyProgramId = lp.Id,
-      ProductId = prod.Id,
-      Type = 'ProductOrService',
+      IsActive = true,
+      Type = 'FixedValue',
       ExpirationType = 'FixedDate',
       EffectiveDate = Date.today(),
       ExpirationDate = Date.today().addDays(30),
+      FaceValue = 1000,
       AccountId__c = companyAccount.Id,
       CouponTypeCode__c = '01',
       ResponsibleDepartment__c = 'Marketing',

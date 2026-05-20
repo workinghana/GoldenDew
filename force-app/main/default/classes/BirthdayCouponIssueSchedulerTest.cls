@@ -34,21 +34,27 @@ private class BirthdayCouponIssueSchedulerTest {
     return vc;
   }
 
+  private static Account createStoreAccount() {
+    Account acc = new Account(Name = uniqueName('VoucherStore'), CompanyCode__c = '1000');
+    insert acc;
+    return acc;
+  }
+
   private static VoucherDefinition createVoucherDefinition(Id programId, Id categoryId) {
-    Product2 prod = new Product2(Name = uniqueName('VoucherProduct'), IsActive = true);
-    insert prod;
+    Account acc = createStoreAccount();
 
     VoucherDefinition vd = new VoucherDefinition(
       Name = uniqueName('BirthdayVoucher'),
       LoyaltyProgramId = programId,
       IsActive = true,
       Description = 'Scheduler test voucher',
-      ProductId = prod.Id,
-      Type = 'ProductOrService',
+      Type = 'FixedValue',
       ExpirationType = 'FixedDate',
       ExpirationDate = Date.today().addDays(30),
       EffectiveDate = Date.today(),
+      FaceValue = 1000,
       VoucherCategoryId__c = categoryId,
+      AccountId__c = acc.Id,
       CouponManNo__c = uniqueName('CPN'),
       CouponTypeCode__c = '01',
       ResponsibleDepartment__c = 'Marketing',

@@ -25,6 +25,16 @@ public without sharing class OrderTriggerHandler extends TriggerHandler {
       // 3년구매금액 반영 대상(판매 등록/삭제, 반품 등록/삭제만)
       Map<Id, String> spendAffectOrderStatusById = new Map<Id, String>();
 
+      // 🆕 골든듀 모니터링용 - 활동유형별 Contact ID 집합
+      Map<String, Set<Id>> monitoringContactIdsByType = new Map<String, Set<Id>>{
+        'Order' => new Set<Id>(),
+        'Sale' => new Set<Id>(),
+        'Return' => new Set<Id>()
+      };
+
+      // 🆕 모니터링 대상 존재 여부 플래그 (성능: 매번 Map 순회 안 하도록)
+      Boolean hasMonitoringTarget = false;
+
       for (Order newO : newList) {
         Order oldO = oldMap.get(newO.Id);
         if (oldO == null) {
@@ -54,11 +64,32 @@ public without sharing class OrderTriggerHandler extends TriggerHandler {
         } else if (toReturnDeleted) {
           spendAffectOrderStatusById.put(newO.Id, ORDER_STATUS_RETURN_DELETED); // 반품 삭제 +
         }
+
+        // 🆕 골든듀 모니터링 대상 분류 (SOQL 없이 메모리만)
+        if (newO.MemberNo__c != null) {
+          if (toOrderSuccess) {
+            monitoringContactIdsByType.get('Order').add(newO.MemberNo__c);
+            hasMonitoringTarget = true;
+          }
+          if (toSaleSuccess || toSaleDeleted) {
+            monitoringContactIdsByType.get('Sale').add(newO.MemberNo__c);
+            hasMonitoringTarget = true;
+          }
+          if (toReturnSuccess || toReturnDeleted) {
+            monitoringContactIdsByType.get('Return').add(newO.MemberNo__c);
+            hasMonitoringTarget = true;
+          }
+        }
       }
 
       // 3년구매금액 업데이트
       if (!spendAffectOrderStatusById.isEmpty()) {
         updateTierQualifyingSpend3Y(spendAffectOrderStatusById);
+      }
+
+      // 🆕 모니터링 대상이 있을 때만 @future 호출
+      if (hasMonitoringTarget) {
+        enqueueMonitoring(monitoringContactIdsByType);
       }
 
       if (mceTargetOrderIds.isEmpty() && spendAffectOrderStatusById.isEmpty()) {
@@ -76,8 +107,13 @@ public without sharing class OrderTriggerHandler extends TriggerHandler {
       logger.setStatus('SUCCESS');
       logger.setDescription('McePointService enqueued. orderCnt=' + mceTargetOrderIds.size());
     } catch (Exception e) {
-      if (logger != null) { try { logger.createExceptionLog(e); } catch (Exception ignore) {}
-        logger.setStatus('ERROR'); logger.setDescription('Exception in OrderTriggerHandler.afterUpdate');
+      if (logger != null) {
+        try {
+          logger.createExceptionLog(e);
+        } catch (Exception ignore) {
+        }
+        logger.setStatus('ERROR');
+        logger.setDescription('Exception in OrderTriggerHandler.afterUpdate');
       }
       throw e;
     } finally {
@@ -111,10 +147,10 @@ public without sharing class OrderTriggerHandler extends TriggerHandler {
 
     // 신규 로직 - 고재성
     List<OrderItem> oList = [
-      SELECT 
-        OrderId, 
-        Order.MemberNo__c, 
-        NetSalesUnitPrice__c, 
+      SELECT
+        OrderId,
+        Order.MemberNo__c,
+        NetSalesUnitPrice__c,
         OriginalOrderItemId__r.NetSalesUnitPrice__c, // 반품 상태일 때 가져올 원거래의 NetSalesUnitPrice
         Order.EffectiveDate
       FROM OrderItem
@@ -133,7 +169,7 @@ public without sharing class OrderTriggerHandler extends TriggerHandler {
         AND (NOT Product2.Name LIKE '%위약금%')
         AND (NOT Product2.Name LIKE '%재감비%')
         AND (NOT Product2.Name LIKE '%재인쇄비%')
-      ALL ROWS 
+      ALL ROWS
     ];
 
     if (oList.isEmpty()) {
@@ -204,9 +240,10 @@ public without sharing class OrderTriggerHandler extends TriggerHandler {
         amt = (o.NetSalesUnitPrice__c == null) ? 0 : o.NetSalesUnitPrice__c;
       } else if (orderStatus == ORDER_STATUS_RETURN_SUCCESS || orderStatus == ORDER_STATUS_RETURN_DELETED) {
         // 반품의 경우 원거래(OriginalOrderItem)의 금액을 참조
-        amt = (o.OriginalOrderItemId__c != null && o.OriginalOrderItemId__r.NetSalesUnitPrice__c != null) 
-              ? o.OriginalOrderItemId__r.NetSalesUnitPrice__c 
-              : 0;
+        amt = (o.OriginalOrderItemId__c != null &&
+          o.OriginalOrderItemId__r.NetSalesUnitPrice__c != null)
+          ? o.OriginalOrderItemId__r.NetSalesUnitPrice__c
+          : 0;
       }
 
       if (amt == 0) {
@@ -280,5 +317,34 @@ public without sharing class OrderTriggerHandler extends TriggerHandler {
     }
 
     return false;
+  }
+
+  /**
+   * 🆕 골든듀 모니터링 비동기 호출
+   * - 호출 전에 호출자에서 빈 여부 확인 필수
+   * - 빈 Set은 자체적으로도 한 번 더 거름 (이중 안전장치)
+   */
+  private static void enqueueMonitoring(Map<String, Set<Id>> contactIdsByType) {
+    try {
+      // 빈 Set은 제외하고 직렬화 (페이로드 최소화)
+      Map<String, List<Id>> serializable = new Map<String, List<Id>>();
+      for (String type : contactIdsByType.keySet()) {
+        Set<Id> ids = contactIdsByType.get(type);
+        if (ids != null && !ids.isEmpty()) {
+          serializable.put(type, new List<Id>(ids));
+        }
+      }
+
+      // 모든 활동유형이 비었다면 호출 안 함 (이중 안전장치)
+      if (serializable.isEmpty()) {
+        return;
+      }
+
+      String payloadJson = JSON.serialize(serializable);
+      LoyaltyActivityCounter.processMonitoringAsync(payloadJson);
+    } catch (Exception e) {
+      // 모니터링 실패는 절대 throw 하지 않음 (주문 트랜잭션 보호)
+      System.debug(LoggingLevel.ERROR, '[골든듀 모니터링] enqueue 실패: ' + e.getMessage());
+    }
   }
 }

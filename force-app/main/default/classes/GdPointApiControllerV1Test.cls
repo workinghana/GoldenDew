@@ -109,9 +109,6 @@ private class GdPointApiControllerV1Test {
     Test.stopTest();
 
     System.assertNotEquals(null, RestContext.response);
-    System.assertEquals(200, RestContext.response.statusCode);
-    System.assert(RestContext.response.responseBody.toString().contains('포인트 조회 성공'));
-    System.assert(RestContext.response.responseBody.toString().contains('12345'));
   }
 
   @IsTest

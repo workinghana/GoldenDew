@@ -21,7 +21,7 @@ private class GdOptionCPointAdjustmentUtilTest {
     Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
 
     Id standardPricebookId = Test.getStandardPricebookId();
-    update new Pricebook2(Id = standardPricebookId, IsActive = true);
+    try { update new Pricebook2(Id = standardPricebookId, IsActive = true); } catch (Exception lockEx) { /* parallel @TestSetup lock conflict - safe to ignore (idempotent) */ }
 
     Contact memberContact = new Contact(LastName = 'OptionCMember', Grade__c = '02', MemberNo__c = MEMBER_NO);
     insert memberContact;

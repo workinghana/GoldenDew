@@ -3,21 +3,49 @@ private class CouponLimitControllerV1Test {
     /* =====================================================
      * 공통 Test Data
      * ===================================================== */
+    private static String pickNonProductServiceType() {
+        for (Schema.PicklistEntry entry : VoucherDefinition.Type.getDescribe().getPicklistValues()) {
+            if (entry.getValue() == 'FixedValue') {
+                return entry.getValue();
+            }
+        }
+        for (Schema.PicklistEntry entry : VoucherDefinition.Type.getDescribe().getPicklistValues()) {
+            if (entry.getValue() != 'ProductOrService' && entry.getValue() != '제품 또는 서비스') {
+                return entry.getValue();
+            }
+        }
+        return VoucherDefinition.Type.getDescribe().getPicklistValues()[0].getValue();
+    }
+
     private static VoucherDefinition createVoucherDefinition() {
-        // Type, ExpirationType: org 실제 피클리스트 첫 번째 값 동적 조회
-        String typeValue = VoucherDefinition.Type.getDescribe().getPicklistValues()[0].getValue();
+        LoyaltyProgram lp = new LoyaltyProgram(
+            Name = 'Test Voucher Program ' + String.valueOf(Datetime.now().getTime()),
+            IsPrimary = true,
+            Status = 'Active'
+        );
+        insert lp;
+
+        Account acc = new Account(
+            Name = 'Test Voucher Store ' + String.valueOf(Datetime.now().getTime()),
+            CompanyCode__c = '1000'
+        );
+        insert acc;
+
+        String typeValue = pickNonProductServiceType();
         String expirationTypeValue = VoucherDefinition.ExpirationType.getDescribe()
                 .getPicklistValues()[0]
             .getValue();
 
         VoucherDefinition vd = new VoucherDefinition(
             Name = 'Test Voucher Definition',
+            LoyaltyProgramId = lp.Id,
             IsActive = true,
             Type = typeValue,
             ExpirationType = expirationTypeValue,
             EffectiveDate = Date.today(),
             ExpirationDate = Date.today().addDays(365),
             FaceValue = 1000,
+            AccountId__c = acc.Id,
             CouponTypeCode__c = '01',
             ResponsibleDepartment__c = 'TEST-DEPT',
             InsertId__c = 'TEST-INSERT-001',

@@ -32,6 +32,15 @@ private class GdPointHelpApiControllerV1Test {
     public List<PointDebitDTO> debitSpecificPoints(TransactionJournal tj, List<LoyaltyLedger> llList) {
       return null;
     }
+    public List<PointDebitDTO> debitSpecificPointsV2(TransactionJournal tj, List<LoyaltyLedger> llList) {
+      return null;
+    }
+    public List<PointDebitDTO> debitSpecificPointsV3(TransactionJournal tj, Map<Id, Decimal> m) {
+      return null;
+    }
+    public List<GdSaleApiController.PointDebitDTO> debitPointsCustom(TransactionJournal tj) {
+      return null;
+    }
     public List<PointCreditDTO> creditPointsOnPurchaseByGrade(Map<String, Object> reqData) {
       return null;
     }
@@ -101,6 +110,15 @@ private class GdPointHelpApiControllerV1Test {
     public List<PointDebitDTO> debitSpecificPoints(TransactionJournal tj, List<LoyaltyLedger> llList) {
       return null;
     }
+    public List<PointDebitDTO> debitSpecificPointsV2(TransactionJournal tj, List<LoyaltyLedger> llList) {
+      return null;
+    }
+    public List<PointDebitDTO> debitSpecificPointsV3(TransactionJournal tj, Map<Id, Decimal> m) {
+      return null;
+    }
+    public List<GdSaleApiController.PointDebitDTO> debitPointsCustom(TransactionJournal tj) {
+      return null;
+    }
     public List<PointCreditDTO> creditPointsOnPurchaseByGrade(Map<String, Object> reqData) {
       return null;
     }
@@ -168,6 +186,15 @@ private class GdPointHelpApiControllerV1Test {
       return null;
     }
     public List<PointDebitDTO> debitSpecificPoints(TransactionJournal tj, List<LoyaltyLedger> llList) {
+      return null;
+    }
+    public List<PointDebitDTO> debitSpecificPointsV2(TransactionJournal tj, List<LoyaltyLedger> llList) {
+      return null;
+    }
+    public List<PointDebitDTO> debitSpecificPointsV3(TransactionJournal tj, Map<Id, Decimal> m) {
+      return null;
+    }
+    public List<GdSaleApiController.PointDebitDTO> debitPointsCustom(TransactionJournal tj) {
       return null;
     }
     public List<PointCreditDTO> creditPointsOnPurchaseByGrade(Map<String, Object> reqData) {
@@ -292,5 +319,53 @@ private class GdPointHelpApiControllerV1Test {
     Test.stopTest();
 
     System.assertEquals(500, RestContext.response.statusCode);
+  }
+
+  private static void setupRestGet(Map<String, String> params) {
+    RestRequest req = new RestRequest();
+    req.requestURI = '/services/apexrest/gd/v1/point/help';
+    req.httpMethod = 'GET';
+    if (params != null) {
+      for (String key : params.keySet()) {
+        req.params.put(key, params.get(key));
+      }
+    }
+    RestContext.request = req;
+    RestContext.response = new RestResponse();
+  }
+
+  @IsTest
+  static void getTotalMemberPoints_missingMemberNo_returns400() {
+    setupRestGet(new Map<String, String>());
+
+    Test.startTest();
+    GdPointHelpApiControllerV1.getTotalMemberPoints();
+    Test.stopTest();
+
+    System.assertEquals(400, RestContext.response.statusCode);
+    System.assert(RestContext.response.responseBody.toString().contains('MemberNo__c'));
+  }
+
+  @IsTest
+  static void getTotalMemberPoints_blankMemberNo_returns400() {
+    setupRestGet(new Map<String, String>{ 'MemberNo__c' => '' });
+
+    Test.startTest();
+    GdPointHelpApiControllerV1.getTotalMemberPoints();
+    Test.stopTest();
+
+    System.assertEquals(400, RestContext.response.statusCode);
+  }
+
+  @IsTest
+  static void getTotalMemberPoints_unknownMember_returns400() {
+    setupRestGet(new Map<String, String>{ 'MemberNo__c' => 'NO_SUCH_MEMBER_FOR_TEST' });
+
+    Test.startTest();
+    GdPointHelpApiControllerV1.getTotalMemberPoints();
+    Test.stopTest();
+
+    System.assertEquals(400, RestContext.response.statusCode);
+    System.assert(RestContext.response.responseBody.toString().contains('존재하지 않는 회원'));
   }
 }

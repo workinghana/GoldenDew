@@ -8,7 +8,7 @@ private class GdReturnItemServiceImplTest {
   @TestSetup
   static void setup() {
     Id stdPbId = Test.getStandardPricebookId();
-    update new Pricebook2(Id = stdPbId, IsActive = true);
+    try { update new Pricebook2(Id = stdPbId, IsActive = true); } catch (Exception lockEx) { /* parallel @TestSetup lock conflict - safe to ignore (idempotent) */ }
 
     Account acc = new Account(Name = 'ReturnItem Test Account');
     insert acc;

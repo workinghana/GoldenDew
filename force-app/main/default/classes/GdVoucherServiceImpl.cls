@@ -1097,7 +1097,11 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
 
       // 쿠폰 사용 처리 - Voucher update
       vList[0].Status = 'Redeemed';
-      vList[0].UseDate = Date.today();
+      if (tj.JournalDate != null) {
+        vList[0].UseDate = tj.JournalDate.date();
+      } else {
+        vList[0].UseDate = Date.today();
+      }
       vList[0].UsedTransactionJournalId__c = tj.Id; // 사용 이력
 
       Database.SaveResult updateResult = Database.update(vList[0]);
@@ -1777,7 +1781,8 @@ public with sharing class GdVoucherServiceImpl implements GdVoucherService {
           targetPromotion = promotionLookup[0];
         }
       }
-      String promotionLimitValue = String.isBlank(promotionNo) ? null : (targetPromotion != null ? String.valueOf(targetPromotion.Id) : promotionNo);
+      Boolean applySpecificCouponLimit = targetPromotion != null && targetPromotion.IsSpecificCouponAllowed__c == true;
+      String promotionLimitValue = (!String.isBlank(promotionNo) && applySpecificCouponLimit) ? String.valueOf(targetPromotion.Id) : null;
 
       if (orderItem != null) {
         for (Object v : orderItem) {

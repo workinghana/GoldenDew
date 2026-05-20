@@ -23,18 +23,78 @@ global virtual class TriggerHandler {
   }
 
   // =================================================================================================================
+  // Trigger Custom Metadata
+
+  private static Map<String, Apex_Trigger_Setting__mdt> cache;
+
+  @TestVisible
+  private static Map<String, Apex_Trigger_Setting__mdt> mockCache;
+
+  private static Map<String, Apex_Trigger_Setting__mdt> getCache() {
+    if (mockCache != null) {
+      return mockCache;
+    }
+    if (cache == null) {
+      cache = Apex_Trigger_Setting__mdt.getAll().clone();
+    }
+    return cache;
+  }
+
+  public static Boolean isEnabled(String triggerName, System.TriggerOperation op) {
+    try {
+      Apex_Trigger_Setting__mdt s = getCache().get(triggerName);
+      if (s == null) {
+        return true;
+      }
+      if (!s.IsActive__c) {
+        return false;
+      }
+
+      switch on op {
+        when BEFORE_INSERT {
+          return s.Before_Insert__c;
+        }
+        when AFTER_INSERT {
+          return s.After_Insert__c;
+        }
+        when BEFORE_UPDATE {
+          return s.Before_Update__c;
+        }
+        when AFTER_UPDATE {
+          return s.After_Update__c;
+        }
+        when BEFORE_DELETE {
+          return s.Before_Delete__c;
+        }
+        when AFTER_DELETE {
+          return s.After_Delete__c;
+        }
+        when AFTER_UNDELETE {
+          return s.After_Undelete__c;
+        }
+        when else {
+          return true;
+        }
+      }
+    } catch (Exception e) {
+      System.debug(LoggingLevel.ERROR, 'TriggerHandler.isEnabled error for ' + triggerName + ': ' + e.getMessage());
+      return true; // Fail-Safe
+    }
+  }
+
+  // =================================================================================================================
   // Public Instance Methods
 
   // main method that will be called during execution
   global void run() {
-    System.debug('트리거 실행 run !');
+    // System.debug('트리거 실행 run !');
     if (!validateRun()) {
       return;
     }
 
     addToLoopCount();
 
-    System.debug('this.context : ' + this.context);
+    // System.debug('this.context : ' + this.context);
 
     // dispatch to the correct handler method
     switch on this.context {

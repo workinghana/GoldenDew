@@ -1,5 +1,15 @@
 @IsTest
 private class ExpectedGradeCalculationBatchTest {
+    private class McCalloutMock implements HttpCalloutMock {
+        public HttpResponse respond(HttpRequest req) {
+            HttpResponse res = new HttpResponse();
+            res.setStatusCode(200);
+            res.setHeader('Content-Type', 'application/json');
+            res.setBody('{"result":"ok"}');
+            return res;
+        }
+    }
+
     private static String uniq(String prefix) {
         return prefix + '_' + String.valueOf(Datetime.now().getTime());
     }
@@ -36,6 +46,8 @@ private class ExpectedGradeCalculationBatchTest {
 
     @IsTest
     static void test_batch_calculates_expected_grade_success() {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
         LoyaltyProgram lp = createProgram();
         LoyaltyTierGroup ltg = createTierGroup(lp.Id);
 
@@ -73,6 +85,8 @@ private class ExpectedGradeCalculationBatchTest {
 
     @IsTest
     static void test_batch_when_no_loyalty_tier_does_not_update() {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
         Contact c = new Contact(
             LastName = uniq('NoTier'),
             TierQualifyingSpend3Y__c = 9999,
@@ -95,6 +109,8 @@ private class ExpectedGradeCalculationBatchTest {
 
     @IsTest
     static void test_batch_excludes_dropped_member() {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
         LoyaltyProgram lp = createProgram();
         LoyaltyTierGroup ltg = createTierGroup(lp.Id);
         createTier(ltg.Id, 1, 0, '01');

@@ -287,7 +287,7 @@ public with sharing class GdOrderItemServiceImpl implements GdOrderItemService {
         );
 
         productCodeSet.add(productCode);
-        if (String.isNotBlank(orderNo)) {
+        if (orderNo != null) {
           orderNoSet.add(orderNo);
         }
       }
@@ -312,7 +312,7 @@ public with sharing class GdOrderItemServiceImpl implements GdOrderItemService {
 
       Map<String, Order> orderByOrderNo = new Map<String, Order>();
       if (!orderNoSet.isEmpty()) {
-        for (Order orderRow : [SELECT Id, OrderNo__c FROM Order WHERE OrderNo__c IN :orderNoSet]) {
+        for (Order orderRow : [SELECT Id, OrderNo__c, Type FROM Order WHERE OrderNo__c IN :orderNoSet]) {
           orderByOrderNo.put(orderRow.OrderNo__c, orderRow);
         }
       }
@@ -347,11 +347,15 @@ public with sharing class GdOrderItemServiceImpl implements GdOrderItemService {
         oi.NetSalesUnitPrice__c = netSalesUnitPrice;
         oi.DiscountRate__c = discountRate;
 
-        if (String.isNotBlank(orderNo)) {
+        if (orderNo != null) {
           if (!orderByOrderNo.containsKey(orderNo)) {
             throw new CustomException(400, '해당 주문 건이 없습니다. ' + orderNo);
           }
-          oi.OrderId__c = orderByOrderNo.get(orderNo).Id;
+          Order sourceOrder = orderByOrderNo.get(orderNo);
+          oi.OrderId__c = sourceOrder.Id;
+          if (sourceOrder.Type == '03') {
+            oi.IsExclude__c = true;
+          }
         }
 
         oiList.add(oi);

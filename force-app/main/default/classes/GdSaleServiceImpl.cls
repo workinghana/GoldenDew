@@ -69,6 +69,9 @@ public with sharing class GdSaleServiceImpl implements GdSaleService {
 
     Set<Id> activeCreditIds = new Set<Id>(originalLLIds);
     Set<Id> tracedCreditIds = new Set<Id>();
+    // [Orphan 검증 narrow 보강 2026-05-15] 메인 loop 에서 환불 매칭에 사용된 Cancel Credit Id 누적.
+    //   orphan 검증 단계에서 이들 CC 는 이미 처리됨으로 간주하여 over-block 방지 (CAR_515004 결함).
+    Set<Id> matchedByMainLoopCancelCreditIds = new Set<Id>();
 
     for (Integer depth = 0; depth < MAX_REFUND_USAGE_TRACE_DEPTH && !activeCreditIds.isEmpty(); depth++) {
       Set<Id> currentCreditIds = new Set<Id>();
@@ -158,6 +161,8 @@ public with sharing class GdSaleServiceImpl implements GdSaleService {
             (cancelPointByUsageKey.containsKey(usageKey) ? cancelPointByUsageKey.get(usageKey) : 0) + cancelPoints
           );
           nextCreditIds.add(cancelCredit.Id);
+          // [Orphan 검증 narrow 2026-05-15] 메인 loop 가 cancel 매칭으로 처리한 CC → orphan 검증에서 제외
+          matchedByMainLoopCancelCreditIds.add(cancelCredit.Id);
         }
       }
 
@@ -175,6 +180,62 @@ public with sharing class GdSaleServiceImpl implements GdSaleService {
       }
 
       activeCreditIds = nextCreditIds;
+    }
+
+    // [Orphan Cancel Credit 검증 2026-05-15, narrow 보강 2026-05-15-v2]
+    //   배경: 메인 loop 는 직접 사용 LLT (TJ.IsDeleted__c=false) 만 추적함. upstream sale (예: C판매)
+    //         이 삭제되어 사용 TJ 가 IsDel=true 가 되면 메인 loop 가 빈 결과로 조기 종료 → orphan
+    //         Cancel Credit (ORIGIN=B의 적립) 의 존재를 인식 못함 → B 삭제 잘못 허용 (CAR_269254 결함).
+    //   해결: originalLLIds 를 ORIGIN_CREDIT_LL 로 가리키는 활성 Point Redeem Cancel Credit 을
+    //         직접 조회. RESTORE_NOTE Debit 으로 재소비된 것은 정상 복원이므로 제외.
+    //         남는 outstanding Cancel Credit 은 B의 적립 가치가 회원 잔액에 변형되어 살아있는
+    //         증거 → 삭제 차단.
+    //   범위: ORIGIN 은 항상 ultimate (buildRestoreCreditAdditionalNotes chain follow 결과) 이므로
+    //         multi-level chain 도 1회 query 로 충분.
+    //   [narrow 보강] 메인 loop 가 환불 매칭으로 정상 처리한 CC 는 제외 (CAR_515004 over-block 결함 회피).
+    //         일반 흐름 (사용→cancel→삭제 시도) 에서 use TJ.IsDel=false 인 경우 메인 loop 가 net 매칭
+    //         으로 차단 사유를 정확히 산출함. 이 때 orphan 검증이 동일 CC 를 또 차단하면 over-block.
+    //         메인 loop 매칭된 CC 누적 (matchedByMainLoopCancelCreditIds) → orphan 검증에서 skip.
+    Set<Id> restoreConsumedCancelCreditIds = new Set<Id>();
+    for (LoyaltyLedgerTraceability r : [
+      SELECT CreditLoyaltyLedgerId
+      FROM LoyaltyLedgerTraceability
+      WHERE LoyaltyProgramMemberId = :memberId
+        AND ActionType = 'Debit'
+        AND IsDeleted = FALSE
+        AND DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE
+        AND CreditLoyaltyLedgerId != NULL
+      LIMIT 50000
+    ]) {
+      restoreConsumedCancelCreditIds.add(r.CreditLoyaltyLedgerId);
+    }
+
+    for (LoyaltyLedger cc : [
+      SELECT Id, Points, AdditionalNotes,
+             TransactionJournal.OrderId, TransactionJournal.DepositNo__c,
+             TransactionJournal.Order.SaleNo__c, TransactionJournal.Order.OrderNo__c
+      FROM LoyaltyLedger
+      WHERE LoyaltyProgramMemberId = :memberId
+        AND TransactionJournal.JournalSubType.Name = :SUBTYPE_NAME_POINT_REDEEM_CANCEL
+        AND EventType = 'Credit'
+        AND Points > 0
+        AND IsDeleted = FALSE
+        AND TransactionJournal.IsDeleted__c = FALSE
+        AND AdditionalNotes LIKE '%ORIGIN_CREDIT_LL=%'
+      LIMIT 50000
+    ]) {
+      // [narrow 보강] 메인 loop 가 cancel 매칭으로 처리한 CC 는 over-block 방지를 위해 제외
+      if (matchedByMainLoopCancelCreditIds.contains(cc.Id)) continue;
+      if (restoreConsumedCancelCreditIds.contains(cc.Id)) continue;
+      Id originId = extractOriginCreditLedgerId(cc.AdditionalNotes);
+      if (originId == null || !originalLLIds.contains(originId)) continue;
+
+      TransactionJournal ccTj = cc.TransactionJournal;
+      UsageTracePortion blockingPortion = new UsageTracePortion();
+      blockingPortion.saleNo = (ccTj != null && ccTj.Order != null) ? ccTj.Order.SaleNo__c : null;
+      blockingPortion.orderNo = (ccTj != null && ccTj.Order != null) ? ccTj.Order.OrderNo__c : null;
+      blockingPortion.depositNo = ccTj == null ? null : ccTj.DepositNo__c;
+      addBlockingUsage(result, blockingPortion);
     }
 
     return result;

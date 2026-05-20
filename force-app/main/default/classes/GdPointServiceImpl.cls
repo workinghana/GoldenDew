@@ -1565,10 +1565,12 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         }
         if (backdatedOriginCreditLedgerId != null) {
           OriginRestoreCreditState backdatedOriginState = backdatedOriginRestoreCreditStateByOriginId.get(backdatedOriginCreditLedgerId);
-          if (backdatedOriginState == null ||
-              backdatedOriginState.isInvalid == true ||
-              backdatedOriginState.remainingCap == null ||
-              backdatedOriginState.remainingCap <= 0) {
+          if (
+            backdatedOriginState == null ||
+            backdatedOriginState.isInvalid == true ||
+            backdatedOriginState.remainingCap == null ||
+            backdatedOriginState.remainingCap <= 0
+          ) {
             continue;
           }
           addPoints = Math.min(addPoints, backdatedOriginState.remainingCap);
@@ -3638,6 +3640,28 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       Map<String, CustomDebitCandidate> candidateBySortKey = new Map<String, CustomDebitCandidate>();
       List<String> candidateSortKeys = new List<String>();
       for (CustomDebitCandidate candidate : candidates) {
+        System.debug('candidate.creditLedgerId : ' + candidate.creditLedgerId);
+        System.debug('candidate.originCreditLedgerId : ' + candidate.originCreditLedgerId);
+        System.debug('candidate.subtypeId : ' + candidate.subtypeId);
+        System.debug('candidate.availablePoints : ' + candidate.availablePoints);
+        System.debug('candidate.expiryDate : ' + candidate.expiryDate);
+        System.debug('candidate.usagePriority : ' + candidate.usagePriority);
+        System.debug('candidate.originActivityDate : ' + candidate.originActivityDate);
+        System.debug('candidate.originCreatedDate : ' + candidate.originCreatedDate);
+        System.debug('candidate.isRestoredCredit : ' + candidate.isRestoredCredit);
+        System.debug('candidate.creditCreatedDate : ' + candidate.creditCreatedDate);
+        /*
+        Id creditLedgerId;
+    Id originCreditLedgerId;
+    Id subtypeId;
+    Decimal availablePoints;
+    Date expiryDate;
+    Integer usagePriority;
+    Datetime originActivityDate;
+    Datetime originCreatedDate;
+    Boolean isRestoredCredit;
+    Datetime creditCreatedDate;
+        */
         String baseSortKey = buildCustomDebitCandidateSortKey(candidate);
         String sortKey = baseSortKey;
         Integer duplicateIndex = 0;
@@ -6144,6 +6168,43 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     return String.isBlank(additionalNotes) ? originNote : additionalNotes + ';' + originNote;
   }
 
+  /**
+   * Cancel Credit chain 을 끝까지 따라가 ULTIMATE origin (실제 사용 가능한 root Credit) 을 반환.
+   * - notesByCreditLLId : ORIGIN_CREDIT_LL 태그를 가진 Credit LL 들의 notes 맵 (Cancel Credit 만 포함)
+   * - cache            : 호출 간 캐싱
+   * 종료 조건: (a) 다음 origin 이 notesByCreditLLId 에 없음 (= 비-Cancel Credit, 진짜 ult), (b) origin 추출 실패, (c) cycle, (d) maxDepth.
+   */
+  private static Id resolveUltimateOriginChain(Id startCreditLLId, Map<Id, String> notesByCreditLLId, Map<Id, Id> cache) {
+    if (startCreditLLId == null)
+      return null;
+    if (cache != null && cache.containsKey(startCreditLLId))
+      return cache.get(startCreditLLId);
+
+    Id current = startCreditLLId;
+    List<Id> path = new List<Id>();
+    Set<Id> visited = new Set<Id>();
+    Integer remainingDepth = 50;
+
+    while (current != null && remainingDepth > 0) {
+      if (visited.contains(current))
+        break;
+      visited.add(current);
+      path.add(current);
+      String notes = (notesByCreditLLId != null && notesByCreditLLId.containsKey(current)) ? notesByCreditLLId.get(current) : null;
+      Id origin = extractOriginCreditLedgerId(notes);
+      if (origin == null)
+        break;
+      current = origin;
+      remainingDepth--;
+    }
+
+    if (cache != null) {
+      for (Id p : path)
+        cache.put(p, current);
+    }
+    return current;
+  }
+
   private static Id extractOriginCreditLedgerId(String additionalNotes) {
     if (String.isBlank(additionalNotes)) {
       return null;
@@ -6203,20 +6264,17 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     }
 
     for (LoyaltyLedger originLedger : [
-      SELECT
-        Id,
-        Points,
-        TransactionJournal.IsDeleted__c,
-        TransactionJournal.Order.IsDeleted__c,
-        TransactionJournal.SaleId__r.IsDeleted__c
+      SELECT Id, Points, TransactionJournal.IsDeleted__c, TransactionJournal.Order.IsDeleted__c, TransactionJournal.SaleId__r.IsDeleted__c
       FROM LoyaltyLedger
       WHERE Id IN :originCreditLedgerIds
     ]) {
       Boolean isInvalid =
         originLedger.TransactionJournal == null ||
         originLedger.TransactionJournal.IsDeleted__c == true ||
-        (originLedger.TransactionJournal.Order != null && originLedger.TransactionJournal.Order.IsDeleted__c == true) ||
-        (originLedger.TransactionJournal.SaleId__r != null && originLedger.TransactionJournal.SaleId__r.IsDeleted__c == true);
+        (originLedger.TransactionJournal.Order != null &&
+        originLedger.TransactionJournal.Order.IsDeleted__c == true) ||
+        (originLedger.TransactionJournal.SaleId__r != null &&
+        originLedger.TransactionJournal.SaleId__r.IsDeleted__c == true);
       Integer originPoints = originLedger.Points == null ? 0 : originLedger.Points.abs().intValue();
       stateByOriginCreditLedgerId.put(originLedger.Id, new OriginRestoreCreditState(originPoints, isInvalid));
     }
@@ -6224,8 +6282,12 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     for (AggregateResult ar : [
       SELECT CreditLoyaltyLedgerId creditLedgerId, SUM(Points) totalPoints
       FROM LoyaltyLedgerTraceability
-      WHERE CreditLoyaltyLedgerId IN :originCreditLedgerIds
+      WHERE
+        CreditLoyaltyLedgerId IN :originCreditLedgerIds
         AND ActionType = :LOYALTY_LEDGER_TRACEABILITY_ACTION_TYPE_CREDIT_CANCELLATION
+        AND IsDeleted = FALSE
+        AND (DebitLoyaltyLedgerId = NULL
+        OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
       GROUP BY CreditLoyaltyLedgerId
     ]) {
       Id originCreditLedgerId = (Id) ar.get('creditLedgerId');
@@ -6272,10 +6334,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     List<LoyaltyLedger> restoreCreditLedgers = [
       SELECT Id, AdditionalNotes
       FROM LoyaltyLedger
-      WHERE LoyaltyProgramMemberId = :sourceTj.MemberId
-        AND EventType = 'Credit'
-        AND Points > 0
-        AND AdditionalNotes LIKE '%ORIGIN_CREDIT_LL=%'
+      WHERE LoyaltyProgramMemberId = :sourceTj.MemberId AND EventType = 'Credit' AND Points > 0 AND AdditionalNotes LIKE '%ORIGIN_CREDIT_LL=%'
       LIMIT 50000
     ];
 
@@ -6301,17 +6360,18 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
         DebitLoyaltyLedger.TransactionJournal.SaleId__r.SaleNo__c
       FROM LoyaltyLedgerTraceability
-      WHERE LoyaltyProgramMemberId = :sourceTj.MemberId
+      WHERE
+        LoyaltyProgramMemberId = :sourceTj.MemberId
         AND CreditLoyaltyLedgerId IN :originCreditLedgerIdByRestoreCreditLedgerId.keySet()
         AND ActionType = 'Debit'
         AND Points > 0
         AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
         AND (DebitLoyaltyLedger.TransactionJournal.OrderId = NULL
-          OR DebitLoyaltyLedger.TransactionJournal.Order.IsDeleted__c = FALSE
-          OR DebitLoyaltyLedger.TransactionJournal.Order.IsDeleted__c = NULL)
+        OR DebitLoyaltyLedger.TransactionJournal.Order.IsDeleted__c = FALSE
+        OR DebitLoyaltyLedger.TransactionJournal.Order.IsDeleted__c = NULL)
         AND (DebitLoyaltyLedger.TransactionJournal.SaleId__c = NULL
-          OR DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsDeleted__c = FALSE
-          OR DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsDeleted__c = NULL)
+        OR DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsDeleted__c = FALSE
+        OR DebitLoyaltyLedger.TransactionJournal.SaleId__r.IsDeleted__c = NULL)
       LIMIT 1000
     ]) {
       TransactionJournal debitTj = activeUse.DebitLoyaltyLedger == null ? null : activeUse.DebitLoyaltyLedger.TransactionJournal;
@@ -6324,9 +6384,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       if (sourceTj.SaleId__c != null && debitTj.SaleId__c == sourceTj.SaleId__c) {
         continue;
       }
-      String saleNo = debitTj.Order != null && String.isNotBlank(debitTj.Order.SaleNo__c)
-        ? debitTj.Order.SaleNo__c
-        : null;
+      String saleNo = debitTj.Order != null && String.isNotBlank(debitTj.Order.SaleNo__c) ? debitTj.Order.SaleNo__c : null;
       if (String.isBlank(saleNo) && debitTj.Order != null && String.isNotBlank(debitTj.Order.OrderNo__c)) {
         saleNo = debitTj.Order.OrderNo__c;
       }
@@ -7289,6 +7347,106 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         throw new CustomException(400, '포인트 사용 내역이 존재하지 않습니다. ' + tj.OrderId);
       }
 
+      // [Cancel Credit 보정 v2 — Ultimate origin chain resolve 2026-05-15]
+      //   문제 1 (v1 fix 의도): v3 paradigm 이 원본 Debit trace 를 보존 → 이전 cancel 로 이미 환불받은 LLT 도 후속 cancel 후보에 포함됨.
+      //   문제 2 (v1 fix 미해결): 1-level origin 매칭은 Cancel Credit 으로 재사용 → 재취소 의 다단계 시나리오를 인식 못함.
+      //         예 (CAR20260514016): TJ#5 cancel 이 C2(origin=zzO,사은 3000) 발행 → TJ#6 가 C2 재사용 → LLT_C2(cid=C2) 생성 → TJ#7 cancel
+      //              발행 C4(origin=zzO via chain, NOT C2).
+      //              1-level: candidateCreditLLIds={zzN,zzO,C1,C2,C4}, but C3/C4.origin=zzN/zzO ∈ set →
+      //              zzN, zzO LLT 만 effective=0, C1/C2/C4 LLT 는 그대로 → 다음 cancel 시 spurious 구매 leak 발생.
+      //   해결: chain 끝까지 추적해 ULTIMATE origin 단위 coverage 산출 (chain depth 가 보통 1 이지만 safety 차원 확장).
+      //         동일 OrderId 의 Cancel Credit 만 후보로 사용 → cross-order 오염 방지.
+      //         coverageRatio = sum(Cancel Credit Points where ult(origin)=u) / sum(LLT.Points where ult(cid)=u)
+      //         effectivePoints = LLT.Points × (1 - min(1, coverageRatio))
+      List<LoyaltyLedger> allOriginCredits = [
+        SELECT Id, Points, AdditionalNotes, TransactionJournal.OrderId
+        FROM LoyaltyLedger
+        WHERE LoyaltyProgramMemberId = :tj.MemberId AND EventType = 'Credit' AND Points > 0 AND AdditionalNotes LIKE '%ORIGIN_CREDIT_LL=%'
+      ];
+      Map<Id, String> notesByCreditLLId = new Map<Id, String>();
+      for (LoyaltyLedger l : allOriginCredits) {
+        notesByCreditLLId.put(l.Id, l.AdditionalNotes);
+      }
+      Map<Id, Id> ultimateOriginCache = new Map<Id, Id>();
+
+      // [추가 2026-05-15] return-deposit-delete 흐름으로 재소비된 Cancel Credit 추적
+      //   배경: TJ_cancel 이 발행한 Cancel Credit 이 후속 RESTORE Debit 로 이미 "재소비" 되면
+      //         (TJ_cancel.IsDel=true 마킹, RESTORE Debit 가 같은 Cancel Credit 을 cid 로 가짐),
+      //         Cancel Credit LL 자체는 활성 상태로 남아 outstanding refund 로 잘못 카운트됨 → coverage 1.0 → 정상 cancel 차단.
+      //   해결: RESTORE_NOTE Debit 의 cid 가 가리키는 Cancel Credit 별 소비량(Points) 합계를 산출,
+      //         Cancel Credit 의 outstanding = (cc.Points - consumed) 만 비례 차감에 반영.
+      //   Set 이 아닌 Map 사용 이유: 부분 소비 시나리오 (이론적이지만 validation 우회/동시성 발생 가능) 에 대한 방어.
+      Map<Id, Decimal> restoreConsumedAmtByCancelCreditId = new Map<Id, Decimal>();
+      for (LoyaltyLedgerTraceability rLlt : [
+        SELECT CreditLoyaltyLedgerId, Points
+        FROM LoyaltyLedgerTraceability
+        WHERE
+          LoyaltyProgramMemberId = :tj.MemberId
+          AND ActionType = 'Debit'
+          AND DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE
+          AND CreditLoyaltyLedgerId != NULL
+      ]) {
+        Decimal pts = rLlt.Points == null ? 0 : rLlt.Points;
+        Decimal prev = restoreConsumedAmtByCancelCreditId.containsKey(rLlt.CreditLoyaltyLedgerId)
+          ? restoreConsumedAmtByCancelCreditId.get(rLlt.CreditLoyaltyLedgerId)
+          : 0;
+        restoreConsumedAmtByCancelCreditId.put(rLlt.CreditLoyaltyLedgerId, prev + pts);
+      }
+
+      Map<Id, Id> lltCidToUltimate = new Map<Id, Id>();
+      Map<Id, Decimal> lltPointsSumByUltimate = new Map<Id, Decimal>();
+      for (LoyaltyLedgerTraceability llt : lltList) {
+        Id cid = llt.CreditLoyaltyLedgerId;
+        if (cid == null || llt.Points == null)
+          continue;
+        Id ult = resolveUltimateOriginChain(cid, notesByCreditLLId, ultimateOriginCache);
+        if (ult == null)
+          ult = cid;
+        lltCidToUltimate.put(cid, ult);
+        Decimal prev = lltPointsSumByUltimate.containsKey(ult) ? lltPointsSumByUltimate.get(ult) : 0;
+        lltPointsSumByUltimate.put(ult, prev + llt.Points);
+      }
+
+      Map<Id, Integer> cancelCreditPtsByUltimate = new Map<Id, Integer>();
+      for (LoyaltyLedger cc : allOriginCredits) {
+        Id ccOrderId = (cc.TransactionJournal == null) ? null : cc.TransactionJournal.OrderId;
+        if (ccOrderId != tj.OrderId)
+          continue;
+        Id directOrigin = extractOriginCreditLedgerId(cc.AdditionalNotes);
+        if (directOrigin == null)
+          continue;
+        Id ult = resolveUltimateOriginChain(directOrigin, notesByCreditLLId, ultimateOriginCache);
+        if (ult == null)
+          ult = directOrigin;
+        if (!lltPointsSumByUltimate.containsKey(ult))
+          continue;
+        // [추가 2026-05-15] RESTORE Debit 로 재소비된 Cancel Credit 의 소비량 만큼 차감
+        Decimal ccPts = cc.Points == null ? 0 : cc.Points;
+        Decimal consumed = restoreConsumedAmtByCancelCreditId.containsKey(cc.Id) ? restoreConsumedAmtByCancelCreditId.get(cc.Id) : 0;
+        Decimal effectiveCcPts = ccPts - consumed;
+        if (effectiveCcPts <= 0)
+          continue; // 전액 RESTORE 로 재소비된 Cancel Credit
+        Integer prev = cancelCreditPtsByUltimate.containsKey(ult) ? cancelCreditPtsByUltimate.get(ult) : 0;
+        cancelCreditPtsByUltimate.put(ult, prev + effectiveCcPts.intValue());
+      }
+
+      // [정밀도 보정 2026-05-15] ult 별 잔여 net 사전 계산 (정수 뺄셈 → round-off 0).
+      //   배경: 직전 비례 차감 공식 (points × (1 - cancelTotal/lltTotal)) 은 cancelTotal/lltTotal 이
+      //         무한소수 (예: 60000/90000 = 2/3, 10000/12000 = 5/6) 일 때 Decimal 정밀도 손실 발생.
+      //         손실이 누적되어 bucket 총합이 cancelAmount 보다 0.001P 단위로 적게 산출되면 throw.
+      //   해결: ult 별 net = lltTotal - cancelTotal (정확한 뺄셈) 을 사전 계산해두고,
+      //         LLT 루프에서 FIFO 로 net 을 소진 (CreatedDate ASC 순서). 비례 분배 제거.
+      //         첫 LLT 들이 net 까지 effective 를 받고 나머지는 0 → bucket 합이 정확히 net 합 = 38000 보장.
+      Map<Id, Decimal> remainingNetByUltimate = new Map<Id, Decimal>();
+      for (Id ult : lltPointsSumByUltimate.keySet()) {
+        Decimal lltT = lltPointsSumByUltimate.get(ult);
+        Integer cancT = cancelCreditPtsByUltimate.containsKey(ult) ? cancelCreditPtsByUltimate.get(ult) : 0;
+        Decimal net = lltT - cancT;
+        if (net < 0)
+          net = 0;
+        remainingNetByUltimate.put(ult, net);
+      }
+
       // 그룹화 — UsageBucketV2 (v2 와 동일)
       Map<Id, LoyaltyLedgerTraceability> debitTraceById = new Map<Id, LoyaltyLedgerTraceability>(lltList);
       Map<String, UsageBucketV2> usedPointMap = new Map<String, UsageBucketV2>();
@@ -7310,6 +7468,24 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         Decimal points = ValidationUtil.decimalValidation(llt.Points, 'Points', true);
         String loyaltyPgmCurrencySubtypeId = ValidationUtil.stringValidation(llt.LoyaltyPgmCurrencySubtypeId, 'LoyaltyPgmCurrencySubtypeId', true);
 
+        // [Cancel Credit 보정 v3 — FIFO net 할당 2026-05-15] 정밀도 손실 없는 effectivePoints 산출.
+        //   ult 의 remainingNet 에서 LLT.Points 만큼 (혹은 잔여만큼) 차감.
+        //   - 첫 LLT 들이 net 한도까지 effectivePoints = points 를 받음
+        //   - 잔여 net 이 0 인 LLT 들은 effective=0 → skip (이미 환불받은 분으로 간주)
+        //   - bucket 합 = ult net 의 합 = lltTotal - cancelTotal 정확
+        Decimal effectivePoints = points;
+        Id cid = llt.CreditLoyaltyLedgerId;
+        Id ultOrigin = (cid != null && lltCidToUltimate.containsKey(cid)) ? lltCidToUltimate.get(cid) : cid;
+        if (ultOrigin != null && remainingNetByUltimate.containsKey(ultOrigin)) {
+          Decimal remaining = remainingNetByUltimate.get(ultOrigin);
+          effectivePoints = points <= remaining ? points : remaining;
+          if (effectivePoints < 0)
+            effectivePoints = 0;
+          remainingNetByUltimate.put(ultOrigin, remaining - effectivePoints);
+        }
+        if (effectivePoints <= 0)
+          continue; // 이미 환불받은 LLT 는 cancel 후보에서 제외
+
         String key = String.valueOf(expiryDate) + '|' + loyaltyPgmCurrencySubtypeName + '|' + String.valueOf(usagePriorityNumber);
 
         if (!usedPointMap.containsKey(key)) {
@@ -7325,7 +7501,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
             )
           );
         }
-        usedPointMap.get(key).addEntry(llt.Id, points);
+        usedPointMap.get(key).addEntry(llt.Id, effectivePoints);
       }
 
       // 정렬 (만료일 DESC, 우선순위 DESC, 이름 ASC — v2 와 동일)
@@ -8237,6 +8413,17 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     String accrualSubTypeName,
     String reversalSubTypeName
   ) {
+    Map<Id, Order> saleOrderById = loadSaleOrdersByJournalList(data);
+    Date saleEndDate = null;
+    for (TransactionJournal tj : data) {
+      Id saleId = getSaleId(tj);
+      Order saleOrder = saleId == null ? null : saleOrderById.get(saleId);
+      if (saleEndDate == null && saleOrder != null && saleOrder.EndDate != null) {
+        saleEndDate = saleOrder.EndDate;
+      }
+    }
+    System.debug('Sale EndDate : ' + saleEndDate);
+
     Savepoint sp = Database.setSavepoint();
     try {
       Id accrualJtId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_ACCRUAL, true);
@@ -8334,7 +8521,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
       // [Step 4] Reversal TJ 생성 (기존 로직과 동일)
       TransactionJournal tj = new TransactionJournal();
-      tj.JournalDate = Datetime.now();
+      tj.JournalDate = saleEndDate == null ? Datetime.now() : TimeUtil.dateToUtcStartOfDay(saleEndDate);
       tj.ActivityDate = Datetime.now();
       tj.LoyaltyProgramId = data[0].LoyaltyProgramId;
       tj.MemberId = data[0].MemberId;
@@ -9226,6 +9413,37 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       this.loyaltyPgmCurrencySubtypeId = loyaltyPgmCurrencySubtypeId;
       this.remainingPoints = remainingPoints;
     }
+  }
+
+  private static Id getSaleId(TransactionJournal tj) {
+    if (tj == null || tj.SaleId__c == null) {
+      return null;
+    }
+    return (Id) tj.SaleId__c;
+  }
+
+  private static Map<Id, Order> loadSaleOrdersByJournalList(List<TransactionJournal> transactionJournalList) {
+    Set<Id> saleIdSet = new Set<Id>();
+    if (transactionJournalList != null) {
+      for (TransactionJournal tj : transactionJournalList) {
+        Id saleId = getSaleId(tj);
+        if (saleId != null) {
+          saleIdSet.add(saleId);
+        }
+      }
+    }
+
+    if (saleIdSet.isEmpty()) {
+      return new Map<Id, Order>();
+    }
+
+    return new Map<Id, Order>(
+      [
+        SELECT Id, EndDate, EffectiveDate, SaleNo__c, IsDeleted__c
+        FROM Order
+        WHERE Id IN :saleIdSet
+      ]
+    );
   }
 
   public class ManualCreditCancellationSeed {

@@ -1817,19 +1817,54 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       }
 
       if (useDirectOriginRefund) {
-        // origin 별 (사용 합 - 환불 합) clamp 0 직접 가산
+        // origin 별 (사용 합 - 환불 합) clamp 0 계산
         Map<Id, Integer> originUsedForThisOrder = new Map<Id, Integer>();
         for (RawNetUseRow r : orderRows) {
           Integer prev = originUsedForThisOrder.containsKey(r.creditId) ? originUsedForThisOrder.get(r.creditId) : 0;
           originUsedForThisOrder.put(r.creditId, prev + r.points);
         }
+        Map<Id, Integer> originDirectNet = new Map<Id, Integer>();
+        Integer totalDirectNet = 0;
         for (Id originCid : originUsedForThisOrder.keySet()) {
           Integer used = originUsedForThisOrder.get(originCid);
           Integer refund = originRefundForThisOrder.containsKey(originCid) ? originRefundForThisOrder.get(originCid) : 0;
           Integer netUsed = Math.max(0, used - refund);
-          if (netUsed > 0) {
-            Integer prev = result.containsKey(originCid) ? result.get(originCid) : 0;
-            result.put(originCid, prev + netUsed);
+          originDirectNet.put(originCid, netUsed);
+          totalDirectNet += netUsed;
+        }
+        // [Net Fitting Consistency Fix 2026-05-15] UserDestoryHistoryList Net Fitting 과 합 정합 보장.
+        //   환불 초과 origin 이 존재할 때 (refund > used 인 origin 으로 흡수된 잉여 환불),
+        //   origin별 direct net 합이 (orderUsed - effectiveCancel) 보다 클 수 있음.
+        //   이 경우 비례 축소하여 AccrualList PT_USE 합 == UserDestory 사용 합 == LMC 변동 보장.
+        Integer expectedNet = orderUsed - effectiveCancel;
+        if (totalDirectNet > expectedNet && totalDirectNet > 0) {
+          Integer allocated = 0;
+          List<Id> orderedOrigins = new List<Id>(originDirectNet.keySet());
+          Integer lastIdx = orderedOrigins.size() - 1;
+          for (Integer i = 0; i < orderedOrigins.size(); i++) {
+            Id originCid = orderedOrigins[i];
+            Integer origNet = originDirectNet.get(originCid);
+            Integer scaled;
+            if (i == lastIdx) {
+              scaled = expectedNet - allocated;
+              if (scaled < 0) scaled = 0;
+            } else {
+              Long num = (Long) origNet * (Long) expectedNet;
+              scaled = (Integer) (num / (Long) totalDirectNet);
+            }
+            if (scaled > 0) {
+              Integer prev = result.containsKey(originCid) ? result.get(originCid) : 0;
+              result.put(originCid, prev + scaled);
+            }
+            allocated += scaled;
+          }
+        } else {
+          for (Id originCid : originDirectNet.keySet()) {
+            Integer netUsed = originDirectNet.get(originCid);
+            if (netUsed > 0) {
+              Integer prev = result.containsKey(originCid) ? result.get(originCid) : 0;
+              result.put(originCid, prev + netUsed);
+            }
           }
         }
         continue;
@@ -3517,58 +3552,21 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
       ORDER BY CreatedDate DESC
       LIMIT 20000
     ];
-    // [PT_USE Round-off Fix 2026-05-05] Order 단위 사용 LLT 의 통합 비례 감산을 위한 사전 집계.
-    //   기존: LLT 별 개별 비례 감산 (정수 나눗셈) → round-off 누적으로 합계가 정확값 미만.
-    //   수정: 같은 Debit OrderId 의 활성 'Debit' LLT 들의 원본 Points 합계를 미리 집계 →
-    //         루프 내에서 LLT 별 비례 분배 + 마지막 LLT 에 round-off 보정.
-    //   효과: 같은 주문의 사용 행 PT_USE 합계가 (orderUsed - effectiveCancel) 와 정확히 일치.
-    Map<Id, Integer> orderTotalRawDebit = new Map<Id, Integer>();
-    Map<Id, Integer> orderActiveDebitCount = new Map<Id, Integer>();
-    Map<Id, Integer> orderProcessedDebitCount = new Map<Id, Integer>();
-    Map<Id, Integer> orderAllocatedNet = new Map<Id, Integer>();
-    for (LoyaltyLedgerTraceability llt : lltList) {
-      if (llt.ActionType == 'Debit'
-          && llt.DebitLoyaltyLedger != null
-          && llt.DebitLoyaltyLedger.TransactionJournal != null
-          && llt.DebitLoyaltyLedger.TransactionJournal.OrderId != null
-          && llt.Points != null) {
-        Id oid = llt.DebitLoyaltyLedger.TransactionJournal.OrderId;
-        Integer pts = llt.Points.abs().intValue();
-        Integer prev = orderTotalRawDebit.containsKey(oid) ? orderTotalRawDebit.get(oid) : 0;
-        orderTotalRawDebit.put(oid, prev + pts);
-        Integer cnt = orderActiveDebitCount.containsKey(oid) ? orderActiveDebitCount.get(oid) : 0;
-        orderActiveDebitCount.put(oid, cnt + 1);
-      }
-    }
-
-    // [Phase 3.1 2026-05-06] portions 기반 (orderId, originLLId) → 환불액 맵 빌드.
-    //   사용자 정책: 환불(=사용 취소) 은 사용 행에 origin 별로 정확히 차감 → 0행 은 제거.
-    //   기존 비례 감산은 Order 합 정합만 보장하고 origin 별 분포는 비례 분배 (부정확).
-    //   Phase 3.1 은 portions 매핑이 환불 전체를 커버하는 경우 (정합) → origin 직접 차감으로 전환.
-    Map<Id, Map<Id, Integer>> orderToOriginRefundDestory = new Map<Id, Map<Id, Integer>>();
-    // 처리 중 차감되는 잔여 환불액 (LLT 처리 루프 내에서 점차 감소)
-    Map<Id, Map<Id, Integer>> orderOriginRefundRemaining = new Map<Id, Map<Id, Integer>>();
-    if (redeemCancelCreditOriginPortions != null && cancelLLToOrderId != null
-        && !redeemCancelCreditOriginPortions.isEmpty() && !cancelLLToOrderId.isEmpty()) {
-      for (Id cancelLLId : redeemCancelCreditOriginPortions.keySet()) {
-        Id refundOrderId = cancelLLToOrderId.get(cancelLLId);
-        if (refundOrderId == null) continue;
-        List<OriginPortion> portions = redeemCancelCreditOriginPortions.get(cancelLLId);
-        if (portions == null) continue;
-        if (!orderToOriginRefundDestory.containsKey(refundOrderId)) {
-          orderToOriginRefundDestory.put(refundOrderId, new Map<Id, Integer>());
-          orderOriginRefundRemaining.put(refundOrderId, new Map<Id, Integer>());
-        }
-        Map<Id, Integer> originRefund = orderToOriginRefundDestory.get(refundOrderId);
-        Map<Id, Integer> originRemaining = orderOriginRefundRemaining.get(refundOrderId);
-        for (OriginPortion p : portions) {
-          if (p.originCreditLLId == null) continue;
-          Integer prev = originRefund.containsKey(p.originCreditLLId) ? originRefund.get(p.originCreditLLId) : 0;
-          originRefund.put(p.originCreditLLId, prev + (p.points == null ? 0 : p.points));
-          Integer prevR = originRemaining.containsKey(p.originCreditLLId) ? originRemaining.get(p.originCreditLLId) : 0;
-          originRemaining.put(p.originCreditLLId, prevR + (p.points == null ? 0 : p.points));
-        }
-      }
+    // [Net Fitting from Newest 2026-05-15] Order별 net 사용량과 누적 표시량 추적.
+    //   기존 Phase 3.1 portions 직접 차감 + 비례 감산 분기는 다중 환불/재사용 시나리오에서 잘못된 row 잔존.
+    //   변경: netUsed = orderUsed - effectiveCancel.
+    //         lltList 는 이미 CreatedDate DESC 정렬됨 → 최근 LLT 부터 누적 표시.
+    //         누적 표시량이 netUsed 도달할 때까지만 표시, displayPt = min(originalPt, remaining).
+    //   효과: 표시 합이 정확히 netUsed 와 일치. 가장 최근 사용부터 표시 → 사용자 직관 부합.
+    Map<Id, Integer> orderNetUsedMap = new Map<Id, Integer>();
+    Map<Id, Integer> orderAccumulatedDisplay = new Map<Id, Integer>();
+    for (Id oid : orderPointUsedMap.keySet()) {
+      Integer used = orderPointUsedMap.get(oid) == null ? 0 : orderPointUsedMap.get(oid);
+      Integer rawCancel = orderRedeemCancelMap.containsKey(oid) ? orderRedeemCancelMap.get(oid) : 0;
+      Integer deletedDebit = orderDeletedDebitMap.containsKey(oid) ? orderDeletedDebitMap.get(oid) : 0;
+      Integer effectiveCancel = Math.max(0, rawCancel - deletedDebit);
+      orderNetUsedMap.put(oid, Math.max(0, used - effectiveCancel));
+      orderAccumulatedDisplay.put(oid, 0);
     }
 
     // [Sort Fix 2026-04-28] UserDestoryHistoryList 정렬 — response 별 representative LLT 정렬 키 보존용
@@ -3661,65 +3659,32 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
           Integer orderUsed = orderPointUsedMap.containsKey(debitOrderId)
               ? orderPointUsedMap.get(debitOrderId) : 0;
 
-          if (effectiveCancel > 0 && orderUsed > 0 && effectiveCancel >= orderUsed) {
-            skipThisDebitRow = true;
-          }
-
-          // [Phase 3.1 2026-05-06] portions 정합 시 origin 직접 차감 모드 진입 여부.
-          //   조건: 해당 Order 에 portions 매핑 환불 합 == effectiveCancel (정합).
-          //   정합 시 → 비례 감산 / 전액 취소 분기 둘 다 우회 (Phase 3 split 분기에서 origin 별 직접 차감).
-          //   부정합 시 → 기존 비례 감산 / 전액 취소 분기 그대로 (fallback, 회귀 안전).
-          Boolean useDirectOriginRefundDestory = false;
-          if (!skipThisDebitRow) {
-            Map<Id, Integer> originRefundForThisOrder = orderToOriginRefundDestory.get(debitOrderId);
-            if (originRefundForThisOrder != null && !originRefundForThisOrder.isEmpty()
-                && effectiveCancel > 0) {
-              Integer totalOriginRefund = 0;
-              for (Integer v : originRefundForThisOrder.values()) totalOriginRefund += v;
-              if (totalOriginRefund == effectiveCancel) {
-                useDirectOriginRefundDestory = true;
-              }
-            }
-          }
-
-          if (!skipThisDebitRow && effectiveCancel > 0 && orderUsed > 0 && !useDirectOriginRefundDestory) {
+          // [Net Fitting from Newest 2026-05-15] Phase 3.1 portions 직접 차감 결함 해소.
+          //   기존: orderToOriginRefundDestory portions 차감 + 비례 감산 fallback.
+          //         다중 환불/재사용 시나리오에서 가장 오래된 사용이 살아남는 결함 (CAR20260514015).
+          //   변경: netUsed = orderUsed - effectiveCancel.
+          //         CreatedDate DESC 순 (SOQL 정렬 결과) 으로 처리 → 누적 표시량이 netUsed 도달할 때까지만 표시.
+          //         마지막 LLT 는 displayPt = min(originalPt, remaining) 로 잘림 (분수 분할 허용).
+          //   효과: 표시 합 = netUsed (정합). 가장 최근 사용 흔적만 표시 (사용자 직관).
+          if (!skipThisDebitRow && effectiveCancel > 0 && orderUsed > 0) {
             if (effectiveCancel >= orderUsed) {
-              // 전액 취소 → 이 사용 행 스킵 (정책 3)
+              // 전액 취소 → 이 사용 행 스킵
               skipThisDebitRow = true;
             } else {
-              // 부분 취소 → PT_USE Order 단위 통합 비례 분배 (정책 2)
-              //   기존(LLT별 정수 나눗셈) → round-off 누적으로 합계가 (orderUsed-effectiveCancel) 미만 발생.
-              //   변경: 같은 Order 활성 Debit LLT 들에 net 을 비례 분배하고,
-              //         마지막 LLT 에 누적 round-off 보정으로 합계가 정확히 net 과 일치.
-              Integer originalPt = response.PT_USE != null ? response.PT_USE : 0;
-              Integer netUsed = orderUsed - effectiveCancel;
-              Integer rawTotal = orderTotalRawDebit.containsKey(debitOrderId)
-                  ? orderTotalRawDebit.get(debitOrderId) : 0;
-              Integer activeCnt = orderActiveDebitCount.containsKey(debitOrderId)
-                  ? orderActiveDebitCount.get(debitOrderId) : 0;
-              Integer processed = orderProcessedDebitCount.containsKey(debitOrderId)
-                  ? orderProcessedDebitCount.get(debitOrderId) : 0;
-              Integer allocated = orderAllocatedNet.containsKey(debitOrderId)
-                  ? orderAllocatedNet.get(debitOrderId) : 0;
-              Integer adjusted;
-              if (rawTotal > 0 && activeCnt > 0 && processed + 1 == activeCnt) {
-                // 마지막 LLT — round-off 보정: 남은 net 을 모두 할당
-                adjusted = netUsed - allocated;
-                if (adjusted < 0) adjusted = 0;
-              } else if (rawTotal > 0) {
-                // [Phase 3 Fix 2026-05-06] Integer 오버플로 방지 — Long 캐스팅.
-                //   기존: originalPt * netUsed 가 Integer 곱셈으로 처리되어
-                //   60000 * 50000 = 3,000,000,000 > Integer.MAX (2,147,483,647) → 오버플로 음수 발생.
-                //   merge 시 round-off 보정으로 합은 유지되지만 개별 row 분포는 음수/큰값 으로 잘못됨.
-                Long num = (Long) originalPt * (Long) netUsed;
-                adjusted = (Integer) (num / (Long) rawTotal);
+              Integer netUsed = orderNetUsedMap.containsKey(debitOrderId)
+                  ? orderNetUsedMap.get(debitOrderId) : (orderUsed - effectiveCancel);
+              Integer accumulated = orderAccumulatedDisplay.containsKey(debitOrderId)
+                  ? orderAccumulatedDisplay.get(debitOrderId) : 0;
+              Integer remaining = netUsed - accumulated;
+              if (remaining <= 0) {
+                // 이미 netUsed 도달 → 이 LLT 제거
+                skipThisDebitRow = true;
               } else {
-                Long num = (Long) originalPt * (Long) netUsed;
-                adjusted = (Integer) (num / (Long) orderUsed);
+                Integer originalPt = response.PT_USE != null ? response.PT_USE : 0;
+                Integer displayPt = Math.min(originalPt, remaining);
+                response.PT_USE = displayPt;
+                orderAccumulatedDisplay.put(debitOrderId, accumulated + displayPt);
               }
-              response.PT_USE = adjusted;
-              orderProcessedDebitCount.put(debitOrderId, processed + 1);
-              orderAllocatedNet.put(debitOrderId, allocated + adjusted);
             }
           }
 
@@ -3756,122 +3721,11 @@ public with sharing class GdMemberHelpInfoServiceImpl implements GdMemberHelpInf
           continue;
         }
 
-        // [Phase 3 Precise Origin DT_SAVE 분할 2026-05-06] Cancel Credit 의 사용 LLT 가 portions 매핑에 있으면
-        //   portions 비율로 N개 분할 row 생성 (각 row 의 DT_SAVE / NO_SAL_SAVE 가 origin 별 정확).
-        //   Flag OFF (portions=null) 또는 매핑 없음 → 기존 단일 row 그대로.
-        // [Phase 3.1 2026-05-06] Phase 3.1 모드 ON 시 — split 후 각 row 에 origin 잔여 환불 직접 차감 (0 row 제거).
-        //   직접 사용 LLT (적립 LL) 도 자기 origin 잔여 환불 직접 차감.
-        Boolean splitByPortions = false;
-        Id debitOrderForRefund = (llt.ActionType == 'Debit'
-            && llt.DebitLoyaltyLedger != null
-            && llt.DebitLoyaltyLedger.TransactionJournal != null)
-            ? llt.DebitLoyaltyLedger.TransactionJournal.OrderId : null;
-        Boolean phase31Active = (debitOrderForRefund != null
-            && orderOriginRefundRemaining.containsKey(debitOrderForRefund));
-        // 정합 검증 — 해당 Order 의 portions 환불 합 == effectiveCancel
-        if (phase31Active) {
-          Integer totRef = 0;
-          Map<Id, Integer> oref = orderToOriginRefundDestory.get(debitOrderForRefund);
-          if (oref != null) for (Integer v : oref.values()) totRef += v;
-          Integer rawC = orderRedeemCancelMap.containsKey(debitOrderForRefund)
-              ? orderRedeemCancelMap.get(debitOrderForRefund) : 0;
-          Integer delD = orderDeletedDebitMap.containsKey(debitOrderForRefund)
-              ? orderDeletedDebitMap.get(debitOrderForRefund) : 0;
-          Integer effC = Math.max(0, rawC - delD);
-          if (totRef != effC) {
-            phase31Active = false;
-          }
-        }
-
-        if (llt.ActionType == 'Debit'
-            && llt.CreditLoyaltyLedgerId != null
-            && redeemCancelCreditOriginPortions != null
-            && redeemCancelCreditOriginPortions.containsKey(llt.CreditLoyaltyLedgerId)) {
-          List<OriginPortion> portions = redeemCancelCreditOriginPortions.get(llt.CreditLoyaltyLedgerId);
-          if (portions != null && !portions.isEmpty()) {
-            // portions 기반 row 생성 — size==1 도 정확한 origin 사용 위해 처리
-            //   (기존 cancelLLToOriginActivityDate 의 단일 매핑은 다중 origin 케이스에서 잘못된 origin 가리킬 수 있음).
-            Integer baseUse = (response.PT_USE == null ? 0 : response.PT_USE);
-            Integer totalPortionPts = 0;
-            for (OriginPortion p : portions) totalPortionPts += (p.points == null ? 0 : p.points);
-            if (totalPortionPts > 0 && baseUse > 0) {
-              Integer allocated = 0;
-              Integer lastIdx = portions.size() - 1;
-              for (Integer i = 0; i < portions.size(); i++) {
-                OriginPortion p = portions[i];
-                Integer share;
-                if (i == lastIdx) {
-                  share = baseUse - allocated;
-                  if (share < 0) share = 0;
-                } else {
-                  Long num = (Long) baseUse * (Long) (p.points == null ? 0 : p.points);
-                  share = (Integer) (num / (Long) totalPortionPts);
-                }
-                allocated += share;
-                if (share <= 0) {
-                  continue;
-                }
-                // [Phase 3.1] 모드 ON 시 origin 잔여 환불 직접 차감
-                Integer netShare = share;
-                if (phase31Active && p.originCreditLLId != null) {
-                  Map<Id, Integer> remaining = orderOriginRefundRemaining.get(debitOrderForRefund);
-                  if (remaining != null && remaining.containsKey(p.originCreditLLId)) {
-                    Integer rem = remaining.get(p.originCreditLLId);
-                    if (rem > 0) {
-                      Integer take = Math.min(rem, share);
-                      netShare = share - take;
-                      remaining.put(p.originCreditLLId, rem - take);
-                    }
-                  }
-                  if (netShare <= 0) continue; // 0 행 제거
-                }
-                // 새 response 인스턴스 생성 — 같은 LLT 기반, PT_USE / DT_SAVE / NO_SAL_SAVE 만 origin 별로
-                PointResDto.DebitPointResponse splitResp = new PointResDto.DebitPointResponse(llt);
-                splitResp.PT_USE = netShare;
-                // DT_SAVE = origin LL.ActivityDate (있으면)
-                if (originLLToActivityDate != null && p.originCreditLLId != null
-                    && originLLToActivityDate.containsKey(p.originCreditLLId)) {
-                  Datetime od = originLLToActivityDate.get(p.originCreditLLId);
-                  if (od != null) {
-                    splitResp.DT_SAVE = od.format('yyyyMMdd');
-                  }
-                }
-                // NO_SAL_SAVE = origin LL 의 SaleNo. origin 이 saleNoByCreditLLId 에 없으면 (수동 적립 등) 빈 값.
-                String osn = '';
-                if (p.originCreditLLId != null && saleNoByCreditLLId.containsKey(p.originCreditLLId)) {
-                  String s = saleNoByCreditLLId.get(p.originCreditLLId);
-                  osn = String.isNotBlank(s) ? s : '';
-                }
-                splitResp.NO_SAL_SAVE = osn;
-                debitPointResponseList.add(splitResp);
-                debitSortablesAll.add(new DebitSortable(splitResp, llt));
-              }
-              splitByPortions = true;
-            }
-          }
-        }
-
-        if (!splitByPortions) {
-          // [Phase 3.1] 직접 사용 LLT — 자기 origin (LLT.CreditLoyaltyLedgerId) 잔여 환불 직접 차감
-          if (phase31Active
-              && llt.ActionType == 'Debit'
-              && llt.CreditLoyaltyLedgerId != null) {
-            Map<Id, Integer> remaining = orderOriginRefundRemaining.get(debitOrderForRefund);
-            Integer baseUse = (response.PT_USE == null ? 0 : response.PT_USE);
-            if (remaining != null && remaining.containsKey(llt.CreditLoyaltyLedgerId) && baseUse > 0) {
-              Integer rem = remaining.get(llt.CreditLoyaltyLedgerId);
-              if (rem > 0) {
-                Integer take = Math.min(rem, baseUse);
-                Integer netUseAdj = baseUse - take;
-                remaining.put(llt.CreditLoyaltyLedgerId, rem - take);
-                response.PT_USE = netUseAdj;
-                if (netUseAdj <= 0) continue; // 0 행 제거
-              }
-            }
-          }
-          debitPointResponseList.add(response);
-          debitSortablesAll.add(new DebitSortable(response, llt));
-        }
+        // [Net Fitting from Newest 2026-05-15] Phase 3.1 portions split 분기 제거됨.
+        //   PT_USE 는 위 Net Fitting 분기에서 displayPt 로 이미 조정됨.
+        //   DT_SAVE 보정 (preserveOriginActivityDate) 은 위 #3742-3753 에서 처리됨.
+        debitPointResponseList.add(response);
+        debitSortablesAll.add(new DebitSortable(response, llt));
       }
     }
 

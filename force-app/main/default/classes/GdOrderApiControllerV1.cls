@@ -117,6 +117,7 @@ global with sharing class GdOrderApiControllerV1 {
         reqData.put('orderId', orderResult.data.get('orderId'));
         reqData.put('storeTypeFour', orderResult.data.get('storeTypeFour'));
         reqData.put('storeType', orderResult.data.get('storeType'));
+        reqData.put('promotionId', orderResult.data.get('promotionId'));
       }
 
       {

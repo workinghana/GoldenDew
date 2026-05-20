@@ -80,7 +80,7 @@ private class ErpPromotionPointReqDtoTest {
         PromotionPointLimit__c ppl = new PromotionPointLimit__c(
             Name = uniq('PPL'),
             PromotionId__c = promotionId,
-            Type__c = 'none',
+            Type__c = (value == null) ? 'none' : 'rate',
             Value__c = value,
             LoyaltyPgmCurrencySubtypeId__c = subtype.Id
         );
@@ -123,7 +123,7 @@ private class ErpPromotionPointReqDtoTest {
     @IsTest
     static void test_createRequest_fromPpl_withValue() {
         Promotion p = createPromotionRecord();
-        PromotionPointLimit__c inserted = createPointLimit(p.Id, 250);
+        PromotionPointLimit__c inserted = createPointLimit(p.Id, 50);
 
         PromotionPointLimit__c src = [
             SELECT Id, Name, Value__c, PromotionId__r.PromotionNo__c
@@ -137,7 +137,7 @@ private class ErpPromotionPointReqDtoTest {
         System.assertEquals('1000', req.cd_company);
         System.assertEquals(src.PromotionId__r.PromotionNo__c, req.no_prom);
         System.assertEquals(src.Name, req.nm_prom_point);
-        System.assertEquals(250, req.pt_save);
+        System.assertEquals(50, req.pt_save);
         System.assertEquals(UserInfo.getUserName(), req.id_insert);
     }
 
@@ -200,7 +200,7 @@ private class ErpPromotionPointReqDtoTest {
     @IsTest
     static void test_deleteRequest_fromPpl() {
         Promotion p = createPromotionRecord();
-        PromotionPointLimit__c inserted = createPointLimit(p.Id, 123);
+        PromotionPointLimit__c inserted = createPointLimit(p.Id, 30);
 
         PromotionPointLimit__c src = [
             SELECT Id, Name, PromotionId__r.PromotionNo__c

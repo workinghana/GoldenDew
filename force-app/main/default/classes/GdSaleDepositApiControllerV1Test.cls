@@ -25,6 +25,16 @@ private class GdSaleDepositApiControllerV1Test {
             return ApiResult.ok(200, 'ok', new Map<String, Object>{ 'list' => new List<Object>() });
         }
 
+        public ApiResult deleteSaleDepositV2(String depositNo) {
+            return null;
+        }
+        public ApiResult upsertSaleDepositV2(Map<String, Object> req) {
+            return null;
+        }
+        public ApiResult upsertSaleDepositV3(Map<String, Object> req) {
+            return null;
+        }
+
         /* === 삭제 === */
         public ApiResult deleteSaleDeposit(String depositNo) {
             return ApiResult.ok(

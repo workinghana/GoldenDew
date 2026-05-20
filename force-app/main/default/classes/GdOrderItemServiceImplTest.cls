@@ -5,7 +5,7 @@ private class GdOrderItemServiceImplTest {
   // =========================================================
   private static Id ensureStdPricebookActive() {
     Id pbId = Test.getStandardPricebookId();
-    update new Pricebook2(Id = pbId, IsActive = true);
+    try { update new Pricebook2(Id = pbId, IsActive = true); } catch (Exception lockEx) { /* parallel @TestSetup lock conflict - safe to ignore (idempotent) */ }
     return pbId;
   }
 

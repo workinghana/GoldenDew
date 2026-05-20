@@ -1,5 +1,15 @@
 @IsTest
 private class ErpPointAsyncCallbackTest {
+    private class McCalloutMock implements HttpCalloutMock {
+        public HttpResponse respond(HttpRequest req) {
+            HttpResponse res = new HttpResponse();
+            res.setStatusCode(200);
+            res.setHeader('Content-Type', 'application/json');
+            res.setBody('{"result":"ok"}');
+            return res;
+        }
+    }
+
     private static String uniq(String prefix) {
         return prefix + '_' + String.valueOf(Datetime.now().getTime());
     }
@@ -11,6 +21,8 @@ private class ErpPointAsyncCallbackTest {
     }
 
     private static TransactionJournal createJournal(String suffix) {
+        Test.setMock(HttpCalloutMock.class, new McCalloutMock());
+
         LoyaltyProgram lp = [SELECT Id FROM LoyaltyProgram WHERE Name = 'TestLP_ErpPointCallback' LIMIT 1];
 
         Contact c = new Contact(

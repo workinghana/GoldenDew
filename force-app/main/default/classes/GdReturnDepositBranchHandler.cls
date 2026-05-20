@@ -227,6 +227,7 @@ public with sharing class GdReturnDepositBranchHandler {
       restoreTj.OrderId__c = sourceTj.OrderId;
       restoreTj.SaleId__c = sourceTj.SaleId__c;
       restoreTj.ActivityDate = sourceTj.ActivityDate != null ? sourceTj.ActivityDate : Datetime.now();
+      restoreTj.JournalDate = sourceTj.ActivityDate != null ? sourceTj.ActivityDate : Datetime.now();
       restoreTj.TransactionAmount = sourceTj.TransactionAmount;
       restoreTj.PaymentMethod = sourceTj.PaymentMethod;
       restoreTj.DepositType__c = '02';

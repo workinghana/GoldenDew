@@ -36,20 +36,19 @@ private class CouponSequenceServiceTest {
 
   private static VoucherDefinition createInsertableVoucherDefinition(String nameValue) {
     LoyaltyProgram loyaltyProgramRecord = [SELECT Id FROM LoyaltyProgram LIMIT 1];
-    Product2 productRecord = [SELECT Id FROM Product2 LIMIT 1];
     VoucherCategory__c voucherCategoryRecord = [SELECT Id FROM VoucherCategory__c LIMIT 1];
-    Account accountRecord = [SELECT Id FROM Account LIMIT 1];
+    Account accountRecord = [SELECT Id FROM Account WHERE CompanyCode__c = '1000' LIMIT 1];
 
     return new VoucherDefinition(
       Name = nameValue,
       LoyaltyProgramId = loyaltyProgramRecord.Id,
-      ProductId = productRecord.Id,
       VoucherCategoryId__c = voucherCategoryRecord.Id,
       AccountId__c = accountRecord.Id,
-      Type = 'ProductOrService',
+      Type = 'FixedValue',
       ExpirationType = 'FixedDate',
       EffectiveDate = Date.today(),
       ExpirationDate = Date.today().addDays(30),
+      FaceValue = 1000,
       CouponTypeCode__c = '01',
       ResponsibleDepartment__c = 'Marketing',
       InsertId__c = 'TestUser',

@@ -77,6 +77,22 @@ private class PointResDtoTest {
   }
 
   @IsTest
+  static void creditPointResponse_giftPointName_displaysDuePoint() {
+    Contact c = new Contact(LastName = 'PointDtoSubtypeProxy');
+    insert c;
+    Id fakeId = c.Id;
+
+    LoyaltyPgmCurrencySubtype subtype = new LoyaltyPgmCurrencySubtype(Name = '사은포인트');
+    LoyaltyLedger ll = new LoyaltyLedger();
+    ll.LoyaltyPgmCrcySubtypeId = fakeId;
+    ll.LoyaltyPgmCrcySubtype = subtype;
+
+    PointResDto.CreditPointResponse resp = new PointResDto.CreditPointResponse(ll);
+
+    System.assertEquals('듀포인트', resp.NM_TYPE_POINT);
+  }
+
+  @IsTest
   static void creditPointResponse_withEscrowDate_mapsPlanFields() {
     LoyaltyLedger ll = new LoyaltyLedger();
     ll.ActivityDate = Datetime.newInstanceGmt(2025, 1, 10, 0, 0, 0);
@@ -91,7 +107,9 @@ private class PointResDtoTest {
 
   @IsTest
   static void creditPointResponse_knownSubTypeName_mapsToLabel() {
-    Id fakeId = UserInfo.getUserId();
+    Contact c = new Contact(LastName = 'PointDtoProxy');
+    insert c;
+    Id fakeId = c.Id;
 
     JournalSubType jst = new JournalSubType(Name = 'Purchase Accrual');
     TransactionJournal tj = new TransactionJournal();
@@ -108,7 +126,9 @@ private class PointResDtoTest {
 
   @IsTest
   static void creditPointResponse_unknownSubTypeName_returnsOriginal() {
-    Id fakeId = UserInfo.getUserId();
+    Contact c = new Contact(LastName = 'PointDtoProxy2');
+    insert c;
+    Id fakeId = c.Id;
 
     JournalSubType jst = new JournalSubType(Name = 'UnknownType');
     TransactionJournal tj = new TransactionJournal();
@@ -125,7 +145,9 @@ private class PointResDtoTest {
 
   @IsTest
   static void creditPointResponse_withOrderInfo_mapsFields() {
-    Id fakeId = UserInfo.getUserId();
+    Contact c = new Contact(LastName = 'PointDtoProxy3');
+    insert c;
+    Id fakeId = c.Id;
 
     Order fakeOrder = new Order(SaleNo__c = 'SAL-999', ActualPaymentAmount__c = 75000);
     TransactionJournal tj = new TransactionJournal();
@@ -147,7 +169,9 @@ private class PointResDtoTest {
 
   @IsTest
   static void creditPointResponse_withSummaryValues_mapsAdditionalFields() {
-    Id fakeId = UserInfo.getUserId();
+    Contact c = new Contact(LastName = 'PointDtoProxy4');
+    insert c;
+    Id fakeId = c.Id;
 
     Order fakeOrder = new Order(SaleNo__c = 'SAL-100', ActualPaymentAmount__c = 50000);
     TransactionJournal tj = new TransactionJournal();
@@ -184,5 +208,21 @@ private class PointResDtoTest {
     System.assertEquals('', resp.NO_SAL_SAVE);
     System.assertEquals('', resp.NO_SAL_RTN);
     System.assertEquals(0, resp.AM_SAL);
+  }
+
+  @IsTest
+  static void debitPointResponse_giftPointName_displaysDuePoint() {
+    Contact c = new Contact(LastName = 'PointDtoDebitSubtypeProxy');
+    insert c;
+    Id fakeId = c.Id;
+
+    LoyaltyPgmCurrencySubtype subtype = new LoyaltyPgmCurrencySubtype(Name = '사은포인트');
+    LoyaltyLedgerTraceability llt = new LoyaltyLedgerTraceability();
+    llt.LoyaltyPgmCurrencySubtypeId = fakeId;
+    llt.LoyaltyPgmCurrencySubtype = subtype;
+
+    PointResDto.DebitPointResponse resp = new PointResDto.DebitPointResponse(llt);
+
+    System.assertEquals('듀포인트', resp.NM_TYPE_POINT);
   }
 }

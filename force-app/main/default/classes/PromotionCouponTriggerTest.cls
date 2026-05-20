@@ -20,6 +20,12 @@ private class PromotionCouponTriggerTest {
     return lp;
   }
 
+  private static Account createStoreAccount() {
+    Account acc = new Account(Name = uniq('CouponStore'), CompanyCode__c = '1000');
+    insert acc;
+    return acc;
+  }
+
   private static Promotion createPromotion() {
     Promotion p = new Promotion(
       Name = uniq('Promo'),
@@ -41,6 +47,7 @@ private class PromotionCouponTriggerTest {
 
   private static VoucherDefinition createVoucherDefinition() {
     LoyaltyProgram lp = createLoyaltyProgram();
+    Account acc = createStoreAccount();
     String typeValue = VoucherDefinition.Type.getDescribe().getPicklistValues()[0].getValue();
     String expirationTypeValue = VoucherDefinition.ExpirationType.getDescribe().getPicklistValues()[0].getValue();
     VoucherDefinition vd = new VoucherDefinition(
@@ -55,7 +62,8 @@ private class PromotionCouponTriggerTest {
       CouponTypeCode__c = '01',
       ResponsibleDepartment__c = 'TEST-DEPT',
       InsertId__c = 'TEST-INSERT-001',
-      ResponsiblePerson__c = UserInfo.getUserId()
+      ResponsiblePerson__c = UserInfo.getUserId(),
+      AccountId__c = acc.Id
     );
     insert vd;
     return vd;
@@ -114,6 +122,7 @@ private class PromotionCouponTriggerTest {
 
     Promotion p = createPromotion();
     LoyaltyProgram lp = createLoyaltyProgram();
+    Account acc = createStoreAccount();
     VoucherDefinition vd = new VoucherDefinition(
       Name = uniq('VD'),
       LoyaltyProgramId = lp.Id,
@@ -126,7 +135,8 @@ private class PromotionCouponTriggerTest {
       CouponTypeCode__c = '01',
       ResponsibleDepartment__c = 'TEST-DEPT',
       InsertId__c = 'TEST-INSERT-001',
-      ResponsiblePerson__c = UserInfo.getUserId()
+      ResponsiblePerson__c = UserInfo.getUserId(),
+      AccountId__c = acc.Id
     );
     insert vd;
     VoucherLimit__c vl = buildVoucherLimit(vd.Id, p.Id);

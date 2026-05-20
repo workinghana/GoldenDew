@@ -295,7 +295,7 @@ public with sharing class CouponListUploadControllerV1 {
       result.messages.add(buildIssueFailureMessage(memberId, output));
     }
 
-    enqueueErpIssueIfNeeded(issuedVoucherIds, result);
+    // enqueueErpIssueIfNeeded(issuedVoucherIds, result); // 주석 처리 (26.05.18 CS)
 
     if (!result.messages.isEmpty()) {
       result.errorMessage = String.join(result.messages, '\n');
@@ -441,46 +441,46 @@ public with sharing class CouponListUploadControllerV1 {
     return message;
   }
 
-  private static void enqueueErpIssueIfNeeded(Set<Id> issuedVoucherIds, IssueCouponResult result) {
-    if (issuedVoucherIds.isEmpty()) {
-      return;
-    }
+  // private static void enqueueErpIssueIfNeeded(Set<Id> issuedVoucherIds, IssueCouponResult result) {
+  //   if (issuedVoucherIds.isEmpty()) {
+  //     return;
+  //   }
 
-    List<Voucher> issuedVouchers = [
-      SELECT Id, VoucherCode, LoyaltyProgramMember.Contact.MemberNo__c, VoucherDefinition.CouponManNo__c
-      FROM Voucher
-      WHERE Id IN :issuedVoucherIds
-    ];
+  //   List<Voucher> issuedVouchers = [
+  //     SELECT Id, VoucherCode, LoyaltyProgramMember.Contact.MemberNo__c, VoucherDefinition.CouponManNo__c
+  //     FROM Voucher
+  //     WHERE Id IN :issuedVoucherIds
+  //   ];
 
-    ErpCouponReqDto.IssueRequest couponIssueReq = new ErpCouponReqDto.IssueRequest();
-    Set<Id> voucherIdsForCallback = new Set<Id>();
+  //   ErpCouponReqDto.IssueRequest couponIssueReq = new ErpCouponReqDto.IssueRequest();
+  //   Set<Id> voucherIdsForCallback = new Set<Id>();
 
-    for (Voucher voucher : issuedVouchers) {
-      String couponManNo = voucher.VoucherDefinition.CouponManNo__c;
-      String memberNo = voucher.LoyaltyProgramMember.Contact.MemberNo__c;
-      String voucherCode = voucher.VoucherCode;
+  //   for (Voucher voucher : issuedVouchers) {
+  //     String couponManNo = voucher.VoucherDefinition.CouponManNo__c;
+  //     String memberNo = voucher.LoyaltyProgramMember.Contact.MemberNo__c;
+  //     String voucherCode = voucher.VoucherCode;
 
-      if (String.isBlank(couponManNo) || String.isBlank(memberNo)) {
-        result.success = false;
-        result.messages.add('Voucher ' + String.valueOf(voucher.Id) + ': ERP 연동 정보가 부족합니다.');
-        continue;
-      }
+  //     if (String.isBlank(couponManNo) || String.isBlank(memberNo)) {
+  //       result.success = false;
+  //       result.messages.add('Voucher ' + String.valueOf(voucher.Id) + ': ERP 연동 정보가 부족합니다.');
+  //       continue;
+  //     }
 
-      couponIssueReq.couponDetailModels.add(new ErpCouponReqDto.CouponDetailModel(couponManNo, voucherCode, memberNo, UserInfo.getName()));
-      voucherIdsForCallback.add(voucher.Id);
-    }
+  //     couponIssueReq.couponDetailModels.add(new ErpCouponReqDto.CouponDetailModel(couponManNo, voucherCode, memberNo, UserInfo.getName()));
+  //     voucherIdsForCallback.add(voucher.Id);
+  //   }
 
-    if (couponIssueReq.couponDetailModels.isEmpty()) {
-      return;
-    }
+  //   if (couponIssueReq.couponDetailModels.isEmpty()) {
+  //     return;
+  //   }
 
-    try {
-      System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), voucherIdsForCallback));
-    } catch (Exception ex) {
-      result.success = false;
-      result.messages.add('ERP 연동 작업 등록에 실패했습니다. ' + ex.getMessage());
-    }
-  }
+  //   try {
+  //     System.enqueueJob(new ErpCouponJob(ErpCouponJob.Operation.COUPON_ISSUE, couponIssueReq, new ErpCouponAsyncCallback(), voucherIdsForCallback));
+  //   } catch (Exception ex) {
+  //     result.success = false;
+  //     result.messages.add('ERP 연동 작업 등록에 실패했습니다. ' + ex.getMessage());
+  //   }
+  // }
 
   @TestVisible
   private static PolicyUploadPreviewResult buildPolicyPreviewResult(List<PolicyUploadRowDTO> previewRows, List<PolicyUploadErrorDTO> errors) {

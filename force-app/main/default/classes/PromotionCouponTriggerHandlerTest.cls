@@ -73,7 +73,7 @@ private class PromotionCouponTriggerHandlerTest {
     insert promo;
   }
 
-  private static LoyaltyProgram loyaltyProgram() {
+  static LoyaltyProgram loyaltyProgram() {
     return [SELECT Id FROM LoyaltyProgram WHERE Name = 'PCTH-LP' LIMIT 1];
   }
 
@@ -86,6 +86,7 @@ private class PromotionCouponTriggerHandlerTest {
   }
 
   private static VoucherDefinition createVoucherDefinition(Boolean fixedAmount) {
+
     VoucherDefinition vd = new VoucherDefinition(
       Name = uniq('PCTH-VD'),
       LoyaltyProgramId = loyaltyProgram().Id,
