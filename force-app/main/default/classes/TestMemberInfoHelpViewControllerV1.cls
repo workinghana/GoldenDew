@@ -65,6 +65,45 @@ public with sharing class TestMemberInfoHelpViewControllerV1 {
     return (List<Object>) System.JSON.deserializeUntyped(jsonStr);
   }
 
+  public class StoreOption {
+    @AuraEnabled
+    public String label;
+    @AuraEnabled
+    public String value;
+    @AuraEnabled
+    public String storeName;
+    @AuraEnabled
+    public String storeCode;
+
+    public StoreOption(Account store) {
+      storeName = store.Name;
+      storeCode = store.StoreCode__c;
+      label = store.Name;
+      value = store.StoreCode__c;
+    }
+  }
+
+  @AuraEnabled(cacheable=true)
+  public static List<StoreOption> searchStores(String keyword) {
+    String searchKeyword = String.isBlank(keyword) ? '' : keyword.trim();
+    if (String.isBlank(searchKeyword)) {
+      return new List<StoreOption>();
+    }
+
+    String likeKeyword = '%' + String.escapeSingleQuotes(searchKeyword) + '%';
+    List<StoreOption> options = new List<StoreOption>();
+    for (Account store : [
+      SELECT Id, Name, StoreCode__c
+      FROM Account
+      WHERE StoreCode__c != NULL AND Name LIKE :likeKeyword
+      ORDER BY Name ASC
+      LIMIT 20
+    ]) {
+      options.add(new StoreOption(store));
+    }
+    return options;
+  }
+
   // 포인트 도움창 응답
   public class PointHelpView {
     @AuraEnabled

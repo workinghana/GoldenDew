@@ -4,6 +4,7 @@ import getMemberHelpView from "@salesforce/apex/TestMemberInfoHelpViewController
 import getPointHelp from "@salesforce/apex/TestMemberInfoHelpViewControllerV1.getPointHelp";
 import creditPoints from "@salesforce/apex/TestMemberInfoHelpViewControllerV1.creditPoints";
 import getAvailableCoupons from "@salesforce/apex/TestMemberInfoHelpViewControllerV1.getAvailableCoupons";
+import searchStores from "@salesforce/apex/TestMemberInfoHelpViewControllerV1.searchStores";
 
 const POINT_TYPE_LABELS = {
   "01": "구매포인트",
@@ -13,15 +14,6 @@ const POINT_TYPE_LABELS = {
   "05": "에코포인트",
   "06": "사은포인트"
 };
-
-// 매장 코드 선택 목록 (label = 매장 Name / value = StoreCode__c)
-const STORE_CODE_OPTIONS = [
-  { label: "예술의전당점", value: "20001" },
-  { label: "밀버스_매장_테스트_백화점", value: "99998" },
-  { label: "밀버스_매장_테스트_백화점2", value: "99995" },
-  { label: "밀버스_매장_테스트_면세점", value: "99996" },
-  { label: "밀버스_매장_테스트_아울렛", value: "99997" }
-];
 
 // 주문 구분 코드 선택 목록 (Order.Type)
 const ORDER_TYPE_OPTIONS = [
@@ -82,6 +74,9 @@ export default class Memberinfohelpview extends LightningElement {
     OrderDate: "",
     SaleNo__c: ""
   };
+  @track pointStoreKeyword = "";
+  @track pointStoreOptions = [];
+  @track pointStoreDropdownOpen = false;
   @track searchedMemberNo = "";
   @track totalPointsLabel = "";
   @track payablePointsLabel = "";
@@ -111,6 +106,9 @@ export default class Memberinfohelpview extends LightningElement {
     Type: "",
     PromotionNo__c: ""
   };
+  @track voucherStoreKeyword = "";
+  @track voucherStoreOptions = [];
+  @track voucherStoreDropdownOpen = false;
   @track voucherHelpItem = {
     ProductCode: "",
     Quantity: 1,
@@ -124,6 +122,7 @@ export default class Memberinfohelpview extends LightningElement {
   @track voucherHelpMessage = "";
   @track showVoucherHelpJsonPanel = false;
   voucherHelpJsonInput = "";
+  storeSearchTimers = {};
 
   handleInputChange(event) {
     this.memberNoInput = event.target.value;
@@ -284,6 +283,102 @@ export default class Memberinfohelpview extends LightningElement {
     return `${head}${code}${msg}`;
   }
 
+  get hasPointStoreOptions() {
+    return this.pointStoreDropdownOpen && this.pointStoreOptions.length > 0;
+  }
+
+  get hasVoucherStoreOptions() {
+    return this.voucherStoreDropdownOpen && this.voucherStoreOptions.length > 0;
+  }
+
+  getStoreState(context) {
+    return context === "voucher"
+      ? {
+          keywordField: "voucherStoreKeyword",
+          optionsField: "voucherStoreOptions",
+          openField: "voucherStoreDropdownOpen",
+          formField: "voucherHelpForm"
+        }
+      : {
+          keywordField: "pointStoreKeyword",
+          optionsField: "pointStoreOptions",
+          openField: "pointStoreDropdownOpen",
+          formField: "pointHelpForm"
+        };
+  }
+
+  updateStoreState(context, patch) {
+    const state = this.getStoreState(context);
+    if (Object.prototype.hasOwnProperty.call(patch, "keyword")) {
+      this[state.keywordField] = patch.keyword;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "options")) {
+      this[state.optionsField] = patch.options;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "isOpen")) {
+      this[state.openField] = patch.isOpen;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "storeCode")) {
+      this[state.formField] = { ...this[state.formField], StoreCode__c: patch.storeCode };
+    }
+  }
+
+  handleStoreNameChange(event) {
+    const context = event.target?.dataset?.context || "point";
+    const keyword = event.target.value || "";
+    this.updateStoreState(context, { keyword, storeCode: "", options: [], isOpen: false });
+
+    window.clearTimeout(this.storeSearchTimers[context]);
+    this.storeSearchTimers[context] = window.setTimeout(() => {
+      this.searchStoreOptions(context, keyword);
+    }, 250);
+  }
+
+  async searchStoreOptions(context, keyword) {
+    const trimmedKeyword = (keyword || "").trim();
+    if (!trimmedKeyword) {
+      this.updateStoreState(context, { options: [], isOpen: false });
+      return;
+    }
+
+    try {
+      const result = await searchStores({ keyword: trimmedKeyword });
+      const options = (result || []).map((store) => ({
+        label: store.label || store.storeName || "",
+        value: store.value || store.storeCode || "",
+        storeName: store.storeName || store.label || "",
+        storeCode: store.storeCode || store.value || ""
+      }));
+      const state = this.getStoreState(context);
+      if (this[state.keywordField] === keyword) {
+        this.updateStoreState(context, { options, isOpen: options.length > 0 });
+      }
+    } catch (error) {
+      this.updateStoreState(context, { options: [], isOpen: false });
+      const msg = error?.body?.message || error?.message || "매장 검색 중 오류가 발생했습니다.";
+      this.showToast("매장 검색 실패", msg, "error");
+    }
+  }
+
+  handleStoreOptionSelect(event) {
+    const context = event.currentTarget?.dataset?.context || "point";
+    const storeName = event.currentTarget?.dataset?.name || "";
+    const storeCode = event.currentTarget?.dataset?.code || "";
+    this.updateStoreState(context, {
+      keyword: storeName,
+      storeCode,
+      options: [],
+      isOpen: false
+    });
+  }
+
+  handleStoreInputBlur(event) {
+    const context = event.target?.dataset?.context || "point";
+    window.setTimeout(() => {
+      this.updateStoreState(context, { isOpen: false });
+    }, 200);
+  }
+
   handleCreditJsonChange(event) {
     this.creditJsonInput = event.target.value;
   }
@@ -371,6 +466,9 @@ export default class Memberinfohelpview extends LightningElement {
       OrderDate: "",
       SaleNo__c: ""
     };
+    this.pointStoreKeyword = "";
+    this.pointStoreOptions = [];
+    this.pointStoreDropdownOpen = false;
     this.pointHelpMemberNo = "";
     this.pointHelpTotalLabel = "";
     this.pointHelpPayableLabel = "";
@@ -456,10 +554,6 @@ export default class Memberinfohelpview extends LightningElement {
   }
 
   // ============= 사용 가능한 쿠폰 도움창 =============
-  get storeCodeOptions() {
-    return STORE_CODE_OPTIONS;
-  }
-
   get orderTypeOptions() {
     return ORDER_TYPE_OPTIONS;
   }
@@ -584,6 +678,9 @@ export default class Memberinfohelpview extends LightningElement {
       Type: "",
       PromotionNo__c: ""
     };
+    this.voucherStoreKeyword = "";
+    this.voucherStoreOptions = [];
+    this.voucherStoreDropdownOpen = false;
     this.voucherHelpItem = {
       ProductCode: "",
       Quantity: 1,

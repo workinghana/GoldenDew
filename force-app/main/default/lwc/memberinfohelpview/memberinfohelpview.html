@@ -238,18 +238,41 @@
       <!-- 검색 영역 -->
       <div class="slds-grid slds-gutters slds-wrap">
         <div class="slds-col slds-size_1-of-3 slds-p-bottom_small">
-          <lightning-input
-            type="text"
-            label="매장 코드"
-            name="StoreCode__c"
-            data-field="StoreCode__c"
-            value={pointHelpForm.StoreCode__c}
-            onchange={handlePointHelpFieldChange}
-            onkeyup={handlePointHelpKeyUp}
-            placeholder="매장 코드 (예: STORE-011)"
-            autocomplete="off"
-          >
-          </lightning-input>
+          <div class="store-search">
+            <lightning-input
+              type="search"
+              label="매장 이름"
+              data-context="point"
+              value={pointStoreKeyword}
+              oninput={handleStoreNameChange}
+              onkeyup={handleStoreNameChange}
+              onblur={handleStoreInputBlur}
+              placeholder="매장 이름으로 검색"
+              autocomplete="off"
+            >
+            </lightning-input>
+            <template if:true={hasPointStoreOptions}>
+              <div class="store-search__list slds-dropdown slds-dropdown_fluid slds-dropdown_length-5">
+                <ul class="slds-listbox slds-listbox_vertical" role="listbox">
+                  <template for:each={pointStoreOptions} for:item="option">
+                    <li key={option.value} role="presentation" class="slds-listbox__item">
+                      <button
+                        type="button"
+                        class="store-search__option slds-button slds-button_reset slds-listbox__option slds-listbox__option_plain"
+                        data-context="point"
+                        data-code={option.storeCode}
+                        data-name={option.storeName}
+                        onmousedown={handleStoreOptionSelect}
+                      >
+                        <span class="slds-truncate">{option.storeName}</span>
+                        <span class="store-search__code slds-text-color_weak">{option.storeCode}</span>
+                      </button>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+            </template>
+          </div>
         </div>
         <div class="slds-col slds-size_1-of-3 slds-p-bottom_small">
           <lightning-input
@@ -424,14 +447,41 @@
       <!-- 검색 영역 -->
       <div class="slds-grid slds-gutters slds-wrap">
         <div class="slds-col slds-size_1-of-3 slds-p-bottom_small">
-          <lightning-combobox
-            label="매장 코드"
-            data-field="StoreCode__c"
-            value={voucherHelpForm.StoreCode__c}
-            options={storeCodeOptions}
-            onchange={handleVoucherHelpFieldChange}
-            placeholder="매장을 선택하세요"
-          ></lightning-combobox>
+          <div class="store-search">
+            <lightning-input
+              type="search"
+              label="매장 이름(매장 코드)"
+              data-context="voucher"
+              value={voucherStoreKeyword}
+              oninput={handleStoreNameChange}
+              onkeyup={handleStoreNameChange}
+              onblur={handleStoreInputBlur}
+              placeholder="매장 이름으로 검색"
+              autocomplete="off"
+            >
+            </lightning-input>
+            <template if:true={hasVoucherStoreOptions}>
+              <div class="store-search__list slds-dropdown slds-dropdown_fluid slds-dropdown_length-5">
+                <ul class="slds-listbox slds-listbox_vertical" role="listbox">
+                  <template for:each={voucherStoreOptions} for:item="option">
+                    <li key={option.value} role="presentation" class="slds-listbox__item">
+                      <button
+                        type="button"
+                        class="store-search__option slds-button slds-button_reset slds-listbox__option slds-listbox__option_plain"
+                        data-context="voucher"
+                        data-code={option.storeCode}
+                        data-name={option.storeName}
+                        onmousedown={handleStoreOptionSelect}
+                      >
+                        <span class="slds-truncate">{option.storeName}</span>
+                        <span class="store-search__code slds-text-color_weak">{option.storeCode}</span>
+                      </button>
+                    </li>
+                  </template>
+                </ul>
+              </div>
+            </template>
+          </div>
         </div>
         <div class="slds-col slds-size_1-of-3 slds-p-bottom_small">
           <lightning-input

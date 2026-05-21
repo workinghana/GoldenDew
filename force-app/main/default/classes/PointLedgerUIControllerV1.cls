@@ -209,7 +209,8 @@ public with sharing class PointLedgerUIControllerV1 {
           DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
           DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
           DebitLoyaltyLedger.TransactionJournal.OrderId,
-          DebitLoyaltyLedger.TransactionJournal.Order.ActualPaymentAmount__c
+          DebitLoyaltyLedger.TransactionJournal.Order.ActualPaymentAmount__c,
+          DebitLoyaltyLedger.TransactionJournal.JournalDate
         FROM LoyaltyLedgerTraceability
         WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId AND ActionType IN ('Debit', 'DebitCancellation', 'CreditCancellation')
         ORDER BY CreatedDate DESC
@@ -226,7 +227,8 @@ public with sharing class PointLedgerUIControllerV1 {
           TransactionJournal.OrderId,
           TransactionJournal.Order.SaleNo__c,
           TransactionJournal.Order.OrderNo__c,
-          TransactionJournal.Order.ActualPaymentAmount__c
+          TransactionJournal.Order.ActualPaymentAmount__c,
+          TransactionJournal.JournalDate
         FROM LoyaltyLedger
         WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId AND EventType = 'Expiry'
         ORDER BY ExpiryDate DESC, ActivityDate DESC
@@ -241,7 +243,8 @@ public with sharing class PointLedgerUIControllerV1 {
           TransactionJournal.OrderId,
           TransactionJournal.Order.SaleNo__c,
           TransactionJournal.Order.OrderNo__c,
-          TransactionJournal.Order.ActualPaymentAmount__c
+          TransactionJournal.Order.ActualPaymentAmount__c,
+          TransactionJournal.JournalDate
         FROM LoyaltyLedger
         WHERE
           LoyaltyProgramMemberId = :loyaltyProgramMemberId
@@ -268,7 +271,8 @@ public with sharing class PointLedgerUIControllerV1 {
           DebitLoyaltyLedger.TransactionJournal.Order.SaleNo__c,
           DebitLoyaltyLedger.TransactionJournal.Order.OrderNo__c,
           DebitLoyaltyLedger.TransactionJournal.OrderId,
-          DebitLoyaltyLedger.TransactionJournal.Order.ActualPaymentAmount__c
+          DebitLoyaltyLedger.TransactionJournal.Order.ActualPaymentAmount__c,
+          DebitLoyaltyLedger.TransactionJournal.JournalDate
         FROM LoyaltyLedgerTraceability
         WHERE
           LoyaltyProgramMemberId = :loyaltyProgramMemberId
@@ -289,7 +293,8 @@ public with sharing class PointLedgerUIControllerV1 {
           TransactionJournal.OrderId,
           TransactionJournal.Order.SaleNo__c,
           TransactionJournal.Order.OrderNo__c,
-          TransactionJournal.Order.ActualPaymentAmount__c
+          TransactionJournal.Order.ActualPaymentAmount__c,
+          TransactionJournal.JournalDate
         FROM LoyaltyLedger
         WHERE LoyaltyProgramMemberId = :loyaltyProgramMemberId AND EventType = 'Expiry' AND TransactionJournal.OrderId = :orderId
         ORDER BY ExpiryDate DESC, ActivityDate DESC
@@ -304,7 +309,8 @@ public with sharing class PointLedgerUIControllerV1 {
           TransactionJournal.OrderId,
           TransactionJournal.Order.SaleNo__c,
           TransactionJournal.Order.OrderNo__c,
-          TransactionJournal.Order.ActualPaymentAmount__c
+          TransactionJournal.Order.ActualPaymentAmount__c,
+          TransactionJournal.JournalDate
         FROM LoyaltyLedger
         WHERE
           LoyaltyProgramMemberId = :loyaltyProgramMemberId
@@ -321,7 +327,7 @@ public with sharing class PointLedgerUIControllerV1 {
     for (LoyaltyLedgerTraceability traceRow : traceRows) {
       PointRedemptionRowDTO row = new PointRedemptionRowDTO();
       row.ledgerId = traceRow.Id;
-      row.redemptionDate = traceRow.CreatedDate != null ? traceRow.CreatedDate.date() : null;
+      row.redemptionDate = getDebitJournalDate(traceRow);
       row.pointTypeName = getTraceabilityPointTypeName(traceRow);
       row.redemptionType = getTraceabilityActionLabel(traceRow.ActionType);
       row.redemptionPoints = traceRow.Points == null ? 0 : Integer.valueOf(traceRow.Points.abs());
@@ -396,7 +402,7 @@ public with sharing class PointLedgerUIControllerV1 {
     for (LoyaltyLedger redeemCancelCreditRow : redeemCancelCreditRows) {
       PointRedemptionRowDTO row = new PointRedemptionRowDTO();
       row.ledgerId = redeemCancelCreditRow.Id;
-      row.redemptionDate = redeemCancelCreditRow.ActivityDate != null ? redeemCancelCreditRow.ActivityDate.date() : null;
+      row.redemptionDate = getJournalDate(redeemCancelCreditRow.TransactionJournal);
       row.pointTypeName = getExpiryPointTypeName(redeemCancelCreditRow, null);
       row.redemptionType = getTraceabilityActionLabel('DebitCancellation');
       row.redemptionPoints = redeemCancelCreditRow.Points == null ? 0 : Integer.valueOf(redeemCancelCreditRow.Points.abs());
@@ -498,6 +504,18 @@ public with sharing class PointLedgerUIControllerV1 {
     }
 
     return String.isBlank(actionType) ? '' : actionType;
+  }
+
+  private static Date getDebitJournalDate(LoyaltyLedgerTraceability traceRow) {
+    if (traceRow == null || traceRow.DebitLoyaltyLedger == null || traceRow.DebitLoyaltyLedger.TransactionJournal == null) {
+      return null;
+    }
+
+    return getJournalDate(traceRow.DebitLoyaltyLedger.TransactionJournal);
+  }
+
+  private static Date getJournalDate(TransactionJournal journal) {
+    return journal != null && journal.JournalDate != null ? journal.JournalDate.date() : null;
   }
 
   private static Map<String, UsageSummary> buildUsageSummaryMap(Id loyaltyProgramMemberId, Set<Id> orderIds, Set<Id> subtypeIds) {
