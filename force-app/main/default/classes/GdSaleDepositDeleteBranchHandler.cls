@@ -19,13 +19,11 @@
  *   - force-debit 실패 시 응답 표시만, throw X
  */
 public with sharing class GdSaleDepositDeleteBranchHandler {
-
   @TestVisible
   private static final String WRAP_MESSAGE_SUFFIX = ' (오픈 전 거래 — 입금 삭제 자동 차감 처리)';
 
   @TestVisible
-  private static final String WRAP_REASON =
-    '오픈 전 거래에 대한 입금 단건 삭제 — 옛 적립분 자동 차감 (force-debit) 적용.';
+  private static final String WRAP_REASON = '오픈 전 거래에 대한 입금 단건 삭제 — 옛 적립분 자동 차감 (force-debit) 적용.';
 
   /**
    * 옛 일자 입금 단건 삭제 응답 wrap.
@@ -35,11 +33,7 @@ public with sharing class GdSaleDepositDeleteBranchHandler {
    * @param logger          ApexLogger (null 허용)
    * @return                enrich 된 ApiResult
    */
-  public static ApiResult wrapResponseForOldDeposit(
-    ApiResult standardResult,
-    String depositNo,
-    ApexLogger logger
-  ) {
+  public static ApiResult wrapResponseForOldDeposit(ApiResult standardResult, String depositNo, ApexLogger logger) {
     if (standardResult == null) {
       return standardResult;
     }
@@ -79,25 +73,37 @@ public with sharing class GdSaleDepositDeleteBranchHandler {
       logger.setStatus('PARTIAL');
       logger.setDescription(
         'Option C 분기 wrap: DELETE /sale/deposit — 입금 삭제 자동 차감. ' +
-        'depositNo=' + depositNo +
-        ', eligibleAmount=' + outcome.eligibleAmount +
-        ', requested=' + outcome.requested +
-        ', actual=' + outcome.actual +
-        ', loss=' + outcome.loss
+          'depositNo=' +
+          depositNo +
+          ', eligibleAmount=' +
+          outcome.eligibleAmount +
+          ', requested=' +
+          outcome.requested +
+          ', actual=' +
+          outcome.actual +
+          ', loss=' +
+          outcome.loss
       );
     }
 
     Id logId = GdMigrationUtil.recordAdjustmentLog(
-      outcome.memberId, null, 'SALE_DEPOSIT_DELETE_BRANCH', 'DELETE /gd/v1/sale/deposit',
+      outcome.memberId,
+      null,
+      'SALE_DEPOSIT_DELETE_BRANCH',
+      'DELETE /gd/v1/sale/deposit',
       depositNo,
       outcome.requested,
       outcome.actual,
       '옛 일자 입금 삭제 옵션 C 분기. ' +
-      'depositNo=' + depositNo +
-      ', eligibleAmount=' + outcome.eligibleAmount +
-      ', breakdown=' + outcome.breakdown +
-      ', forceSuccess=' + outcome.success +
-      (String.isBlank(outcome.error) ? '' : ', error=' + outcome.error)
+        'depositNo=' +
+        depositNo +
+        ', eligibleAmount=' +
+        outcome.eligibleAmount +
+        ', breakdown=' +
+        outcome.breakdown +
+        ', forceSuccess=' +
+        outcome.success +
+        (String.isBlank(outcome.error) ? '' : ', error=' + outcome.error)
     );
     if (logId != null) {
       standardResult.data.put('adjustment_log_id', logId);
@@ -134,6 +140,8 @@ public with sharing class GdSaleDepositDeleteBranchHandler {
    *   - 삭제된 TJ (IsDeleted__c=true, DepositNo='del_*') 도 조회 가능하도록 prefix 분기
    */
   @TestVisible
+  /*
+  * 기존 로직 
   private static DebitOutcome computeAndForceDebitForDepositDelete(String depositNo) {
     DebitOutcome out = new DebitOutcome();
     if (String.isBlank(depositNo)) {
@@ -169,6 +177,65 @@ public with sharing class GdSaleDepositDeleteBranchHandler {
         out.error = 'memberId missing on tj';
         return out;
       }
+        */
+  // * 신규 로직 (26.05.20 CS) Start.
+  private static DebitOutcome computeAndForceDebitForDepositDelete(String depositNo) {
+    DebitOutcome out = new DebitOutcome();
+    if (String.isBlank(depositNo)) {
+      out.error = 'invalid input';
+      return out;
+    }
+
+    try {
+      String delDepositNo = 'del_' + depositNo;
+      List<TransactionJournal> tjList = [
+        SELECT
+          Id,
+          MemberId,
+          LoyaltyProgramId,
+          OrderId,
+          OrderId__c,
+          SaleId__c,
+          PaymentMethod,
+          DepositType__c,
+          TransactionAmount,
+          PromotionId,
+          IsDeleted__c,
+          DepositNo__c
+        FROM TransactionJournal
+        WHERE DepositNo__c IN (:depositNo, :delDepositNo)
+        ORDER BY CreatedDate DESC
+        LIMIT 5
+      ];
+      if (tjList.isEmpty()) {
+        out.error = 'tj not found for depositNo=' + depositNo;
+        return out;
+      }
+
+      TransactionJournal targetTj = tjList[0];
+      Id memberId = targetTj.MemberId;
+      Id loyaltyProgramId = targetTj.LoyaltyProgramId;
+      Id orderId = targetTj.OrderId;
+      out.memberId = memberId;
+
+      if (memberId == null) {
+        out.error = 'memberId missing on tj';
+        return out;
+      }
+
+      // [carry-over 이중 차감 방지 fix]
+      // Fix #1 (GdSaleDepositServiceImpl.cls:1846) 적용 후 carry-over 케이스는
+      // 표준 cancelPointsCreditedOnPurchase 가 실제 적립 LL 을 정상 cancel 한다.
+      // 옵션 C force-debit 이 추가 실행되면 추정값만큼 OPTC_RESIDUAL 기타포인트
+      // 가 부당 차감 → 이중 차감. carry-over (OrderId__c != null) 검출 시 skip.
+      if (targetTj.OrderId__c != null) {
+        out.success = true; // 정상 종료 (모니터링 FAILED 집계 방지)
+        out.actual = 0;
+        out.loss = 0;
+        out.error = 'skipped: carry-over deposit (standard cancel handled)';
+        return out;
+      }
+      // * 신규 로직 (26.05.20 CS) End.
 
       // 1. 적립 가능 금액 (PM 적립 비대상 제외 + 환불 음수 처리)
       List<TransactionJournal> singletonList = new List<TransactionJournal>{ targetTj };
@@ -188,9 +255,7 @@ public with sharing class GdSaleDepositDeleteBranchHandler {
 
       // 2. 등급 기반 차감 추정
       Id promotionId = targetTj.PromotionId;
-      List<GdMigrationUtil.AccrualEstimate> estimates = GdMigrationUtil.calculateAccrualForOldOrder(
-        memberId, eligibleAmount, promotionId
-      );
+      List<GdMigrationUtil.AccrualEstimate> estimates = GdMigrationUtil.calculateAccrualForOldOrder(memberId, eligibleAmount, promotionId);
       Decimal totalPoints = 0;
       String breakdown = '';
       for (GdMigrationUtil.AccrualEstimate est : estimates) {
@@ -210,9 +275,12 @@ public with sharing class GdSaleDepositDeleteBranchHandler {
 
       // 3. Option C old sale accrual cancel
       GdOptionCPointAdjustmentUtil.AccrualCancelResult fd = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
-        memberId, loyaltyProgramId, orderId, null, totalPoints,
-        'OPTC_SALE_DEPOSIT_DELETE_ETC_ACCRUAL_CANCEL: depositNo=' + depositNo +
-        ', eligibleAmount=' + eligibleAmount + ', breakdown=' + breakdown
+        memberId,
+        loyaltyProgramId,
+        orderId,
+        null,
+        totalPoints,
+        'OPTC_SALE_DEPOSIT_DELETE_ETC_ACCRUAL_CANCEL: depositNo=' + depositNo + ', eligibleAmount=' + eligibleAmount + ', breakdown=' + breakdown
       );
       out.actual = fd.actualPoints;
       out.loss = fd.loss;
@@ -238,7 +306,8 @@ public with sharing class GdSaleDepositDeleteBranchHandler {
       return result;
     }
     for (TransactionJournal tj : srcList) {
-      if (tj == null) continue;
+      if (tj == null)
+        continue;
       TransactionJournal copy = tj.clone(false, true, false, false);
       Decimal amount = tj.TransactionAmount == null ? 0 : tj.TransactionAmount;
       if ('03'.equals(tj.DepositType__c) || '05'.equals(tj.DepositType__c)) {

@@ -230,7 +230,7 @@ private class GdReturnBranchHandlerTest {
   }
 
   @IsTest
-  static void validate_zeroAmount_throws400() {
+  static void validate_zeroAmount_passes() {
     Map<String, Object> reqData = new Map<String, Object>{ 'OriginalOrderId' => 'SALE-RB-ORIG', 'ActualPaymentAmount__c' => 0 };
 
     Test.startTest();
@@ -242,7 +242,7 @@ private class GdReturnBranchHandlerTest {
     }
     Test.stopTest();
 
-    System.assertEquals(true, thrown, '0 환불 금액 차단');
+    System.assertEquals(false, thrown, '0 환불 금액은 통과해야 하며 음수만 차단한다.');
   }
 
   @IsTest

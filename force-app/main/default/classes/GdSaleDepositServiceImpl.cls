@@ -1842,11 +1842,25 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
           }
         }
 
+        /*
+        * 기존 로직
         // 구매 시 지급된 포인트 적립 취소
         if (!isOptionCOldSale) {
           List<GdSaleApiController.PointDebitDTO> purchasePointAccrualCanceled = getPointService().cancelPointsCreditedOnPurchase(tjList);
           data.put('purchasePointAccrualCanceled', purchasePointAccrualCanceled);
         }
+          */
+
+        // * 신규 로직 (26.05.20 CS) Start.
+        // 구매 시 지급된 포인트 적립 취소
+        // [carry-over 결함 fix] 원주문이 옛 거래(마이그)라 isOptionCOldSale=true 일 때라도
+        // carry-over 입금 (OrderId__c != null) 은 새 시스템에 정상 적립 LL 이 존재하므로
+        // 표준 cancel 을 진행해야 한다.
+        if (!isOptionCOldSale || tjList[0].OrderId__c != null) {
+          List<GdSaleApiController.PointDebitDTO> purchasePointAccrualCanceled = getPointService().cancelPointsCreditedOnPurchase(tjList);
+          data.put('purchasePointAccrualCanceled', purchasePointAccrualCanceled);
+        }
+        // * 신규 로직 (26.05.20 CS) End.
       }
 
       // [Paradigm 정합 fix 2026-05-15]

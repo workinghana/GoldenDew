@@ -112,6 +112,20 @@ global with sharing class GdOrderApiControllerV1 {
       }
 
       {
+        // * 신규 로직 (26.05.21 CS) Start.
+        Object transactionJournalValue = reqData.get('TransactionJournal');
+        Boolean isTransactionJournalEmpty =
+          !reqData.containsKey('TransactionJournal') ||
+          transactionJournalValue == null ||
+          (transactionJournalValue instanceof List<Object> && ((List<Object>) transactionJournalValue).isEmpty()) ||
+          (transactionJournalValue instanceof Map<String, Object> && ((Map<String, Object>) transactionJournalValue).isEmpty());
+        if (isTransactionJournalEmpty) {
+          logger.setErrorCode('BAD_REQUEST');
+          logger.setErrorMessage('입금 내역이 비어 있습니다. 입금 내역 등록 후 저장해주시기 바랍니다.');
+          throw new CustomException(400, '입금 내역이 비어 있습니다. 입금 내역 등록 후 저장해주시기 바랍니다.');
+        }
+        // * 신규 로직 (26.05.21 CS) End.
+
         // Order insert
         ApiResult orderResult = getOrderService().createOrder(reqData);
         reqData.put('orderId', orderResult.data.get('orderId'));

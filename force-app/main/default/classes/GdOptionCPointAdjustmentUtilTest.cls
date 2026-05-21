@@ -1,98 +1,135 @@
+/**
+ * GdOptionCPointAdjustmentUtil Test
+ *
+ * 검증 영역: [Non-Accrual Store Guard 2026-05-20]
+ *   원판매 매장이 적립 불가(StoreType IN '20'/'25'/'33')일 때
+ *   cancelOldSaleEtcAccrualSafe 가 force-debit 을 skip 하는지 검증.
+ *
+ * 시나리오:
+ *   A. isOriginalOrderNonAccrualStore 헬퍼 — 6 케이스
+ *      (적립 불가 3종 / 적립 가능 1종 / null Order / StoreCode__c null)
+ *   B. cancelOldSaleEtcAccrualSafe 가드 통합 — 2 케이스
+ *      (적립 불가 매장 skip / invalid input)
+ */
 @IsTest
 private class GdOptionCPointAdjustmentUtilTest {
-  private static final String MEMBER_NO = 'OPT-C-ADJ-001';
-  private static final String STORE_CODE = 'OPT-C-STORE';
-  private static final String ORIGINAL_SALE_NO = 'OPT-C-SALE-001';
-  private static final String RETURN_SALE_NO = 'OPT-C-RETURN-001';
-  private static final String OTHER_RETURN_SALE_NO = 'OPT-C-RETURN-002';
-
-  private class SuccessCalloutMock implements HttpCalloutMock {
-    public HttpResponse respond(HttpRequest req) {
-      HttpResponse res = new HttpResponse();
-      res.setStatusCode(200);
-      res.setHeader('Content-Type', 'application/json');
-      res.setBody('{"success":true,"message":"ok","data":{}}');
-      return res;
-    }
-  }
-
+  // ============================================================
+  // @TestSetup — 공통 매장/Order 데이터
+  // ============================================================
   @TestSetup
   static void setupData() {
-    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Id stdPbId = Test.getStandardPricebookId();
 
-    Id standardPricebookId = Test.getStandardPricebookId();
-    try { update new Pricebook2(Id = standardPricebookId, IsActive = true); } catch (Exception lockEx) { /* parallel @TestSetup lock conflict - safe to ignore (idempotent) */ }
+    Account company = new Account(Name = 'TestCompany_OptCAdj', CompanyCode__c = 'CMP-OPTCADJ');
+    insert company;
 
-    Contact memberContact = new Contact(LastName = 'OptionCMember', Grade__c = '02', MemberNo__c = MEMBER_NO);
-    insert memberContact;
-
-    LoyaltyProgram program = new LoyaltyProgram(Name = 'Option C Adjustment Program', IsPrimary = true);
-    insert program;
-
-    LoyaltyProgramMember member = new LoyaltyProgramMember(
-      MembershipNumber = MEMBER_NO,
-      MemberStatus = 'Active',
-      MemberType = 'Individual',
-      ContactId = memberContact.Id,
-      EnrollmentDate = Date.today(),
-      ProgramId = program.Id
-    );
-    insert member;
-
-    Account store = new Account(Name = 'Option C Store', StoreCode__c = STORE_CODE, StoreType__c = '01', StoreTypeFour__c = '01');
-    insert store;
-
-    insert new List<Order>{
-      new Order(
-        Name = 'Option C Original Order',
-        AccountId = store.Id,
-        EffectiveDate = Date.today(),
-        EndDate = Date.today(),
-        Status = 'Draft',
-        Pricebook2Id = standardPricebookId,
-        OrderNo__c = 'OPT-C-ORD-001',
-        SaleNo__c = ORIGINAL_SALE_NO,
-        ActualPaymentAmount__c = 100000,
-        IsReductionOrder__c = false,
-        MemberNo__c = memberContact.Id,
-        StoreCode__c = store.Id,
-        InsertId__c = 'TESTER'
-      ),
-      new Order(
-        Name = 'Option C Return Order',
-        AccountId = store.Id,
-        EffectiveDate = Date.today(),
-        EndDate = Date.today(),
-        Status = 'Draft',
-        Pricebook2Id = standardPricebookId,
-        OrderNo__c = 'OPT-C-ORD-002',
-        SaleNo__c = RETURN_SALE_NO,
-        ActualPaymentAmount__c = -50000,
-        IsReductionOrder__c = true,
-        MemberNo__c = memberContact.Id,
-        StoreCode__c = store.Id,
-        InsertId__c = 'TESTER'
-      ),
-      new Order(
-        Name = 'Option C Other Return Order',
-        AccountId = store.Id,
-        EffectiveDate = Date.today(),
-        EndDate = Date.today(),
-        Status = 'Draft',
-        Pricebook2Id = standardPricebookId,
-        OrderNo__c = 'OPT-C-ORD-003',
-        SaleNo__c = OTHER_RETURN_SALE_NO,
-        ActualPaymentAmount__c = -30000,
-        IsReductionOrder__c = true,
-        MemberNo__c = memberContact.Id,
-        StoreCode__c = store.Id,
-        InsertId__c = 'TESTER'
-      )
+    // 적립 불가 매장 3종 + 적립 가능 매장 1종
+    List<Account> stores = new List<Account>{
+      new Account(Name = 'OutletStore20', StoreCode__c = 'STR-20', StoreType__c = '20'),
+      new Account(Name = 'OutletStore25', StoreCode__c = 'STR-25', StoreType__c = '25'),
+      new Account(Name = 'DutyFreeStore33', StoreCode__c = 'STR-33', StoreType__c = '33'),
+      new Account(Name = 'NormalStore01', StoreCode__c = 'STR-01', StoreType__c = '01')
     };
+    insert stores;
 
-    LoyaltyProgramCurrency currencyRecord = new LoyaltyProgramCurrency(
-      LoyaltyProgramId = program.Id,
-      Name = '\uD3EC\uC778\uD2B8',
+    Map<String, Id> storeIdByCode = new Map<String, Id>();
+    for (Account a : stores) {
+      storeIdByCode.put(a.StoreCode__c, a.Id);
+    }
+
+    Contact c = new Contact(LastName = 'OptCAdjTester', MemberNo__c = 'M-OPTCADJ', AccountId = company.Id);
+    insert c;
+
+    // 각 매장별 Order 1건씩 + StoreCode 미설정 Order 1건
+    List<Order> orders = new List<Order>{
+      buildOrder(company.Id, c.Id, storeIdByCode.get('STR-20'), 'SAL-OPTCADJ-20', stdPbId),
+      buildOrder(company.Id, c.Id, storeIdByCode.get('STR-25'), 'SAL-OPTCADJ-25', stdPbId),
+      buildOrder(company.Id, c.Id, storeIdByCode.get('STR-33'), 'SAL-OPTCADJ-33', stdPbId),
+      buildOrder(company.Id, c.Id, storeIdByCode.get('STR-01'), 'SAL-OPTCADJ-01', stdPbId),
+      buildOrder(company.Id, c.Id, null, 'SAL-OPTCADJ-NONE', stdPbId)
+    };
+    insert orders;
+  }
+
+  private static Order buildOrder(Id companyId, Id contactId, Id storeId, String saleNo, Id pbId) {
+    return new Order(
+      AccountId = companyId,
+      EffectiveDate = Date.newInstance(2026, 5, 6),
+      Status = 'Draft',
+      Pricebook2Id = pbId,
+      MemberNo__c = contactId,
+      StoreCode__c = storeId,
+      SaleNo__c = saleNo,
+      ActualPaymentAmount__c = 3108000,
+      Type = 'Standard',
+      SaleStatus__c = '01',
+      InsertId__c = 'tester'
+    );
+  }
+
+  private static Id orderIdBySaleNo(String saleNo) {
+    return [SELECT Id FROM Order WHERE SaleNo__c = :saleNo LIMIT 1].Id;
+  }
+
+  private class PointGraph {
+    Id loyaltyProgramId;
+    Id memberId;
+    Id currencyId;
+    Id subtypeId;
+    Id creditLedgerId;
+    Id originalOrderId;
+    Id returnOrderId;
+  }
+
+  private static Id ensureJournalType(String name) {
+    List<JournalType> existing = [SELECT Id FROM JournalType WHERE Name = :name LIMIT 1];
+    if (!existing.isEmpty()) {
+      return existing[0].Id;
+    }
+    JournalType jt = new JournalType(Name = name, ProcessType = 'Loyalty');
+    insert jt;
+    return jt.Id;
+  }
+
+  private static Id ensureJournalSubType(String name, Id journalTypeId) {
+    List<JournalSubType> existing = [
+      SELECT Id
+      FROM JournalSubType
+      WHERE Name = :name AND JournalTypeId = :journalTypeId
+      LIMIT 1
+    ];
+    if (!existing.isEmpty()) {
+      return existing[0].Id;
+    }
+    JournalSubType jst = new JournalSubType(Name = name, JournalTypeId = journalTypeId);
+    insert jst;
+    return jst.Id;
+  }
+
+  private static PointGraph seedCancelablePointGraph(Decimal creditPoints, Decimal usedPoints, Boolean pointRedeemCancelCredit, Boolean currentReturnRestore) {
+    ensureJournalSubType('Cancel Purchase Accrual', ensureJournalType('Accrual Reversal'));
+    Id accrualJtId = ensureJournalType('Accrual');
+    Id purchaseAccrualJstId = ensureJournalSubType('Purchase Accrual', accrualJtId);
+    Id redemptionReversalJtId = ensureJournalType('Redemption Reversal');
+    Id pointRedeemCancelJstId = ensureJournalSubType('Point Redeem Cancel', redemptionReversalJtId);
+    Id pointDebitJstId = ensureJournalSubType('Point Debit', ensureJournalType('Redemption'));
+
+    Contact c = [SELECT Id FROM Contact WHERE MemberNo__c = 'M-OPTCADJ' LIMIT 1];
+    LoyaltyProgram lp = new LoyaltyProgram(Name = 'TestLP_OptCAdj_Full_' + String.valueOf(Math.abs(Crypto.getRandomInteger())), IsPrimary = false);
+    insert lp;
+
+    LoyaltyProgramMember lpm = new LoyaltyProgramMember(
+      ProgramId = lp.Id,
+      ContactId = c.Id,
+      MemberStatus = 'Active',
+      MembershipNumber = 'M-OPTCADJ-' + String.valueOf(Math.abs(Crypto.getRandomInteger())),
+      EnrollmentDate = Date.today()
+    );
+    insert lpm;
+
+    LoyaltyProgramCurrency pointCurrency = new LoyaltyProgramCurrency(
+      LoyaltyProgramId = lp.Id,
+      Name = '포인트',
       CurrencyType = 'NonQualifying',
       IsActive = true,
       IsPrimary = true,
@@ -104,299 +141,351 @@ private class GdOptionCPointAdjustmentUtilTest {
       HasEscrow = false,
       DoesAllowLedgerTracing = true
     );
-    insert currencyRecord;
+    insert pointCurrency;
 
-    insert new LoyaltyPgmCurrencySubtype(
-      LoyaltyProgramCurrencyId = currencyRecord.Id,
-      Name = 'OPTION_C_ETC_POINT',
+    insert new LoyaltyMemberCurrency(Name = 'OptCAdj LMC', LoyaltyMemberId = lpm.Id, LoyaltyProgramCurrencyId = pointCurrency.Id);
+
+    LoyaltyPgmCurrencySubtype subtype = new LoyaltyPgmCurrencySubtype(
+      LoyaltyProgramCurrencyId = pointCurrency.Id,
+      Name = '사은포인트',
       PointTypeCode__c = '04',
       UsagePriorityNumber = 1,
       IsActive = true
     );
+    insert subtype;
 
-    insert new LoyaltyMemberCurrency(Name = 'OPT-C-LMC', LoyaltyMemberId = member.Id, LoyaltyProgramCurrencyId = currencyRecord.Id);
+    Id originalOrderId = orderIdBySaleNo('SAL-OPTCADJ-01');
+    Id returnOrderId = orderIdBySaleNo('SAL-OPTCADJ-NONE');
 
-    insert new List<JournalType>{
-      new JournalType(Name = 'Accrual', ProcessType = 'Loyalty'),
-      new JournalType(Name = 'Redemption', ProcessType = 'Loyalty'),
-      new JournalType(Name = 'Redemption Reversal', ProcessType = 'Loyalty'),
-      new JournalType(Name = 'Accrual Reversal', ProcessType = 'Loyalty')
-    };
+    TransactionJournal creditTj = new TransactionJournal(
+      JournalDate = Datetime.now(),
+      ActivityDate = Datetime.now(),
+      LoyaltyProgramId = lp.Id,
+      MemberId = lpm.Id,
+      OrderId = originalOrderId,
+      SaleId__c = pointRedeemCancelCredit && currentReturnRestore ? returnOrderId : originalOrderId,
+      JournalTypeId = pointRedeemCancelCredit ? redemptionReversalJtId : accrualJtId,
+      JournalSubTypeId = pointRedeemCancelCredit ? pointRedeemCancelJstId : purchaseAccrualJstId,
+      TransactionAmount = creditPoints,
+      Status = 'Processed'
+    );
+    insert creditTj;
 
-    insert new List<JournalSubType>{
-      new JournalSubType(Name = 'Purchase Accrual', JournalTypeId = journalTypeId('Accrual')),
-      new JournalSubType(Name = 'Point Debit', JournalTypeId = journalTypeId('Redemption')),
-      new JournalSubType(Name = 'Point Redeem Cancel', JournalTypeId = journalTypeId('Redemption Reversal')),
-      new JournalSubType(Name = 'Cancel Purchase Accrual', JournalTypeId = journalTypeId('Accrual Reversal'))
-    };
+    LoyaltyLedger creditLedger = new LoyaltyLedger(
+      LoyaltyProgramMemberId = lpm.Id,
+      LoyaltyProgramCurrencyId = pointCurrency.Id,
+      LoyaltyPgmCrcySubtypeId = subtype.Id,
+      TransactionJournalId = creditTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = creditPoints,
+      ExpiryDate = Date.today().addDays(30),
+      EventType = 'Credit'
+    );
+    insert creditLedger;
+
+    if (usedPoints != null && usedPoints > 0) {
+      TransactionJournal debitTj = new TransactionJournal(
+        JournalDate = Datetime.now(),
+        ActivityDate = Datetime.now(),
+        LoyaltyProgramId = lp.Id,
+        MemberId = lpm.Id,
+        OrderId = originalOrderId,
+        JournalTypeId = ensureJournalType('Redemption'),
+        JournalSubTypeId = pointDebitJstId,
+        TransactionAmount = usedPoints,
+        Status = 'Processed'
+      );
+      insert debitTj;
+
+      LoyaltyLedger debitLedger = new LoyaltyLedger(
+        LoyaltyProgramMemberId = lpm.Id,
+        LoyaltyProgramCurrencyId = pointCurrency.Id,
+        LoyaltyPgmCrcySubtypeId = subtype.Id,
+        TransactionJournalId = debitTj.Id,
+        ActivityDate = Datetime.now(),
+        Points = usedPoints,
+        ExpiryDate = Date.today().addDays(30),
+        EventType = 'Debit'
+      );
+      insert debitLedger;
+
+      insert new LoyaltyLedgerTraceability(
+        LoyaltyProgramMemberId = lpm.Id,
+        LoyaltyProgramCurrencyId = pointCurrency.Id,
+        LoyaltyPgmCurrencySubtypeId = subtype.Id,
+        CreditLoyaltyLedgerId = creditLedger.Id,
+        DebitLoyaltyLedgerId = debitLedger.Id,
+        Points = usedPoints,
+        ActionType = 'Debit'
+      );
+    }
+
+    PointGraph graph = new PointGraph();
+    graph.loyaltyProgramId = lp.Id;
+    graph.memberId = lpm.Id;
+    graph.currencyId = pointCurrency.Id;
+    graph.subtypeId = subtype.Id;
+    graph.creditLedgerId = creditLedger.Id;
+    graph.originalOrderId = originalOrderId;
+    graph.returnOrderId = returnOrderId;
+    return graph;
+  }
+
+  // ============================================================
+  // A. isOriginalOrderNonAccrualStore 헬퍼
+  // ============================================================
+
+  @IsTest
+  static void testHelper_StoreType20_returnsTrue() {
+    Id oid = orderIdBySaleNo('SAL-OPTCADJ-20');
+    Test.startTest();
+    Boolean result = GdOptionCPointAdjustmentUtil.isOriginalOrderNonAccrualStore(oid);
+    Test.stopTest();
+    System.assertEquals(true, result, 'StoreType=20 (아울렛) 은 적립 불가 매장으로 판정되어야 함');
   }
 
   @IsTest
-  static void cancelOldSaleEtcAccrualSafe_invalidInput_returnsError() {
-    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+  static void testHelper_StoreType25_returnsTrue() {
+    Id oid = orderIdBySaleNo('SAL-OPTCADJ-25');
+    Test.startTest();
+    Boolean result = GdOptionCPointAdjustmentUtil.isOriginalOrderNonAccrualStore(oid);
+    Test.stopTest();
+    System.assertEquals(true, result, 'StoreType=25 (아울렛) 은 적립 불가 매장으로 판정되어야 함');
+  }
+
+  @IsTest
+  static void testHelper_StoreType33_returnsTrue() {
+    Id oid = orderIdBySaleNo('SAL-OPTCADJ-33');
+    Test.startTest();
+    Boolean result = GdOptionCPointAdjustmentUtil.isOriginalOrderNonAccrualStore(oid);
+    Test.stopTest();
+    System.assertEquals(true, result, 'StoreType=33 (면세) 은 적립 불가 매장으로 판정되어야 함');
+  }
+
+  @IsTest
+  static void testHelper_StoreType01_returnsFalse() {
+    Id oid = orderIdBySaleNo('SAL-OPTCADJ-01');
+    Test.startTest();
+    Boolean result = GdOptionCPointAdjustmentUtil.isOriginalOrderNonAccrualStore(oid);
+    Test.stopTest();
+    System.assertEquals(false, result, 'StoreType=01 (백화점) 은 적립 가능 매장 — 가드 통과해야 함');
+  }
+
+  @IsTest
+  static void testHelper_NullOrderId_returnsFalse() {
+    Test.startTest();
+    Boolean result = GdOptionCPointAdjustmentUtil.isOriginalOrderNonAccrualStore(null);
+    Test.stopTest();
+    System.assertEquals(false, result, 'originalOrderId=null 일 때는 false (보수적 — skip 안 함)');
+  }
+
+  @IsTest
+  static void testHelper_NullStoreCodeOnOrder_returnsFalse() {
+    Id oid = orderIdBySaleNo('SAL-OPTCADJ-NONE');
+    Test.startTest();
+    Boolean result = GdOptionCPointAdjustmentUtil.isOriginalOrderNonAccrualStore(oid);
+    Test.stopTest();
+    System.assertEquals(false, result, 'Order.StoreCode__c 가 null 이면 false (보수적 — 매장 판단 불가)');
+  }
+
+  // ============================================================
+  // B. cancelOldSaleEtcAccrualSafe 가드 통합
+  // ============================================================
+
+  @IsTest
+  static void testGuard_NonAccrualStore_SkipsForceDebit() {
+    Id memberId = createDummyMember();
+    Id loyaltyProgramId = [SELECT ProgramId FROM LoyaltyProgramMember WHERE Id = :memberId LIMIT 1].ProgramId;
+    Id originalOrderId = orderIdBySaleNo('SAL-OPTCADJ-25');
 
     Test.startTest();
     GdOptionCPointAdjustmentUtil.AccrualCancelResult result = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
+      memberId,
+      loyaltyProgramId,
+      originalOrderId,
       null,
+      31080,
+      'unit-test: non-accrual store skip'
+    );
+    Test.stopTest();
+
+    System.assertEquals(true, result.success, '적립 불가 매장 skip 은 정상 종료(success=true)');
+    System.assertEquals(0, result.actualPoints, '차감된 포인트 없음(actualPoints=0)');
+    System.assertEquals(0, result.loss, '손실 없음(loss=0) — 적립 자체가 없었으므로');
+    System.assert(result.error != null && result.error.contains('non-accrual'), 'error 메시지에 non-accrual 표기 — 실제 error: ' + result.error);
+    System.assertEquals(null, result.reversalTjId, 'Reversal TJ 미생성');
+  }
+
+  @IsTest
+  static void testGuard_InvalidInput_ReturnsInvalidInputError() {
+    Test.startTest();
+    GdOptionCPointAdjustmentUtil.AccrualCancelResult result = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
+      null, // memberId null → invalid input 분기
       null,
       null,
       null,
       0,
-      null
+      'unit-test: invalid input'
     );
     Test.stopTest();
 
-    System.assertEquals(false, result.success);
-    System.assertEquals('invalid input', result.error);
-    System.assertEquals(0, result.requestedPoints);
-    System.assertEquals(0, result.loss);
+    System.assertEquals(false, result.success, 'invalid input 은 실패 처리');
+    System.assertEquals('invalid input', result.error, 'error 메시지가 invalid input');
   }
 
+  // ============================================================
+  // 헬퍼 — 더미 LoyaltyProgramMember 생성
+  // ============================================================
   @IsTest
-  static void cancelOldSaleEtcAccrualSafe_noCreditLedger_returnsError() {
-    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
-
-    LoyaltyProgramMember member = testMember();
-    Order originalOrder = orderBySaleNo(ORIGINAL_SALE_NO);
-    Order returnOrder = orderBySaleNo(RETURN_SALE_NO);
+  static void testCancelSuccess_PrioritizesSameOriginalOrderAndCreatesReversalArtifacts() {
+    PointGraph graph = seedCancelablePointGraph(100, 10, false, false);
 
     Test.startTest();
     GdOptionCPointAdjustmentUtil.AccrualCancelResult result = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
-      member.Id,
-      member.ProgramId,
-      originalOrder.Id,
-      returnOrder.Id,
+      graph.memberId,
+      graph.loyaltyProgramId,
+      graph.originalOrderId,
+      graph.returnOrderId,
+      50,
+      'unit-test: success'
+    );
+    Test.stopTest();
+
+    System.assertEquals(true, result.success, 'Cancelable option C points should be canceled.');
+    System.assertEquals(50, result.actualPoints);
+    System.assertEquals(0, result.loss);
+    System.assertNotEquals(null, result.reversalTjId);
+    System.assertEquals(1, [SELECT COUNT() FROM LoyaltyLedger WHERE TransactionJournalId = :result.reversalTjId AND EventType = 'Debit']);
+    System.assertEquals(
+      1,
+      [SELECT COUNT() FROM LoyaltyLedgerTraceability WHERE CreditLoyaltyLedgerId = :graph.creditLedgerId AND ActionType = 'CreditCancellation']
+    );
+  }
+
+  @IsTest
+  static void testCancelPartial_WhenRequestExceedsBalance_ReturnsLoss() {
+    PointGraph graph = seedCancelablePointGraph(40, 15, false, false);
+
+    Test.startTest();
+    GdOptionCPointAdjustmentUtil.AccrualCancelResult result = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
+      graph.memberId,
+      graph.loyaltyProgramId,
+      graph.originalOrderId,
+      null,
       100,
-      'no ledger'
+      'unit-test: partial'
+    );
+    Test.stopTest();
+
+    System.assertEquals(true, result.success);
+    System.assertEquals(25, result.actualPoints);
+    System.assertEquals(75, result.loss);
+  }
+
+  @IsTest
+  static void testCancel_NoCreditLedger_ReturnsNoActiveLedgerError() {
+    Id memberId = createDummyMember();
+    Id loyaltyProgramId = [SELECT ProgramId FROM LoyaltyProgramMember WHERE Id = :memberId LIMIT 1].ProgramId;
+    ensureJournalSubType('Cancel Purchase Accrual', ensureJournalType('Accrual Reversal'));
+    insert new LoyaltyProgramCurrency(
+      LoyaltyProgramId = loyaltyProgramId,
+      Name = '포인트',
+      CurrencyType = 'NonQualifying',
+      IsActive = true,
+      IsPrimary = true,
+      ExpiryModel = 'Fixed',
+      ExtendExpiration = 'None',
+      ExpiryPeriodFrequency = 12,
+      ExpiryPeriodUnit = 'Years',
+      CostperUnit = 1,
+      HasEscrow = false,
+      DoesAllowLedgerTracing = true
+    );
+
+    Test.startTest();
+    GdOptionCPointAdjustmentUtil.AccrualCancelResult result = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
+      memberId,
+      loyaltyProgramId,
+      orderIdBySaleNo('SAL-OPTCADJ-01'),
+      null,
+      10,
+      'unit-test: no ledger'
     );
     Test.stopTest();
 
     System.assertEquals(false, result.success);
     System.assertEquals('no active option c etc credit ledger', result.error);
-    System.assertEquals(100, result.loss);
   }
 
   @IsTest
-  static void cancelOldSaleEtcAccrualSafe_fullCancel_createsReversalLedgerAndTrace() {
-    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
-
-    LoyaltyProgramMember member = testMember();
-    Order originalOrder = orderBySaleNo(ORIGINAL_SALE_NO);
-    Order returnOrder = orderBySaleNo(RETURN_SALE_NO);
-    LoyaltyLedger creditLedger = insertCreditLedger(member, originalOrder.Id, null, 'Purchase Accrual', 100);
+  static void testCancel_FullyUsedCreditLedger_ReturnsNoCancelableBalanceError() {
+    PointGraph graph = seedCancelablePointGraph(30, 30, false, false);
 
     Test.startTest();
     GdOptionCPointAdjustmentUtil.AccrualCancelResult result = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
-      member.Id,
-      member.ProgramId,
-      originalOrder.Id,
-      returnOrder.Id,
-      70,
-      'full cancel'
+      graph.memberId,
+      graph.loyaltyProgramId,
+      graph.originalOrderId,
+      null,
+      10,
+      'unit-test: fully used'
     );
     Test.stopTest();
 
-    System.assertEquals(true, result.success, assertionMessage(result));
-    System.assertEquals(70, result.actualPoints);
-    System.assertEquals(0, result.loss);
-    System.assertNotEquals(null, result.reversalTjId);
-
-    TransactionJournal reversalJournal = [
-      SELECT OrderId, SaleId__c, AdditionalNotes__c, JournalSubType.Name
-      FROM TransactionJournal
-      WHERE Id = :result.reversalTjId
-    ];
-    System.assertEquals(originalOrder.Id, reversalJournal.OrderId);
-    System.assertEquals(returnOrder.Id, reversalJournal.SaleId__c);
-    System.assertEquals('Cancel Purchase Accrual', reversalJournal.JournalSubType.Name);
-    System.assert(reversalJournal.AdditionalNotes__c.contains('OPTC_OLD_SALE_ETC_ACCRUAL_CANCEL'));
-
-    LoyaltyLedger debitLedger = [
-      SELECT Points, EventType, TransactionJournalId
-      FROM LoyaltyLedger
-      WHERE TransactionJournalId = :result.reversalTjId
-      LIMIT 1
-    ];
-    System.assertEquals('Debit', debitLedger.EventType);
-    System.assertEquals(70, debitLedger.Points);
-
-    LoyaltyLedgerTraceability traceabilityRecord = [
-      SELECT Points, ActionType, CreditLoyaltyLedgerId, DebitLoyaltyLedgerId
-      FROM LoyaltyLedgerTraceability
-      WHERE DebitLoyaltyLedgerId = :debitLedger.Id
-      LIMIT 1
-    ];
-    System.assertEquals(70, traceabilityRecord.Points);
-    System.assertEquals('CreditCancellation', traceabilityRecord.ActionType);
-    System.assertEquals(creditLedger.Id, traceabilityRecord.CreditLoyaltyLedgerId);
+    System.assertEquals(false, result.success);
+    System.assertEquals('no cancelable option c etc balance', result.error);
   }
 
   @IsTest
-  static void cancelOldSaleEtcAccrualSafe_priorTraceLimitsAvailablePoints() {
-    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
-
-    LoyaltyProgramMember member = testMember();
-    Order originalOrder = orderBySaleNo(ORIGINAL_SALE_NO);
-    Order returnOrder = orderBySaleNo(RETURN_SALE_NO);
-    LoyaltyLedger creditLedger = insertCreditLedger(member, originalOrder.Id, null, 'Purchase Accrual', 100);
-    insertPriorTrace(member, creditLedger, 'Debit', 40);
-    insertPriorTrace(member, creditLedger, 'DebitCancellation', 10);
-    insertPriorTrace(member, creditLedger, 'CreditCancellation', 20);
+  static void testCancel_PointRedeemCancelFromOtherReturnIsFilteredOut() {
+    PointGraph graph = seedCancelablePointGraph(50, 0, true, false);
 
     Test.startTest();
     GdOptionCPointAdjustmentUtil.AccrualCancelResult result = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
-      member.Id,
-      member.ProgramId,
-      originalOrder.Id,
-      returnOrder.Id,
-      70,
-      'partial cancel'
+      graph.memberId,
+      graph.loyaltyProgramId,
+      graph.originalOrderId,
+      graph.returnOrderId,
+      10,
+      'unit-test: filtered restore'
     );
     Test.stopTest();
 
-    System.assertEquals(true, result.success, assertionMessage(result));
-    System.assertEquals(50, result.actualPoints);
-    System.assertEquals(20, result.loss);
+    System.assertEquals(false, result.success);
+    System.assertEquals('no active option c etc credit ledger', result.error);
   }
 
   @IsTest
-  static void cancelOldSaleEtcAccrualSafe_pointRedeemCancelKeepsOnlyCurrentReturnCredit() {
-    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
-
-    LoyaltyProgramMember member = testMember();
-    Order originalOrder = orderBySaleNo(ORIGINAL_SALE_NO);
-    Order returnOrder = orderBySaleNo(RETURN_SALE_NO);
-    Order otherReturnOrder = orderBySaleNo(OTHER_RETURN_SALE_NO);
-    insertCreditLedger(member, originalOrder.Id, otherReturnOrder.Id, 'Point Redeem Cancel', 90);
-    insertCreditLedger(member, originalOrder.Id, returnOrder.Id, 'Point Redeem Cancel', 30);
+  static void testCancel_PointRedeemCancelForCurrentReturnIsCancelable() {
+    PointGraph graph = seedCancelablePointGraph(50, 0, true, true);
 
     Test.startTest();
     GdOptionCPointAdjustmentUtil.AccrualCancelResult result = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
-      member.Id,
-      member.ProgramId,
-      originalOrder.Id,
-      returnOrder.Id,
-      50,
-      'filter current return'
+      graph.memberId,
+      graph.loyaltyProgramId,
+      graph.originalOrderId,
+      graph.returnOrderId,
+      10,
+      'unit-test: current restore'
     );
     Test.stopTest();
 
-    System.assertEquals(true, result.success, assertionMessage(result));
-    System.assertEquals(30, result.actualPoints);
-    System.assertEquals(20, result.loss);
+    System.assertEquals(true, result.success);
+    System.assertEquals(10, result.actualPoints);
   }
 
-  @IsTest
-  static void cancelOldSaleEtcAccrualSafe_secondPassUsesOtherOrderCredit() {
-    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
-
-    LoyaltyProgramMember member = testMember();
-    Order originalOrder = orderBySaleNo(ORIGINAL_SALE_NO);
-    Order returnOrder = orderBySaleNo(RETURN_SALE_NO);
-    Order otherReturnOrder = orderBySaleNo(OTHER_RETURN_SALE_NO);
-    insertCreditLedger(member, otherReturnOrder.Id, null, 'Purchase Accrual', 25);
-
-    Test.startTest();
-    GdOptionCPointAdjustmentUtil.AccrualCancelResult result = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
-      member.Id,
-      member.ProgramId,
-      originalOrder.Id,
-      returnOrder.Id,
-      20,
-      'second pass'
+  private static Id createDummyMember() {
+    Contact c = [SELECT Id FROM Contact WHERE MemberNo__c = 'M-OPTCADJ' LIMIT 1];
+    LoyaltyProgram lp = new LoyaltyProgram(Name = 'TestLP_OptCAdj', IsPrimary = false);
+    insert lp;
+    LoyaltyProgramMember lpm = new LoyaltyProgramMember(
+      ProgramId = lp.Id,
+      ContactId = c.Id,
+      MemberStatus = 'Active',
+      MembershipNumber = 'M-OPTCADJ',
+      EnrollmentDate = Date.today()
     );
-    Test.stopTest();
-
-    System.assertEquals(true, result.success, assertionMessage(result));
-    System.assertEquals(20, result.actualPoints);
-    System.assertEquals(0, result.loss);
-  }
-
-  private static LoyaltyProgramMember testMember() {
-    return [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = :MEMBER_NO LIMIT 1];
-  }
-
-  private static String assertionMessage(GdOptionCPointAdjustmentUtil.AccrualCancelResult result) {
-    return result == null || result.error == null ? 'unexpected failure' : result.error;
-  }
-
-  private static Order orderBySaleNo(String saleNo) {
-    return [SELECT Id, SaleNo__c FROM Order WHERE SaleNo__c = :saleNo LIMIT 1];
-  }
-
-  private static Id journalTypeId(String name) {
-    return [SELECT Id FROM JournalType WHERE Name = :name LIMIT 1].Id;
-  }
-
-  private static JournalSubType journalSubType(String name) {
-    return [SELECT Id, JournalTypeId FROM JournalSubType WHERE Name = :name LIMIT 1];
-  }
-
-  private static LoyaltyProgramCurrency pointCurrency() {
-    return [SELECT Id FROM LoyaltyProgramCurrency WHERE Name = '\uD3EC\uC778\uD2B8' LIMIT 1];
-  }
-
-  private static LoyaltyPgmCurrencySubtype optionCSubtype() {
-    return [SELECT Id FROM LoyaltyPgmCurrencySubtype WHERE PointTypeCode__c = '04' LIMIT 1];
-  }
-
-  private static TransactionJournal insertJournal(LoyaltyProgramMember member, Id orderId, Id saleId, String journalSubTypeName, Decimal amount) {
-    JournalSubType subType = journalSubType(journalSubTypeName);
-    TransactionJournal journal = new TransactionJournal(
-      MemberId = member.Id,
-      LoyaltyProgramId = member.ProgramId,
-      OrderId = orderId,
-      SaleId__c = saleId,
-      JournalDate = Datetime.now(),
-      ActivityDate = Datetime.now(),
-      JournalTypeId = subType.JournalTypeId,
-      JournalSubTypeId = subType.Id,
-      TransactionAmount = amount,
-      Status = 'Processed',
-      InsertId__c = 'TESTER'
-    );
-    insert journal;
-    return journal;
-  }
-
-  private static LoyaltyLedger insertCreditLedger(LoyaltyProgramMember member, Id orderId, Id saleId, String journalSubTypeName, Decimal points) {
-    TransactionJournal journal = insertJournal(member, orderId, saleId, journalSubTypeName, points);
-    LoyaltyLedger ledger = new LoyaltyLedger(
-      LoyaltyProgramMemberId = member.Id,
-      LoyaltyProgramCurrencyId = pointCurrency().Id,
-      LoyaltyPgmCrcySubtypeId = optionCSubtype().Id,
-      TransactionJournalId = journal.Id,
-      ActivityDate = Datetime.now().addDays(-2),
-      Points = points,
-      ExpiryDate = Date.today().addYears(1),
-      EventType = 'Credit'
-    );
-    insert ledger;
-    return ledger;
-  }
-
-  private static void insertPriorTrace(LoyaltyProgramMember member, LoyaltyLedger creditLedger, String actionType, Decimal points) {
-    TransactionJournal debitJournal = insertJournal(member, null, null, 'Point Debit', points);
-    LoyaltyLedger debitLedger = new LoyaltyLedger(
-      LoyaltyProgramMemberId = member.Id,
-      LoyaltyProgramCurrencyId = pointCurrency().Id,
-      LoyaltyPgmCrcySubtypeId = optionCSubtype().Id,
-      TransactionJournalId = debitJournal.Id,
-      ActivityDate = Datetime.now().addDays(-1),
-      Points = points,
-      ExpiryDate = Date.today().addYears(1),
-      EventType = 'Debit'
-    );
-    insert debitLedger;
-
-    insert new LoyaltyLedgerTraceability(
-      LoyaltyProgramMemberId = member.Id,
-      LoyaltyProgramCurrencyId = pointCurrency().Id,
-      LoyaltyPgmCurrencySubtypeId = optionCSubtype().Id,
-      Points = points,
-      ActionType = actionType,
-      DebitLoyaltyLedgerId = debitLedger.Id,
-      CreditLoyaltyLedgerId = creditLedger.Id
-    );
+    insert lpm;
+    return lpm.Id;
   }
 }

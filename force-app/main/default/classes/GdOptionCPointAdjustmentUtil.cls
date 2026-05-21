@@ -3,6 +3,12 @@ public with sharing class GdOptionCPointAdjustmentUtil {
   private static final String LOYALTY_PROGRAM_CURRENCY_NAME = '포인트';
   private static final String JOURNAL_SUB_TYPE_NAME_POINT_REDEEM_CANCEL = 'Point Redeem Cancel';
 
+  // [Non-Accrual Store Guard 2026-05-20] 적립 불가 매장 코드 set.
+  //   기준: GdSaleDepositServiceImpl.createSaleDepositHistory line 541-546 의 활성 정책.
+  //   '20'·'25' = 아울렛 (현 운영중), '33' = 추가 적립 불가 매장.
+  //   변경 시 양쪽 동기 수정 필요. 향후 별도 PolicyUtil 추출 고려.
+  private static final Set<String> NON_ACCRUAL_STORE_TYPES = new Set<String>{ '20', '25', '33' };
+
   public class AccrualCancelResult {
     public Decimal requestedPoints = 0;
     public Decimal actualPoints = 0;
@@ -26,6 +32,20 @@ public with sharing class GdOptionCPointAdjustmentUtil {
 
     if (memberId == null || loyaltyProgramId == null || result.requestedPoints <= 0) {
       result.error = 'invalid input';
+      return result;
+    }
+
+    // [Non-Accrual Store Guard 2026-05-20] 원판매가 적립 불가 매장이면 강제 차감 skip.
+    //   배경: 적립 불가 매장(StoreType 20/25/33)의 라이브 판매는 적립 자체가 일어나지 않음
+    //         (GdSaleDepositServiceImpl line 541-546). 그러나 옵션 C 마이그레이션 force-debit 은
+    //         "적립이 있었을 것"이라 추정해 회원 기타포인트 lump 에서 강제 차감 → 부당 차감 발생.
+    //   해결: 원판매 매장 StoreType 검사 후 차단. 보호 대상 5개 호출처(반품/판매삭제/입금삭제/판매PATCH/미래) 모두.
+    //   skip 시맨틱: success=true (정상 종료, 차감할 적립 없음), loss=0 (손실 없음).
+    if (isOriginalOrderNonAccrualStore(originalOrderId)) {
+      result.error = 'skipped: original sale store is non-accrual (StoreType IN 20/25/33)';
+      result.actualPoints = 0;
+      result.loss = 0;
+      result.success = true;
       return result;
     }
 
@@ -235,6 +255,24 @@ public with sharing class GdOptionCPointAdjustmentUtil {
       result.add(credit);
     }
     return result;
+  }
+
+  @TestVisible
+  private static Boolean isOriginalOrderNonAccrualStore(Id originalOrderId) {
+    if (originalOrderId == null) {
+      return false;
+    }
+    List<Order> orders = [
+      SELECT StoreCode__r.StoreType__c
+      FROM Order
+      WHERE Id = :originalOrderId
+      LIMIT 1
+    ];
+    if (orders.isEmpty() || orders[0].StoreCode__r == null) {
+      return false;
+    }
+    String storeType = orders[0].StoreCode__r.StoreType__c;
+    return String.isNotBlank(storeType) && NON_ACCRUAL_STORE_TYPES.contains(storeType);
   }
 
   private static String buildAdditionalNotes(String marker, Id returnOrderId, Decimal points) {

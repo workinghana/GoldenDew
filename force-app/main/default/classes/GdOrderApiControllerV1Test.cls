@@ -202,6 +202,47 @@ private class GdOrderApiControllerV1Test {
   }
 
   @IsTest
+  static void createOrder_missingTransactionJournal_returns400() {
+    MockOrderService orderService = new MockOrderService();
+    orderService.createOrderId = createOrderRecord();
+
+    GdOrderApiControllerV1.setOrderService(orderService);
+    GdOrderApiControllerV1.setOrderItemService(new MockOrderItemService());
+    GdOrderApiControllerV1.setOrderDepositService(new MockOrderDepositService());
+    setupRest('POST', '{"orderNo":"ORD-001"}');
+
+    Test.startTest();
+    GdOrderApiControllerV1.createOrder();
+    Test.stopTest();
+
+    System.assertEquals(400, RestContext.response.statusCode);
+    System.assert(
+      RestContext.response.responseBody.toString().contains('입금 내역이 비어 있습니다. 입금 내역 등록 후 저장해주시기 바랍니다.'),
+      'Missing TransactionJournal should return the deposit empty message.'
+    );
+  }
+
+  @IsTest
+  static void createOrder_emptyTransactionJournal_returns400() {
+    MockOrderService orderService = new MockOrderService();
+    orderService.createOrderId = createOrderRecord();
+
+    GdOrderApiControllerV1.setOrderService(orderService);
+    GdOrderApiControllerV1.setOrderItemService(new MockOrderItemService());
+    GdOrderApiControllerV1.setOrderDepositService(new MockOrderDepositService());
+    setupRest('POST', '{"orderNo":"ORD-001","TransactionJournal":[]}');
+
+    Test.startTest();
+    GdOrderApiControllerV1.createOrder();
+    Test.stopTest();
+
+    System.assertEquals(400, RestContext.response.statusCode);
+    Map<String, Object> body = (Map<String, Object>) JSON.deserializeUntyped(RestContext.response.responseBody.toString());
+    System.assertEquals(false, body.get('success'));
+    System.assert(String.valueOf(body.get('message')).contains('입금 내역이 비어 있습니다.'));
+  }
+
+  @IsTest
   static void createOrder_success_returns200() {
     MockOrderService orderService = new MockOrderService();
     orderService.createOrderId = createOrderRecord();
@@ -228,7 +269,7 @@ private class GdOrderApiControllerV1Test {
     GdOrderApiControllerV1.setOrderService(orderService);
     GdOrderApiControllerV1.setOrderItemService(new MockOrderItemService());
     GdOrderApiControllerV1.setOrderDepositService(new MockOrderDepositService());
-    setupRest('POST', '{"orderNo":"ORD-001"}');
+    setupRest('POST', '{"orderNo":"ORD-001","TransactionJournal":{"type":"deposit"}}');
 
     Test.startTest();
     GdOrderApiControllerV1.createOrder();
@@ -265,7 +306,7 @@ private class GdOrderApiControllerV1Test {
     GdOrderApiControllerV1.setOrderService(orderService);
     GdOrderApiControllerV1.setOrderItemService(new MockOrderItemService());
     GdOrderApiControllerV1.setOrderDepositService(new MockOrderDepositService());
-    setupRest('POST', '{"orderNo":"ORD-001"}');
+    setupRest('POST', '{"orderNo":"ORD-001","TransactionJournal":{"type":"deposit"}}');
 
     Test.startTest();
     GdOrderApiControllerV1.createOrder();

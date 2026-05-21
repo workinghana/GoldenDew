@@ -532,7 +532,12 @@ private class GdSaleApiControllerV1Test {
   @IsTest
   static void createSale_success_updatesOrderStatus() {
     setCreateMocks();
-    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-001"}', null);
+    setupRestContext(
+      'POST',
+      '/services/apexrest/gd/v1/sale',
+      '{"SaleNo__c":"SALE-001","TransactionJournal":[{"DepositNo__c":"DEP-SALE-001","DeposiSeqNo__c":"1"}]}',
+      null
+    );
 
     Test.startTest();
     GdSaleApiControllerV1.createSale();
@@ -568,6 +573,36 @@ private class GdSaleApiControllerV1Test {
 
     System.assertEquals(400, RestContext.response.statusCode);
     System.assertEquals(false, parseResponseBody().get('success'));
+  }
+
+  @IsTest
+  static void createSale_missingTransactionJournal_returns400() {
+    setCreateMocks();
+    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-MISSING-TJ"}', null);
+
+    Test.startTest();
+    GdSaleApiControllerV1.createSale();
+    Test.stopTest();
+
+    System.assertEquals(400, RestContext.response.statusCode);
+    Map<String, Object> body = parseResponseBody();
+    System.assertEquals(false, body.get('success'));
+    System.assert(String.valueOf(body.get('message')).contains('입금 내역이 비어 있습니다.'));
+  }
+
+  @IsTest
+  static void createSale_emptyTransactionJournal_returns400() {
+    setCreateMocks();
+    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-EMPTY-TJ","TransactionJournal":[]}', null);
+
+    Test.startTest();
+    GdSaleApiControllerV1.createSale();
+    Test.stopTest();
+
+    System.assertEquals(400, RestContext.response.statusCode);
+    Map<String, Object> body = parseResponseBody();
+    System.assertEquals(false, body.get('success'));
+    System.assert(String.valueOf(body.get('message')).contains('입금 내역이 비어 있습니다.'));
   }
 
   @IsTest
@@ -665,7 +700,12 @@ private class GdSaleApiControllerV1Test {
     GdSaleApiControllerV1.setOrderService(new MockOrderService());
     GdSaleApiControllerV1.setOrderItemService(new MockOrderItemService());
     GdSaleApiControllerV1.setSaleDepositService(new MockSaleDepositService());
-    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-003","OnlyRequired":true}', null);
+    setupRestContext(
+      'POST',
+      '/services/apexrest/gd/v1/sale',
+      '{"SaleNo__c":"SALE-003","OnlyRequired":true,"TransactionJournal":[{"DepositNo__c":"DEP-SALE-003","DeposiSeqNo__c":"1"}]}',
+      null
+    );
 
     Test.startTest();
     GdSaleApiControllerV1.createSale();
@@ -678,7 +718,12 @@ private class GdSaleApiControllerV1Test {
   @IsTest
   static void createSale_withTransactionJournal_returnsDepositPayload() {
     setCreateMocks();
-    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-DEPOSIT-CREATE","TransactionJournal":[]}', null);
+    setupRestContext(
+      'POST',
+      '/services/apexrest/gd/v1/sale',
+      '{"SaleNo__c":"SALE-DEPOSIT-CREATE","TransactionJournal":[{"DepositNo__c":"DEP-SALE-DEPOSIT","DeposiSeqNo__c":"1"}]}',
+      null
+    );
 
     Test.startTest();
     GdSaleApiControllerV1.createSale();
@@ -697,7 +742,12 @@ private class GdSaleApiControllerV1Test {
     GdSaleApiControllerV1.setOrderService(new MockOrderServiceOrderNotFound());
     GdSaleApiControllerV1.setOrderItemService(new MockOrderItemService());
     GdSaleApiControllerV1.setSaleDepositService(new MockSaleDepositService());
-    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-404"}', null);
+    setupRestContext(
+      'POST',
+      '/services/apexrest/gd/v1/sale',
+      '{"SaleNo__c":"SALE-404","TransactionJournal":[{"DepositNo__c":"DEP-SALE-404","DeposiSeqNo__c":"1"}]}',
+      null
+    );
 
     Test.startTest();
     GdSaleApiControllerV1.createSale();
@@ -712,7 +762,12 @@ private class GdSaleApiControllerV1Test {
     GdSaleApiControllerV1.setOrderService(new MockOrderServiceThrows());
     GdSaleApiControllerV1.setOrderItemService(new MockOrderItemService());
     GdSaleApiControllerV1.setSaleDepositService(new MockSaleDepositService());
-    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-ERR"}', null);
+    setupRestContext(
+      'POST',
+      '/services/apexrest/gd/v1/sale',
+      '{"SaleNo__c":"SALE-ERR","TransactionJournal":[{"DepositNo__c":"DEP-SALE-ERR","DeposiSeqNo__c":"1"}]}',
+      null
+    );
 
     Test.startTest();
     GdSaleApiControllerV1.createSale();
@@ -798,21 +853,36 @@ private class GdSaleApiControllerV1Test {
     GdSaleApiControllerV1.setOrderService(null);
     GdSaleApiControllerV1.setOrderItemService(new MockOrderItemService());
     GdSaleApiControllerV1.setSaleDepositService(new MockSaleDepositService());
-    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-DEFAULT-ORDER"}', null);
+    setupRestContext(
+      'POST',
+      '/services/apexrest/gd/v1/sale',
+      '{"SaleNo__c":"SALE-DEFAULT-ORDER","TransactionJournal":[{"DepositNo__c":"DEP-DEFAULT-ORDER","DeposiSeqNo__c":"1"}]}',
+      null
+    );
     GdSaleApiControllerV1.createSale();
     System.assertNotEquals(null, RestContext.response.statusCode);
 
     GdSaleApiControllerV1.setOrderService(new MockOrderService());
     GdSaleApiControllerV1.setOrderItemService(null);
     GdSaleApiControllerV1.setSaleDepositService(new MockSaleDepositService());
-    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-DEFAULT-ITEM"}', null);
+    setupRestContext(
+      'POST',
+      '/services/apexrest/gd/v1/sale',
+      '{"SaleNo__c":"SALE-DEFAULT-ITEM","TransactionJournal":[{"DepositNo__c":"DEP-DEFAULT-ITEM","DeposiSeqNo__c":"1"}]}',
+      null
+    );
     GdSaleApiControllerV1.createSale();
     System.assertNotEquals(null, RestContext.response.statusCode);
 
     GdSaleApiControllerV1.setOrderService(new MockOrderService());
     GdSaleApiControllerV1.setOrderItemService(new MockOrderItemService());
     GdSaleApiControllerV1.setSaleDepositService(null);
-    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-DEFAULT-DEPOSIT","TransactionJournal":[]}', null);
+    setupRestContext(
+      'POST',
+      '/services/apexrest/gd/v1/sale',
+      '{"SaleNo__c":"SALE-DEFAULT-DEPOSIT","TransactionJournal":[{"DepositNo__c":"DEP-DEFAULT-DEPOSIT","DeposiSeqNo__c":"1"}]}',
+      null
+    );
     GdSaleApiControllerV1.createSale();
     System.assertNotEquals(null, RestContext.response.statusCode);
 
@@ -978,7 +1048,12 @@ private class GdSaleApiControllerV1Test {
     GdSaleApiControllerV1.setOrderService(new MockOrderService());
     GdSaleApiControllerV1.setOrderItemService(new MockOrderItemServiceThrows());
     GdSaleApiControllerV1.setSaleDepositService(new MockSaleDepositService());
-    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-ITEM-ERR"}', null);
+    setupRestContext(
+      'POST',
+      '/services/apexrest/gd/v1/sale',
+      '{"SaleNo__c":"SALE-ITEM-ERR","TransactionJournal":[{"DepositNo__c":"DEP-ITEM-ERR","DeposiSeqNo__c":"1"}]}',
+      null
+    );
 
     Test.startTest();
     GdSaleApiControllerV1.createSale();
@@ -1008,7 +1083,12 @@ private class GdSaleApiControllerV1Test {
     GdSaleApiControllerV1.setOrderService(new MockOrderService());
     GdSaleApiControllerV1.setOrderItemService(new MockOrderItemService());
     GdSaleApiControllerV1.setSaleDepositService(new MockSaleDepositServiceThrows());
-    setupRestContext('POST', '/services/apexrest/gd/v1/sale', '{"SaleNo__c":"SALE-DEPOSIT-ERR-CREATE","TransactionJournal":[]}', null);
+    setupRestContext(
+      'POST',
+      '/services/apexrest/gd/v1/sale',
+      '{"SaleNo__c":"SALE-DEPOSIT-ERR-CREATE","TransactionJournal":[{"DepositNo__c":"DEP-DEPOSIT-ERR","DeposiSeqNo__c":"1"}]}',
+      null
+    );
 
     Test.startTest();
     GdSaleApiControllerV1.createSale();

@@ -23,7 +23,6 @@
  *   - 마커 추가 실패 시 try/catch — API 응답에 영향 X
  */
 public with sharing class GdReturnBranchHandler {
-
   // 환불 deposit TJ 의 AdditionalNotes 에 추가되는 마커
   @TestVisible
   private static final String MARKER = 'OPTC_BRANCH_RETURN_REGISTER';
@@ -37,8 +36,7 @@ public with sharing class GdReturnBranchHandler {
 
   // wrap 시 응답 data 에 추가되는 reason
   @TestVisible
-  private static final String WRAP_REASON =
-    '오픈 전 거래에 대한 환불 처리 — 포인트 자동 차감 적용. 미차감액 발생 시 정기 점검 검토 대상.';
+  private static final String WRAP_REASON = '오픈 전 거래에 대한 환불 처리 — 포인트 자동 차감 적용. 미차감액 발생 시 정기 점검 검토 대상.';
 
   // ============================================================
   // ① validateReturnAmountWithinPolicy
@@ -76,14 +74,20 @@ public with sharing class GdReturnBranchHandler {
       return; // 표준 검증으로 위임 (해당 필드 optional)
     }
 
+    /*
+    * 기존 로직
     if (requestedAmount <= 0) {
       throw new CustomException(
         400,
-        '환불 금액이 유효하지 않음 (기본 정책 위반). ' +
-        'requestedAmount=' + requestedAmount + '. ' +
-        '양수 금액으로 재요청 바람.'
+        '환불 금액이 유효하지 않음 (기본 정책 위반). ' + 'requestedAmount=' + requestedAmount + '. ' + '양수 금액으로 재요청 바람.'
       );
     }
+    */
+    // * 신규 로직 (26.05.21 CS) Start.
+    if (requestedAmount < 0) {
+      throw new CustomException(400, '환불 금액이 음수일 수 없습니다. 요청 반품 금액 : ' + requestedAmount);
+    }
+    // * 신규 로직 (26.05.21 CS) End.
 
     // 원판매 Order 조회
     List<Order> originalOrderList = [
@@ -101,8 +105,10 @@ public with sharing class GdReturnBranchHandler {
       throw new CustomException(
         400,
         '원판매 금액 정보 없음 — 환불 한도 검증 불가 (기본 정책 위반). ' +
-        'originalSaleNo=' + originalSaleNo + '. ' +
-        '데이터 보정 후 재시도. 또는 고객사 정책 결정 영역.'
+          'originalSaleNo=' +
+          originalSaleNo +
+          '. ' +
+          '데이터 보정 후 재시도. 또는 고객사 정책 결정 영역.'
       );
     }
 
@@ -110,10 +116,7 @@ public with sharing class GdReturnBranchHandler {
     List<Order> existingReturns = [
       SELECT Id, SaleNo__c, ActualPaymentAmount__c, Status
       FROM Order
-      WHERE OriginalOrderId__c = :originalOrderList[0].Id
-        AND IsDeleted__c = FALSE
-        AND IsReductionOrder__c = TRUE
-        AND Status = 'returnSuccess'
+      WHERE OriginalOrderId__c = :originalOrderList[0].Id AND IsDeleted__c = FALSE AND IsReductionOrder__c = TRUE AND Status = 'returnSuccess'
     ];
 
     Decimal totalReturned = 0;
@@ -133,14 +136,22 @@ public with sharing class GdReturnBranchHandler {
       throw new CustomException(
         400,
         '원판매 금액 초과 환불 불가 (기본 정책 위반). ' +
-        'originalSaleNo=' + originalSaleNo +
-        ', 원판매 금액=' + originalAmount +
-        ', 누계 환불 금액=' + totalReturned +
-        ', 이번 시도 금액=' + requestedAmount +
-        ', 합계=' + (totalReturned + requestedAmount) +
-        ', 잔여 환불 가능=' + remainingAllowed +
-        '. 기존 반품: [' + existingReturnSummary + ']. ' +
-        '초과 환불은 고객사 정책 결정 영역.'
+          'originalSaleNo=' +
+          originalSaleNo +
+          ', 원판매 금액=' +
+          originalAmount +
+          ', 누계 환불 금액=' +
+          totalReturned +
+          ', 이번 시도 금액=' +
+          requestedAmount +
+          ', 합계=' +
+          (totalReturned + requestedAmount) +
+          ', 잔여 환불 가능=' +
+          remainingAllowed +
+          '. 기존 반품: [' +
+          existingReturnSummary +
+          ']. ' +
+          '초과 환불은 고객사 정책 결정 영역.'
       );
     }
   }
@@ -166,11 +177,7 @@ public with sharing class GdReturnBranchHandler {
    *   - shouldApplyOptionCBranchBySaleNo(originalSaleNo) == true
    *   - 즉 IsEnabled=true + 옛 판매
    */
-  public static ApiResult wrapResponseIfSilentFail(
-    ApiResult standardResult,
-    Map<String, Object> reqData,
-    ApexLogger logger
-  ) {
+  public static ApiResult wrapResponseIfSilentFail(ApiResult standardResult, Map<String, Object> reqData, ApexLogger logger) {
     if (standardResult == null || standardResult.data == null) {
       return standardResult;
     }
@@ -186,8 +193,7 @@ public with sharing class GdReturnBranchHandler {
 
     // CancelPointsCreditedList 가 missing 또는 null → silent fail
     Boolean silentFailDetected =
-      !standardResult.data.containsKey('CancelPointsCreditedList') ||
-      standardResult.data.get('CancelPointsCreditedList') == null;
+      !standardResult.data.containsKey('CancelPointsCreditedList') || standardResult.data.get('CancelPointsCreditedList') == null;
 
     if (!silentFailDetected) {
       return standardResult; // 표준이 정상 처리 — wrap 불필요
@@ -217,17 +223,17 @@ public with sharing class GdReturnBranchHandler {
       logger.setStatus('PARTIAL');
       logger.setDescription(
         'Option C 분기 wrap: POST /return — silent fail 감지 (CancelPointsCreditedList null/missing), 응답 enriched. ' +
-        'originalSaleNo=' + reqData.get('OriginalOrderId') +
-        ', returnOrderId=' + reqData.get('orderId')
+          'originalSaleNo=' +
+          reqData.get('OriginalOrderId') +
+          ', returnOrderId=' +
+          reqData.get('orderId')
       );
     }
 
     // 4. Phase 6.4 — 환불 금액 기준 적립 추정 + 강제 차감 (force-debit)
     String origSaleNo = toString(reqData.get('OriginalOrderId'));
     Decimal reqAmount = toDecimal(reqData.get('ActualPaymentAmount__c'));
-    ForceDebitOutcome outcome = computeAndForceDebitForReturn(
-      origSaleNo, reqAmount, toString(reqData.get('orderId')), reqData
-    );
+    ForceDebitOutcome outcome = computeAndForceDebitForReturn(origSaleNo, reqAmount, toString(reqData.get('orderId')), reqData);
 
     // 응답 enrich (force-debit 결과)
     standardResult.data.put('option_c_force_debit_requested', outcome.requested);
@@ -266,14 +272,21 @@ public with sharing class GdReturnBranchHandler {
       outcome.requested,
       outcome.actual,
       'Phase 6.4 — silent fail visualized + force-debit applied. ' +
-      'returnOrderId=' + reqData.get('orderId') +
-      ', requestedRefundAmount=' + (reqAmount == null ? 'null' : reqAmount.toPlainString()) +
-      ', excludedItemAmount=' + outcome.excludedItemAmount +
-      ', nonAccrualPMAmount=' + outcome.nonAccrualPMAmount +
-      ', eligibleAmount=' + outcome.eligibleAmount +
-      ', forceDebitSuccess=' + outcome.success +
-      ', estimateBreakdown=' + outcome.breakdown +
-      (String.isBlank(outcome.error) ? '' : ', forceDebitError=' + outcome.error),
+        'returnOrderId=' +
+        reqData.get('orderId') +
+        ', requestedRefundAmount=' +
+        (reqAmount == null ? 'null' : reqAmount.toPlainString()) +
+        ', excludedItemAmount=' +
+        outcome.excludedItemAmount +
+        ', nonAccrualPMAmount=' +
+        outcome.nonAccrualPMAmount +
+        ', eligibleAmount=' +
+        outcome.eligibleAmount +
+        ', forceDebitSuccess=' +
+        outcome.success +
+        ', estimateBreakdown=' +
+        outcome.breakdown +
+        (String.isBlank(outcome.error) ? '' : ', forceDebitError=' + outcome.error),
       returnOrderIdForLog
     );
     if (logId != null) {
@@ -341,9 +354,7 @@ public with sharing class GdReturnBranchHandler {
       Id originalOrderId = origOrders[0].Id;
 
       // ContactId → LoyaltyProgramMember
-      List<LoyaltyProgramMember> lpms = [
-        SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE ContactId = :contactId LIMIT 1
-      ];
+      List<LoyaltyProgramMember> lpms = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE ContactId = :contactId LIMIT 1];
       if (lpms.isEmpty()) {
         out.error = 'loyalty member not found for contact';
         return out;
@@ -371,17 +382,14 @@ public with sharing class GdReturnBranchHandler {
       }
 
       // 적립 추정 (보정된 eligibleAmount 사용)
-      List<GdMigrationUtil.AccrualEstimate> estimates = GdMigrationUtil.calculateAccrualForOldOrder(
-        out.memberId, eligibleAmount, promotionId
-      );
+      List<GdMigrationUtil.AccrualEstimate> estimates = GdMigrationUtil.calculateAccrualForOldOrder(out.memberId, eligibleAmount, promotionId);
 
       Decimal totalRequested = 0;
       String breakdown = '';
       for (GdMigrationUtil.AccrualEstimate est : estimates) {
         if (est.points != null && est.points > 0) {
           totalRequested += est.points;
-          breakdown += (est.subtypeName == null ? '?' : est.subtypeName) +
-            '=' + est.points.toPlainString() + 'P, ';
+          breakdown += (est.subtypeName == null ? '?' : est.subtypeName) + '=' + est.points.toPlainString() + 'P, ';
         }
       }
       out.requested = totalRequested;
@@ -394,14 +402,25 @@ public with sharing class GdReturnBranchHandler {
 
       // 강제 차감 (잔액 부족 시 부분 차감 + 손실 기록)
       GdOptionCPointAdjustmentUtil.AccrualCancelResult fd = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
-        out.memberId, programId, originalOrderId, (Id) returnOrderId, totalRequested,
-        'OPTC_RETURN_REGISTER_ETC_ACCRUAL_CANCEL: returnOrderId=' + returnOrderId +
-        ', originalSaleNo=' + originalSaleNo +
-        ', refundAmount=' + refundAmount.toPlainString() +
-        ', excludedItemAmount=' + out.excludedItemAmount.toPlainString() +
-        ', nonAccrualPMAmount=' + out.nonAccrualPMAmount.toPlainString() +
-        ', eligibleAmount=' + eligibleAmount.toPlainString() +
-        ', breakdown=' + breakdown
+        out.memberId,
+        programId,
+        originalOrderId,
+        (Id) returnOrderId,
+        totalRequested,
+        'OPTC_RETURN_REGISTER_ETC_ACCRUAL_CANCEL: returnOrderId=' +
+          returnOrderId +
+          ', originalSaleNo=' +
+          originalSaleNo +
+          ', refundAmount=' +
+          refundAmount.toPlainString() +
+          ', excludedItemAmount=' +
+          out.excludedItemAmount.toPlainString() +
+          ', nonAccrualPMAmount=' +
+          out.nonAccrualPMAmount.toPlainString() +
+          ', eligibleAmount=' +
+          eligibleAmount.toPlainString() +
+          ', breakdown=' +
+          breakdown
       );
       out.actual = fd.actualPoints;
       out.loss = fd.loss;
@@ -432,8 +451,7 @@ public with sharing class GdReturnBranchHandler {
       List<TransactionJournal> tjs = [
         SELECT PromotionId
         FROM TransactionJournal
-        WHERE OrderId = :originalOrderId
-          AND PromotionId != null
+        WHERE OrderId = :originalOrderId AND PromotionId != NULL
         LIMIT 1
       ];
       return tjs.isEmpty() ? null : tjs[0].PromotionId;
@@ -487,9 +505,7 @@ public with sharing class GdReturnBranchHandler {
     List<TransactionJournal> tjs = [
       SELECT Id, AdditionalNotes__c
       FROM TransactionJournal
-      WHERE DepositNo__c IN :depositNos
-        AND IsDeleted__c = FALSE
-        AND JournalSubType.Name = 'Sale Deposit Reversal'
+      WHERE DepositNo__c IN :depositNos AND IsDeleted__c = FALSE AND JournalSubType.Name = 'Sale Deposit Reversal'
       LIMIT 50
     ];
     if (tjs.isEmpty()) {
@@ -497,8 +513,10 @@ public with sharing class GdReturnBranchHandler {
     }
 
     List<TransactionJournal> toUpdate = new List<TransactionJournal>();
-    String markerEntry = MARKER +
-      ': originalSaleNo=' + (originalSaleNo == null ? '' : originalSaleNo) +
+    String markerEntry =
+      MARKER +
+      ': originalSaleNo=' +
+      (originalSaleNo == null ? '' : originalSaleNo) +
       ', point_processing=skipped_due_to_migration';
 
     for (TransactionJournal tj : tjs) {
@@ -582,47 +600,49 @@ public with sharing class GdReturnBranchHandler {
    * 안전성: 모든 단계 try/catch, 실패 시 0 반환 (보정 안 함, 기존 동작 유지).
    */
   @TestVisible
-  private static Decimal computeExcludedItemAmountForReturn(
-    Id originalOrderId, Map<String, Object> reqData
-  ) {
-    if (originalOrderId == null || reqData == null) return 0;
+  private static Decimal computeExcludedItemAmountForReturn(Id originalOrderId, Map<String, Object> reqData) {
+    if (originalOrderId == null || reqData == null)
+      return 0;
     try {
       Object oiListObj = reqData.get('OrderItem');
-      if (!(oiListObj instanceof List<Object>)) return 0;
+      if (!(oiListObj instanceof List<Object>))
+        return 0;
 
       Set<Id> originalOiIdSet = new Set<Id>();
       Set<String> saleSeqNoSet = new Set<String>();
       List<Map<String, Object>> normalized = new List<Map<String, Object>>();
 
       for (Object v : (List<Object>) oiListObj) {
-        if (!(v instanceof Map<String, Object>)) continue;
+        if (!(v instanceof Map<String, Object>))
+          continue;
         Map<String, Object> oi = (Map<String, Object>) v;
         String oiIdStr = toString(oi.get('OriginalOrderItemId__c'));
         String saleSeqNo = toString(oi.get('SaleSeqNo__c'));
         Decimal netSalesUnitPrice = toDecimal(oi.get('NetSalesUnitPrice__c'));
         if (String.isNotBlank(oiIdStr)) {
-          try { originalOiIdSet.add((Id) oiIdStr); } catch (Exception e) {}
+          try {
+            originalOiIdSet.add((Id) oiIdStr);
+          } catch (Exception e) {
+          }
         }
-        if (String.isNotBlank(saleSeqNo)) saleSeqNoSet.add(saleSeqNo);
-        normalized.add(new Map<String, Object>{
-          'OriginalOrderItemId__c' => oiIdStr,
-          'SaleSeqNo__c' => saleSeqNo,
-          'NetSalesUnitPrice__c' => netSalesUnitPrice
-        });
+        if (String.isNotBlank(saleSeqNo))
+          saleSeqNoSet.add(saleSeqNo);
+        normalized.add(
+          new Map<String, Object>{ 'OriginalOrderItemId__c' => oiIdStr, 'SaleSeqNo__c' => saleSeqNo, 'NetSalesUnitPrice__c' => netSalesUnitPrice }
+        );
       }
-      if (originalOiIdSet.isEmpty() && saleSeqNoSet.isEmpty()) return 0;
+      if (originalOiIdSet.isEmpty() && saleSeqNoSet.isEmpty())
+        return 0;
 
       Map<Id, OrderItem> originalById = new Map<Id, OrderItem>();
       Map<String, OrderItem> originalBySaleSeqNo = new Map<String, OrderItem>();
       for (OrderItem origOi : [
         SELECT Id, SaleSeqNo__c, IsExclude__c, NetSalesUnitPrice__c, Quantity
         FROM OrderItem
-        WHERE OrderId = :originalOrderId
-          AND (Id IN :originalOiIdSet OR SaleSeqNo__c IN :saleSeqNoSet)
+        WHERE OrderId = :originalOrderId AND (Id IN :originalOiIdSet OR SaleSeqNo__c IN :saleSeqNoSet)
       ]) {
         originalById.put(origOi.Id, origOi);
-        if (String.isNotBlank(origOi.SaleSeqNo__c)
-            && !originalBySaleSeqNo.containsKey(origOi.SaleSeqNo__c)) {
+        if (String.isNotBlank(origOi.SaleSeqNo__c) && !originalBySaleSeqNo.containsKey(origOi.SaleSeqNo__c)) {
           originalBySaleSeqNo.put(origOi.SaleSeqNo__c, origOi);
         }
       }
@@ -635,13 +655,18 @@ public with sharing class GdReturnBranchHandler {
 
         OrderItem origOi = null;
         if (String.isNotBlank(oiIdStr)) {
-          try { origOi = originalById.get((Id) oiIdStr); } catch (Exception e) {}
+          try {
+            origOi = originalById.get((Id) oiIdStr);
+          } catch (Exception e) {
+          }
         }
         if (origOi == null && String.isNotBlank(saleSeqNo)) {
           origOi = originalBySaleSeqNo.get(saleSeqNo);
         }
-        if (origOi == null) continue;
-        if (origOi.IsExclude__c != true) continue;
+        if (origOi == null)
+          continue;
+        if (origOi.IsExclude__c != true)
+          continue;
 
         if (returnItemAmount != null) {
           excluded += returnItemAmount;
@@ -665,13 +690,16 @@ public with sharing class GdReturnBranchHandler {
    */
   @TestVisible
   private static Decimal computeNonAccrualPMAmountFromTjPayload(Map<String, Object> reqData) {
-    if (reqData == null) return 0;
+    if (reqData == null)
+      return 0;
     try {
       Object tjListObj = reqData.get('TransactionJournal');
-      if (!(tjListObj instanceof List<Object>)) return 0;
+      if (!(tjListObj instanceof List<Object>))
+        return 0;
       Decimal total = 0;
       for (Object tjObj : (List<Object>) tjListObj) {
-        if (!(tjObj instanceof Map<String, Object>)) continue;
+        if (!(tjObj instanceof Map<String, Object>))
+          continue;
         Map<String, Object> tj = (Map<String, Object>) tjObj;
         String pm = toString(tj.get('PaymentMethod'));
         Decimal amount = toDecimal(tj.get('TransactionAmount'));
