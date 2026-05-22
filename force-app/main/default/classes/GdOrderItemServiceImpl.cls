@@ -137,12 +137,39 @@ public with sharing class GdOrderItemServiceImpl implements GdOrderItemService {
   /**
    * 주문 상세 수정
    * OrderItem upsert
+   *
+   * [신규 로직 (26.05.22 CS)]
+   *   기존 upsert (OrderItemNo__c 외부 ID 매칭) 패턴은 SF 의 OrderItem.PricebookEntryId
+   *   update 제약 (read-only after insert) 으로 품목 변경 시 INVALID_FIELD_FOR_INSERT_UPDATE 발생.
+   *   → 해당 주문의 기존 OrderItem 전수 delete 후 요청 OrderItem 신규 insert 로 변경.
+   *
+   * 안전성:
+   *   - 본 메서드는 "주문 상세 수정" 전용 (ERP 차원에서 판매된 주문은 수정 불가 보장)
+   *     → 주문 OrderItem 은 반품/판매 OrderItem 의 OriginalOrderItemId__c 참조 대상이 아님
+   *     → hard delete 시 외부 참조 정합성 위협 없음
+   *   - TransactionJournal / LoyaltyLedger 는 Order 단위 참조이고 OrderItem 직접 참조 없음
+   *   - 트랜잭션 원자성은 controller (GdOrderApiControllerV1.updateOrder) 의 Savepoint 로 보장됨
+   *   - Order.Status='Activated' 이면 SF 플랫폼이 OrderItem delete 자체를 막을 수 있으나,
+   *     ERP 정책상 판매 전 주문만 수정 가능하므로 'Draft' 상태가 보장됨
    */
   public ApiResult upsertOrderItem(Map<String, Object> reqData) {
     try {
       List<Object> orderItemList = ValidationUtil.listObjValidation(reqData.get('OrderItem'), 'OrderItem', true);
       String orderId = ValidationUtil.stringValidation(reqData.get('orderId'), 'orderId', true);
 
+      // [Step 1] 해당 주문의 기존 OrderItem 전수 삭제
+      List<OrderItem> existingItems = [SELECT Id FROM OrderItem WHERE OrderId = :orderId];
+      if (!existingItems.isEmpty()) {
+        List<Database.DeleteResult> deleteResults = Database.delete(existingItems, true);
+        for (Database.DeleteResult dr : deleteResults) {
+          if (!dr.isSuccess()) {
+            Database.Error err = dr.getErrors()[0];
+            throw new CustomException(400, '기존 주문 상세 삭제 실패: ' + err.getMessage());
+          }
+        }
+      }
+
+      // [Step 2] 요청 OrderItem 신규 build
       List<OrderItem> oiList = new List<OrderItem>();
 
       for (Object v : orderItemList) {
@@ -195,12 +222,12 @@ public with sharing class GdOrderItemServiceImpl implements GdOrderItemService {
         oiList.add(oi);
       }
 
-      List<Database.UpsertResult> resultList = Database.upsert(oiList, OrderItem.OrderItemNo__c);
-
-      for (Database.UpsertResult result : resultList) {
-        if (!result.isSuccess()) {
-          Database.Error err = result.getErrors()[0];
-          throw new CustomException(400, err.getMessage());
+      // [Step 3] 요청 OrderItem 신규 insert
+      List<Database.SaveResult> insertResults = Database.insert(oiList, true);
+      for (Database.SaveResult sr : insertResults) {
+        if (!sr.isSuccess()) {
+          Database.Error err = sr.getErrors()[0];
+          throw new CustomException(400, '주문 상세 등록 실패: ' + err.getMessage());
         }
       }
 

@@ -5,7 +5,7 @@ private class GdOrderItemServiceImplTest {
   // =========================================================
   private static Id ensureStdPricebookActive() {
     Id pbId = Test.getStandardPricebookId();
-    try { update new Pricebook2(Id = pbId, IsActive = true); } catch (Exception lockEx) { /* parallel @TestSetup lock conflict - safe to ignore (idempotent) */ }
+    update new Pricebook2(Id = pbId, IsActive = true);
     return pbId;
   }
 
@@ -645,6 +645,45 @@ private class GdOrderItemServiceImplTest {
       System.assert(true, 'org 제약: ' + e.getMessage());
     }
     Test.stopTest();
+  }
+
+  @IsTest
+  static void createSaleItem_sourceOrderType03_forcesIsExcludeTrue() {
+    Order ord = [SELECT Id, Type FROM Order WHERE OrderNo__c = 'ORD-OIS-001' LIMIT 1];
+    ord.Type = '03';
+    update ord;
+
+    GdOrderItemServiceImpl svc = new GdOrderItemServiceImpl();
+
+    Test.startTest();
+    ApiResult res = svc.createSaleItem(
+      new Map<String, Object>{
+        'orderId' => String.valueOf(ord.Id),
+        'OrderItem' => new List<Object>{
+          new Map<String, Object>{
+            'SaleSeqNo__c' => 'SALE-SEQ-TYPE03',
+            'ProductCode' => 'TEST-OIS-001',
+            'Quantity' => 1,
+            'NetSalesUnitPrice__c' => 10000,
+            'isExclude' => false,
+            'OrderNo__c' => 'ORD-OIS-001'
+          }
+        }
+      }
+    );
+    Test.stopTest();
+
+    System.assertEquals(true, res.success);
+
+    String expectedSaleItemNo = String.valueOf(ord.Id) + '-SALE-SEQ-TYPE03';
+    OrderItem createdItem = [
+      SELECT Id, OrderId__c, IsExclude__c
+      FROM OrderItem
+      WHERE SaleItemNo__c = :expectedSaleItemNo
+      LIMIT 1
+    ];
+    System.assertEquals(ord.Id, createdItem.OrderId__c);
+    System.assertEquals(true, createdItem.IsExclude__c, 'Source Order Type 03 should force exclusion.');
   }
 
   @IsTest
