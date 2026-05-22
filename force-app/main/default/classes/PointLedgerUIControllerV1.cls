@@ -5,6 +5,7 @@ public with sharing class PointLedgerUIControllerV1 {
   private static final String JOURNAL_SUBTYPE_PURCHASE_ACCRUAL = 'Purchase Accrual';
   private static final String JOURNAL_SUBTYPE_CANCEL_PURCHASE_ACCRUAL = 'Cancel Purchase Accrual';
   private static final String JOURNAL_SUBTYPE_POINT_REDEEM_CANCEL = 'Point Redeem Cancel';
+  private static final String JOURNAL_TYPE_ACCRUAL_REVERSAL = 'Accrual Reversal';
   private static Map<String, Id> journalSubTypeIdsByName;
 
   @AuraEnabled(cacheable=true)
@@ -115,27 +116,23 @@ public with sharing class PointLedgerUIControllerV1 {
     }
 
     Set<Id> orderIds = new Set<Id>();
-    Set<Id> subtypeIds = new Set<Id>();
+    Set<Id> creditLedgerIds = new Set<Id>();
 
     for (LoyaltyLedger ledger : creditLedgers) {
-      subtypeIds.add(ledger.LoyaltyPgmCrcySubtypeId);
+      creditLedgerIds.add(ledger.Id);
       if (ledger.TransactionJournal != null && ledger.TransactionJournal.OrderId != null) {
         orderIds.add(ledger.TransactionJournal.OrderId);
       }
     }
 
-    Map<String, UsageSummary> usageByOrderSubtype = buildUsageSummaryMap(loyaltyProgramMemberId, orderIds, subtypeIds);
+    Map<Id, UsageSummary> usageByCreditLedgerId = buildUsageSummaryMap(loyaltyProgramMemberId, creditLedgerIds);
     Map<Id, PaymentSummary> paymentByOrderId = buildPaymentSummaryMap(orderIds);
 
     List<PointLedgerRowDTO> results = new List<PointLedgerRowDTO>();
 
     for (LoyaltyLedger ledger : creditLedgers) {
       PointLedgerRowDTO row = new PointLedgerRowDTO();
-      String usageKey = buildOrderSubtypeKey(
-        ledger.TransactionJournal != null ? ledger.TransactionJournal.OrderId : null,
-        ledger.LoyaltyPgmCrcySubtypeId
-      );
-      UsageSummary usage = usageByOrderSubtype.get(usageKey);
+      UsageSummary usage = usageByCreditLedgerId.get(ledger.Id);
 
       row.ledgerId = ledger.Id;
       row.pointTypeName = ledger.LoyaltyPgmCrcySubtype != null ? ledger.LoyaltyPgmCrcySubtype.Name : '';
@@ -518,42 +515,43 @@ public with sharing class PointLedgerUIControllerV1 {
     return journal != null && journal.JournalDate != null ? journal.JournalDate.date() : null;
   }
 
-  private static Map<String, UsageSummary> buildUsageSummaryMap(Id loyaltyProgramMemberId, Set<Id> orderIds, Set<Id> subtypeIds) {
-    Map<String, UsageSummary> result = new Map<String, UsageSummary>();
+  private static Map<Id, UsageSummary> buildUsageSummaryMap(Id loyaltyProgramMemberId, Set<Id> creditLedgerIds) {
+    Map<Id, UsageSummary> result = new Map<Id, UsageSummary>();
 
-    if (orderIds.isEmpty() || subtypeIds.isEmpty()) {
+    if (loyaltyProgramMemberId == null || creditLedgerIds == null || creditLedgerIds.isEmpty()) {
       return result;
     }
 
-    Id cancelPurchaseAccrualSubTypeId = getJournalSubTypeIdByName(JOURNAL_SUBTYPE_CANCEL_PURCHASE_ACCRUAL);
     for (AggregateResult ar : [
-      SELECT TransactionJournal.OrderId orderId, LoyaltyPgmCrcySubtypeId subtypeId, EventType eventType, SUM(Points) totalPoints
-      FROM LoyaltyLedger
+      SELECT CreditLoyaltyLedgerId creditLedgerId, ActionType actionType, SUM(Points) totalPoints
+      FROM LoyaltyLedgerTraceability
       WHERE
         LoyaltyProgramMemberId = :loyaltyProgramMemberId
-        AND EventType IN ('Debit', 'Expiry')
-        AND TransactionJournal.OrderId IN :orderIds
-        AND LoyaltyPgmCrcySubtypeId IN :subtypeIds
-        AND (TransactionJournal.JournalSubTypeId = NULL
-        OR TransactionJournal.JournalSubTypeId != :cancelPurchaseAccrualSubTypeId)
-      GROUP BY TransactionJournal.OrderId, LoyaltyPgmCrcySubtypeId, EventType
+        AND CreditLoyaltyLedgerId IN :creditLedgerIds
+        AND ((ActionType = 'Debit'
+        AND (DebitLoyaltyLedgerId = NULL
+        OR DebitLoyaltyLedger.TransactionJournal.JournalType.Name != :JOURNAL_TYPE_ACCRUAL_REVERSAL))
+        OR ActionType = 'Expiry'
+        OR (ActionType = 'CreditCancellation'
+        AND DebitLoyaltyLedger.TransactionJournal.JournalType.Name = :JOURNAL_TYPE_ACCRUAL_REVERSAL))
+        AND (DebitLoyaltyLedgerId = NULL
+        OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
+      GROUP BY CreditLoyaltyLedgerId, ActionType
     ]) {
-      Id orderId = (Id) ar.get('orderId');
-      Id subtypeId = (Id) ar.get('subtypeId');
-      String eventType = (String) ar.get('eventType');
+      Id creditLedgerId = (Id) ar.get('creditLedgerId');
+      String actionType = (String) ar.get('actionType');
       Decimal totalPoints = (Decimal) ar.get('totalPoints');
-      String key = buildOrderSubtypeKey(orderId, subtypeId);
 
-      if (!result.containsKey(key)) {
-        result.put(key, new UsageSummary());
+      if (!result.containsKey(creditLedgerId)) {
+        result.put(creditLedgerId, new UsageSummary());
       }
 
       Integer amount = totalPoints == null ? 0 : Integer.valueOf(totalPoints.abs());
-      UsageSummary usage = result.get(key);
+      UsageSummary usage = result.get(creditLedgerId);
 
-      if (eventType == 'Debit') {
+      if (actionType == 'Debit') {
         usage.usedPoints += amount;
-      } else if (eventType == 'Expiry') {
+      } else if (actionType == 'Expiry' || actionType == 'CreditCancellation') {
         usage.expiredPoints += amount;
       }
     }
