@@ -49,6 +49,13 @@ private class SlackNotifierTest {
     return p;
   }
 
+  private static SlackNotifier.AlertPayload payload(String riskLevel, String activityType) {
+    SlackNotifier.AlertPayload p = payload(riskLevel);
+    p.activityType = activityType;
+    p.threshold = null;
+    return p;
+  }
+
   private static Boolean hasActiveConfig() {
     Slack_Config__mdt config = Slack_Config__mdt.getInstance('Member_Activity_Alert');
     return config != null && config.Is_Active__c == true && String.isNotBlank(config.Webhook_URL__c);
@@ -79,6 +86,27 @@ private class SlackNotifierTest {
       System.assert(mockLastEndpoint.startsWith('https://'));
       System.assert(mockLastBody.contains('Slack Test Member'));
       System.assert(mockLastBody.contains('Login'));
+    } else {
+      System.assertEquals(false, result);
+      System.assertEquals(0, mockCallCount);
+    }
+  }
+
+  @IsTest
+  static void sendAlertSync_immediateReturnCreateUsesMediumLabel() {
+    resetMockState();
+    Test.setMock(HttpCalloutMock.class, new SlackHttpMock(200, 'ok'));
+
+    Test.startTest();
+    Boolean result = SlackNotifier.sendAlertSync(payload('Medium', 'ReturnCreate'));
+    Test.stopTest();
+
+    if (hasActiveConfig()) {
+      System.assertEquals(true, result);
+      System.assertEquals(1, mockCallCount);
+      System.assert(mockLastBody.contains('반품 등록'));
+      System.assert(mockLastBody.contains('보통'));
+      System.assert(!mockLastBody.contains('기준'), 'Immediate alert must not render threshold text.');
     } else {
       System.assertEquals(false, result);
       System.assertEquals(0, mockCallCount);

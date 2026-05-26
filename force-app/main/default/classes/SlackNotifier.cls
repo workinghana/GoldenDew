@@ -1,27 +1,21 @@
 public class SlackNotifier {
   public class AlertPayload {
-    public String memberId; // 회원 360 Id
-    public String memberName; // 회원 이름
-    public String memberNo; // 회원 번호
+    public String memberId;
+    public String memberName;
+    public String memberNo;
     public Integer count;
     public Integer threshold;
     public String activityType;
     public String riskLevel;
+    public String detailMessage;
   }
 
-  /**
-   * 비동기 진입점 (일반 컨텍스트에서 호출용)
-   */
   @future(callout=true)
   public static void sendAlert(String payloadJson) {
     AlertPayload payload = (AlertPayload) JSON.deserialize(payloadJson, AlertPayload.class);
     sendAlertSync(payload);
   }
 
-  /**
-   * 동기 메서드 - 이미 비동기 컨텍스트에서 호출용
-   * @return 발송 성공 여부 (true: 성공, false: 실패)
-   */
   public static Boolean sendAlertSync(AlertPayload payload) {
     try {
       Slack_Config__mdt config = Slack_Config__mdt.getInstance('Member_Activity_Alert');
@@ -30,92 +24,121 @@ public class SlackNotifier {
         return false;
       }
 
-      String body = buildMessage(payload);
-
       HttpRequest req = new HttpRequest();
       req.setEndpoint(config.Webhook_URL__c);
       req.setMethod('POST');
       req.setHeader('Content-Type', 'application/json');
-      req.setBody(body);
+      req.setBody(buildMessage(payload));
       req.setTimeout(10000);
 
       HttpResponse res = new Http().send(req);
-
       if (res.getStatusCode() == 200) {
-        System.debug('✅ Slack 알림 발송 성공: ' + payload.memberName);
-        return true; // ✅ 성공
-      } else if (res.getStatusCode() == 429) {
-        String retryAfter = res.getHeader('Retry-After');
-        System.debug(LoggingLevel.WARN, '⚠️ Slack Rate Limit. Retry-After: ' + retryAfter + 's');
-        return false; // ❌ 실패 (재시도 대상)
-      } else {
-        System.debug(LoggingLevel.ERROR, '❌ Slack 발송 실패: ' + res.getStatusCode() + ' / ' + res.getBody());
-        return false; // ❌ 실패
+        System.debug('Slack 알림 발송 성공: ' + payload.memberName);
+        return true;
       }
+      if (res.getStatusCode() == 429) {
+        System.debug(LoggingLevel.WARN, 'Slack Rate Limit. Retry-After: ' + res.getHeader('Retry-After') + 's');
+        return false;
+      }
+
+      System.debug(LoggingLevel.ERROR, 'Slack 발송 실패: ' + res.getStatusCode() + ' / ' + res.getBody());
+      return false;
     } catch (Exception e) {
-      System.debug(LoggingLevel.ERROR, '❌ Slack Callout 오류: ' + e.getMessage() + '\n' + e.getStackTraceString());
-      return false; // ❌ 실패
+      System.debug(LoggingLevel.ERROR, 'Slack Callout 오류: ' + e.getMessage() + '\n' + e.getStackTraceString());
+      return false;
     }
   }
 
-  /**
-   * Slack Block Kit 형식의 메시지 본문 생성
-   */
-  private static String buildMessage(AlertPayload p) {
-    // ... 기존 코드 그대로 ...
-    String orgUrl = URL.getOrgDomainUrl().toExternalForm();
-    String memberLink = orgUrl + '/' + p.memberId;
-    String emoji = getRiskEmoji(p.riskLevel);
+  private static String buildMessage(AlertPayload payload) {
+    if (payload == null) {
+      throw new IllegalArgumentException('payload is required.');
+    }
 
-    Map<String, Object> msg = new Map<String, Object>{
+    String memberLink = URL.getOrgDomainUrl().toExternalForm() + '/' + payload.memberId;
+    String memberText = '<' + memberLink + '|' + String.valueOf(payload.memberName) + '> (`' + String.valueOf(payload.memberNo) + '`)';
+    String countText = String.valueOf(payload.count == null ? 0 : payload.count) + '건';
+    if (payload.threshold != null && payload.threshold > 0) {
+      countText += ' / 기준 ' + String.valueOf(payload.threshold) + '건';
+    }
+
+    List<String> lines = new List<String>{
+      getRiskEmoji(payload.riskLevel) + ' *회원 활동 모니터링* | *' + getRiskLabel(payload.riskLevel) + '*',
+      '*회원* ' + memberText,
+      '*유형* ' + getActivityLabel(payload.activityType) + '  |  *발생* ' + countText
+    };
+    if (String.isNotBlank(payload.detailMessage)) {
+      lines.add('*상세* ' + payload.detailMessage);
+    }
+    lines.add('*시각* ' + DateTime.now().format('yyyy-MM-dd HH:mm'));
+
+    Map<String, Object> message = new Map<String, Object>{
       'text' => '[골든듀 모니터링] 회원 활동 모니터링 대상 안내',
       'blocks' => new List<Object>{
         new Map<String, Object>{
-          'type' => 'header',
-          'text' => new Map<String, Object>{ 'type' => 'plain_text', 'text' => emoji + ' 회원 활동 모니터링 대상 안내' }
-        },
-        new Map<String, Object>{
           'type' => 'section',
-          'fields' => new List<Object>{
-            new Map<String, Object>{ 'type' => 'mrkdwn', 'text' => '*회원명:*\n<' + memberLink + '|' + p.memberName + '>' },
-            new Map<String, Object>{ 'type' => 'mrkdwn', 'text' => '*회원번호:*\n' + p.memberNo },
-            new Map<String, Object>{ 'type' => 'mrkdwn', 'text' => '*활동 유형:*\n' + p.activityType },
-            new Map<String, Object>{ 'type' => 'mrkdwn', 'text' => '*오늘 발생 횟수:*\n' + p.count + '회' },
-            new Map<String, Object>{ 'type' => 'mrkdwn', 'text' => '*기준 횟수:*\n' + p.threshold + '회' },
-            new Map<String, Object>{ 'type' => 'mrkdwn', 'text' => '*모니터링 등급:*\n' + p.riskLevel },
-            new Map<String, Object>{ 'type' => 'mrkdwn', 'text' => '*발생 시각:*\n' + DateTime.now().format('yyyy-MM-dd HH:mm') }
-          }
-        },
-        new Map<String, Object>{
-          'type' => 'actions',
-          'elements' => new List<Object>{
-            new Map<String, Object>{
-              'type' => 'button',
-              'text' => new Map<String, Object>{ 'type' => 'plain_text', 'text' => '회원 상세 보기' },
-              'url' => memberLink,
-              'style' => 'primary'
-            }
-          }
+          'text' => new Map<String, Object>{ 'type' => 'mrkdwn', 'text' => String.join(lines, '\n') }
         }
       }
     };
-
-    return JSON.serialize(msg);
+    return JSON.serialize(message);
   }
 
   private static String getRiskEmoji(String riskLevel) {
     switch on riskLevel {
       when 'High' {
-        return '🔴';
+        return ':rotating_light:';
       }
       when 'Medium' {
-        return '🟡';
+        return ':warning:';
       }
       when 'Low' {
-        return '🟢';
+        return ':information_source:';
       }
       when else {
-        return '🔔';
+        return ':grey_question:';
+      }
+    }
+  }
+
+  private static String getRiskLabel(String riskLevel) {
+    switch on riskLevel {
+      when 'High' {
+        return '긴급';
+      }
+      when 'Medium' {
+        return '보통';
+      }
+      when 'Low' {
+        return '낮음';
+      }
+      when else {
+        return '낮음';
+      }
+    }
+  }
+
+  private static String getActivityLabel(String activityType) {
+    switch on activityType {
+      when 'Order' {
+        return '주문';
+      }
+      when 'Sale' {
+        return '판매';
+      }
+      when 'SaleDelete' {
+        return '판매 삭제';
+      }
+      when 'ReturnCreate' {
+        return '반품 등록';
+      }
+      when 'ReturnDelete' {
+        return '반품 삭제';
+      }
+      when 'Return' {
+        return '반품';
+      }
+      when else {
+        return String.valueOf(activityType);
       }
     }
   }

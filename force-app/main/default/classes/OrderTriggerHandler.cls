@@ -29,7 +29,9 @@ public without sharing class OrderTriggerHandler extends TriggerHandler {
       Map<String, Set<Id>> monitoringContactIdsByType = new Map<String, Set<Id>>{
         'Order' => new Set<Id>(),
         'Sale' => new Set<Id>(),
-        'Return' => new Set<Id>()
+        'SaleDelete' => new Set<Id>(),
+        'ReturnCreate' => new Set<Id>(),
+        'ReturnDelete' => new Set<Id>()
       };
 
       // 🆕 모니터링 대상 존재 여부 플래그 (성능: 매번 Map 순회 안 하도록)
@@ -72,11 +74,11 @@ public without sharing class OrderTriggerHandler extends TriggerHandler {
             hasMonitoringTarget = true;
           }
           if (toSaleSuccess || toSaleDeleted) {
-            monitoringContactIdsByType.get('Sale').add(newO.MemberNo__c);
+            monitoringContactIdsByType.get(toSaleSuccess ? 'Sale' : 'SaleDelete').add(newO.MemberNo__c);
             hasMonitoringTarget = true;
           }
           if (toReturnSuccess || toReturnDeleted) {
-            monitoringContactIdsByType.get('Return').add(newO.MemberNo__c);
+            monitoringContactIdsByType.get(toReturnSuccess ? 'ReturnCreate' : 'ReturnDelete').add(newO.MemberNo__c);
             hasMonitoringTarget = true;
           }
         }

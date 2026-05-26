@@ -88,14 +88,16 @@ public with sharing class GdOptionCPointAdjustmentUtil {
       Map<Id, Decimal> debitByCreditId = new Map<Id, Decimal>();
       Map<Id, Decimal> debitCancelByCreditId = new Map<Id, Decimal>();
       Map<Id, Decimal> creditCancelByCreditId = new Map<Id, Decimal>();
+      // [Fix #2,#5 2026-05-25] TJ.IsDeleted__c 필터 제거 — LASEL trigger net 시맨틱과 통일
+      //   배경: 같은 트랜잭션에서 방금 IsDel=true 마킹된 Debit 까지 used 에서 제외시켜
+      //         가짜 available 잔액 발생 → OPTC_CREDIT lump 부당 차감 → LASEL 음수.
+      //   해결: LLT 자체 IsDeleted 만 신뢰. TJ.IsDeleted__c 무관하게 net 계산.
+      //         결과적으로 OPTC_CREDIT (use_sum 표현) 의 available=0 으로 정확 계산되어
+      //         후보에서 자동 제외, 회수는 OPTC_RESIDUAL 향으로만 진행됨.
       for (AggregateResult ar : [
         SELECT CreditLoyaltyLedgerId creditId, ActionType actionType, SUM(Points) totalPoints
         FROM LoyaltyLedgerTraceability
-        WHERE
-          CreditLoyaltyLedgerId IN :creditIds
-          AND ActionType IN ('Debit', 'DebitCancellation', 'CreditCancellation')
-          AND (DebitLoyaltyLedgerId = NULL
-          OR DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE)
+        WHERE CreditLoyaltyLedgerId IN :creditIds AND ActionType IN ('Debit', 'DebitCancellation', 'CreditCancellation') AND IsDeleted = FALSE
         GROUP BY CreditLoyaltyLedgerId, ActionType
       ]) {
         Id creditId = (Id) ar.get('creditId');

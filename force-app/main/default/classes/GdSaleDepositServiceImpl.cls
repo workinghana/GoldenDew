@@ -1808,7 +1808,15 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
 
       // 포인트 사용 취소
       if (tjList[0].JournalSubTypeId == pointDebitJstId || tjList[0].JournalSubTypeId == couponRedeemJstId) {
-        if (!isOptionCOldSale && tjList[0].OrderId__c == null) {
+        // [Fix #4 2026-05-25] 옛 판매(OPTC)에도 환원 호출 — carry-over 만 제외
+        //   배경: 변경 전 코드는 !isOptionCOldSale 가드로 옛 판매면 표준 환원 호출 자체를 skip.
+        //         사용자의 사용 포인트/쿠폰이 환원되지 않아 영구 손실 (회원 253001700092 사건 패턴).
+        //   해결: 옛 판매도 환원 호출 진입. 단 옛 판매의 포인트 환원은 OPTC 합성 lump 구조에
+        //         맞춘 cancelOldSalePointUsageSafe (옵션 C 전용 메서드) 호출. 쿠폰은 표준 흐름.
+        //   carry-over (OrderId__c != null) 는 Fix #1, #2 가 별도 처리하므로 제외.
+        //   이중 호출 방지는 메서드 시작 SOQL 의 IsDel=FALSE 조건이 보장 (첫 호출 후 원본 TJ 가
+        //   IsDel=TRUE + del_ prefix 로 변경되어 두 번째 호출은 매칭 단계에서 차단됨).
+        if (tjList[0].OrderId__c == null) {
           TransactionJournal newTj = tjList[0].clone(false, true, false, false); // (ID 복사 여부 | 관계 필드 복사 여부 | 생성 일시, 수정 일시 유지 여부 | 자동 등가 번호 유지 여부)
           newTj.JournalDate = Datetime.now();
           newTj.ActivityDate = Datetime.now();
@@ -1816,14 +1824,33 @@ public with sharing class GdSaleDepositServiceImpl implements GdSaleDepositServi
 
           if (tjList[0].JournalSubTypeId == pointDebitJstId) {
             newTj.DepositNo__c = 'del_point_' + tjList[0].DepositNo__c; // Carson 수정 2026-04-17
-            // 포인트 사용 취소
-            // newTj.Status = 'Pending';
-            Map<String, Object> pointRedemptionCanceled = new Map<String, Object>();
-            pointRedemptionCanceled = getPointService().cancelPointRedemption(newTj);
-            data.put('pointRedemptionCanceled', pointRedemptionCanceled);
+            if (isOptionCOldSale) {
+              // [Fix #4] 옛 판매: OPTC 합성 lump 의 LLT 구조에 맞는 전용 환원 메서드 호출
+              GdMigrationUtil.CancelOldSalePointUsageResult optCResult = GdMigrationUtil.cancelOldSalePointUsageSafe(tjList[0]);
+              data.put(
+                'pointRedemptionCanceled',
+                new Map<String, Object>{
+                  'optionCRestore' => true,
+                  'success' => optCResult.success,
+                  'requested' => optCResult.requestedPoints,
+                  'actual' => optCResult.actualPoints,
+                  'unprocessed' => optCResult.unprocessed,
+                  'creditTjId' => optCResult.creditTjId,
+                  'matchedLLTCount' => optCResult.matchedLLTCount,
+                  'lltMissing' => optCResult.lltMissing,
+                  'error' => optCResult.error
+                }
+              );
+            } else {
+              // 신규 판매: 표준 환원 (변경 전과 동일 흐름)
+              // newTj.Status = 'Pending';
+              Map<String, Object> pointRedemptionCanceled = new Map<String, Object>();
+              pointRedemptionCanceled = getPointService().cancelPointRedemption(newTj);
+              data.put('pointRedemptionCanceled', pointRedemptionCanceled);
+            }
           } else {
             newTj.DepositNo__c = 'del_coupon_' + tjList[0].DepositNo__c; // Carson 수정 2026-04-17
-            // 쿠폰 사용 취소
+            // 쿠폰 사용 취소 (옛/신규 분기 무관 — Voucher.Status='Issued' 복원 동일)
             newTj.Status = 'Processed';
             ApiResult voucherResult = getVoucherService().redeemCancelVoucher(newTj);
             data.put('couponCanceled', voucherResult.data);

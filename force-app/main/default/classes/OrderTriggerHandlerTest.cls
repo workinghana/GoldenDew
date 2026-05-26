@@ -2,6 +2,15 @@
 private class OrderTriggerHandlerTest {
   private static Integer seq = 0;
 
+  private class SlackHttpMock implements HttpCalloutMock {
+    public HttpResponse respond(HttpRequest req) {
+      HttpResponse res = new HttpResponse();
+      res.setStatusCode(200);
+      res.setBody('ok');
+      return res;
+    }
+  }
+
   private static Account createStoreAccount() {
     seq++;
     Account acc = new Account(Name = 'OrderTrigger Store ' + seq, StoreCode__c = 'OT-ST-' + seq, StoreType__c = '11', StoreTypeFour__c = '01');
@@ -258,6 +267,66 @@ private class OrderTriggerHandlerTest {
     ];
     System.assertEquals(Date.today(), member.Last_Activity_Date__c);
     System.assertEquals(1, Integer.valueOf(member.Daily_Activity_Count__c));
+  }
+
+  @IsTest
+  static void trigger_afterUpdate_saleDeleteAndReturnEvents_enqueueImmediateMonitoring() {
+    ApexLogger.disableLogging();
+
+    Account store = createStoreAccount();
+    Id pbId = ensurePricebook();
+    PricebookEntry pbe = createPricebookEntry(pbId);
+    LoyaltyProgram lp = createLoyaltyProgram();
+
+    Contact cSaleDelete = createContact('MonitorSaleDelete', 0);
+    Contact cReturnCreate = createContact('MonitorReturnCreate', 0);
+    Contact cReturnDelete = createContact('MonitorReturnDelete', 0);
+    createActiveMember(cSaleDelete, lp);
+    createActiveMember(cReturnCreate, lp);
+    createActiveMember(cReturnDelete, lp);
+
+    Order saleDelete = createOrder(store.Id, pbId, cSaleDelete.Id, Date.newInstance(2026, 2, 10), 'Draft');
+    Order returnCreate = createOrder(store.Id, pbId, cReturnCreate.Id, Date.newInstance(2026, 2, 10), 'Draft');
+    Order returnDelete = createOrder(store.Id, pbId, cReturnDelete.Id, Date.newInstance(2026, 2, 10), 'Draft');
+
+    Order baseReturn = createOrder(store.Id, pbId, cReturnCreate.Id, Date.newInstance(2026, 2, 1), 'Draft');
+    OrderItem baseReturnItem = createOrderItem(baseReturn.Id, pbe.Id, 30, null);
+
+    createOrderItem(saleDelete.Id, pbe.Id, 20, null);
+    createOrderItem(returnCreate.Id, pbe.Id, 1, baseReturnItem.Id);
+    createOrderItem(returnDelete.Id, pbe.Id, 1, baseReturnItem.Id);
+
+    List<Order> toUpdate = [
+      SELECT Id, Status
+      FROM Order
+      WHERE Id IN :new Set<Id>{ saleDelete.Id, returnCreate.Id, returnDelete.Id }
+    ];
+    for (Order orderRecord : toUpdate) {
+      if (orderRecord.Id == saleDelete.Id) {
+        orderRecord.Status = 'saleDeleted';
+      } else if (orderRecord.Id == returnCreate.Id) {
+        orderRecord.Status = 'returnSuccess';
+      } else if (orderRecord.Id == returnDelete.Id) {
+        orderRecord.Status = 'returnDeleted';
+      }
+    }
+
+    Test.setMock(HttpCalloutMock.class, new SlackHttpMock());
+    Test.startTest();
+    update toUpdate;
+    Test.stopTest();
+
+    Map<Id, Order> reloadedById = new Map<Id, Order>(
+      [
+        SELECT Id, Status
+        FROM Order
+        WHERE Id IN :new Set<Id>{ saleDelete.Id, returnCreate.Id, returnDelete.Id }
+      ]
+    );
+
+    System.assertEquals('saleDeleted', reloadedById.get(saleDelete.Id).Status);
+    System.assertEquals('returnSuccess', reloadedById.get(returnCreate.Id).Status);
+    System.assertEquals('returnDeleted', reloadedById.get(returnDelete.Id).Status);
   }
 
   @IsTest

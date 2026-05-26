@@ -77,6 +77,8 @@ private class GdOptionCPointAdjustmentUtilTest {
     Id currencyId;
     Id subtypeId;
     Id creditLedgerId;
+    Id debitLedgerId;
+    Id debitTransactionJournalId;
     Id originalOrderId;
     Id returnOrderId;
   }
@@ -107,6 +109,8 @@ private class GdOptionCPointAdjustmentUtilTest {
   }
 
   private static PointGraph seedCancelablePointGraph(Decimal creditPoints, Decimal usedPoints, Boolean pointRedeemCancelCredit, Boolean currentReturnRestore) {
+    PointGraph graph = new PointGraph();
+
     ensureJournalSubType('Cancel Purchase Accrual', ensureJournalType('Accrual Reversal'));
     Id accrualJtId = ensureJournalType('Accrual');
     Id purchaseAccrualJstId = ensureJournalSubType('Purchase Accrual', accrualJtId);
@@ -196,6 +200,7 @@ private class GdOptionCPointAdjustmentUtilTest {
         Status = 'Processed'
       );
       insert debitTj;
+      graph.debitTransactionJournalId = debitTj.Id;
 
       LoyaltyLedger debitLedger = new LoyaltyLedger(
         LoyaltyProgramMemberId = lpm.Id,
@@ -208,6 +213,7 @@ private class GdOptionCPointAdjustmentUtilTest {
         EventType = 'Debit'
       );
       insert debitLedger;
+      graph.debitLedgerId = debitLedger.Id;
 
       insert new LoyaltyLedgerTraceability(
         LoyaltyProgramMemberId = lpm.Id,
@@ -220,7 +226,6 @@ private class GdOptionCPointAdjustmentUtilTest {
       );
     }
 
-    PointGraph graph = new PointGraph();
     graph.loyaltyProgramId = lp.Id;
     graph.memberId = lpm.Id;
     graph.currencyId = pointCurrency.Id;
@@ -434,6 +439,35 @@ private class GdOptionCPointAdjustmentUtilTest {
 
     System.assertEquals(false, result.success);
     System.assertEquals('no cancelable option c etc balance', result.error);
+  }
+
+  @IsTest
+  static void testCancel_DebitCancellationRestoresCancelableBalance() {
+    PointGraph graph = seedCancelablePointGraph(30, 30, false, false);
+    insert new LoyaltyLedgerTraceability(
+      LoyaltyProgramMemberId = graph.memberId,
+      LoyaltyProgramCurrencyId = graph.currencyId,
+      LoyaltyPgmCurrencySubtypeId = graph.subtypeId,
+      CreditLoyaltyLedgerId = graph.creditLedgerId,
+      DebitLoyaltyLedgerId = graph.debitLedgerId,
+      Points = 15,
+      ActionType = 'DebitCancellation'
+    );
+
+    Test.startTest();
+    GdOptionCPointAdjustmentUtil.AccrualCancelResult result = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
+      graph.memberId,
+      graph.loyaltyProgramId,
+      graph.originalOrderId,
+      null,
+      20,
+      'unit-test: debit cancellation restores balance'
+    );
+    Test.stopTest();
+
+    System.assertEquals(true, result.success);
+    System.assertEquals(15, result.actualPoints);
+    System.assertEquals(5, result.loss);
   }
 
   @IsTest

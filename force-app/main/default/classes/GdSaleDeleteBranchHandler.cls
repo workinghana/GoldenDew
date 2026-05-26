@@ -20,15 +20,13 @@
  *           → 추적은 ApexLogger PARTIAL + 응답 data 로 가능
  */
 public with sharing class GdSaleDeleteBranchHandler {
-
   // 응답 message 에 추가되는 suffix
   @TestVisible
   private static final String WRAP_MESSAGE_SUFFIX = ' (오픈 전 거래 — 포인트 별도 처리 필요)';
 
   // 응답 data 에 추가되는 reason
   @TestVisible
-  private static final String WRAP_REASON =
-    '오픈 전 거래에 대한 판매 삭제 — 포인트 자동 처리 미적용. 별도 수동 처리 필요.';
+  private static final String WRAP_REASON = '오픈 전 거래에 대한 판매 삭제 — 포인트 자동 처리 미적용. 별도 수동 처리 필요.';
 
   /**
    * 옛 판매 삭제 응답 wrap.
@@ -42,11 +40,7 @@ public with sharing class GdSaleDeleteBranchHandler {
    *   - shouldApplyOptionCBranchBySaleNo(saleNo) == true
    *   - 표준 로직 이미 실행 완료 (Order.Status='saleDeleted', OrderItem 처리 등)
    */
-  public static ApiResult wrapResponseForOldSale(
-    ApiResult standardResult,
-    String saleNo,
-    ApexLogger logger
-  ) {
+  public static ApiResult wrapResponseForOldSale(ApiResult standardResult, String saleNo, ApexLogger logger) {
     if (standardResult == null) {
       return standardResult;
     }
@@ -93,9 +87,12 @@ public with sharing class GdSaleDeleteBranchHandler {
         Boolean allSuccess = true;
         Decimal totalRestored = 0;
         for (Map<String, Object> r : usageRestoreResults) {
-          if (!Boolean.valueOf(r.get('success'))) { allSuccess = false; }
+          if (!Boolean.valueOf(r.get('success'))) {
+            allSuccess = false;
+          }
           Object actObj = r.get('actual');
-          if (actObj != null) totalRestored += (Decimal) actObj;
+          if (actObj != null)
+            totalRestored += (Decimal) actObj;
         }
         standardResult.data.put('option_c_usage_restore_total_actual', totalRestored);
         if (allSuccess) {
@@ -112,26 +109,38 @@ public with sharing class GdSaleDeleteBranchHandler {
       logger.setStatus('PARTIAL');
       logger.setDescription(
         'Option C 분기 wrap: DELETE /sale — Phase 6.5 적용. ' +
-        'saleNo=' + saleNo +
-        ', forceDebitRequested=' + outcome.requested +
-        ', forceDebitActual=' + outcome.actual +
-        ', loss=' + outcome.loss +
-        ', usageRestoreRequired=' + outcome.usageRestoreRequired
+          'saleNo=' +
+          saleNo +
+          ', forceDebitRequested=' +
+          outcome.requested +
+          ', forceDebitActual=' +
+          outcome.actual +
+          ', loss=' +
+          outcome.loss +
+          ', usageRestoreRequired=' +
+          outcome.usageRestoreRequired
       );
     }
 
     // MigrationAdjustmentLog 기록 (실 force 결과 반영)
     Id logId = GdMigrationUtil.recordAdjustmentLog(
-      outcome.memberId, null, 'SALE_DELETE_BRANCH', 'DELETE /gd/v1/sale',
+      outcome.memberId,
+      null,
+      'SALE_DELETE_BRANCH',
+      'DELETE /gd/v1/sale',
       saleNo,
       outcome.requested,
       outcome.actual,
       'Phase 6.5 — silent fail visualized + force-debit applied (잔여 적립 차감). ' +
-      'saleNo=' + saleNo +
-      ', forceDebitSuccess=' + outcome.success +
-      ', estimateBreakdown=' + outcome.breakdown +
-      ', usageRestoreRequired=' + outcome.usageRestoreRequired +
-      (String.isBlank(outcome.error) ? '' : ', forceDebitError=' + outcome.error)
+        'saleNo=' +
+        saleNo +
+        ', forceDebitSuccess=' +
+        outcome.success +
+        ', estimateBreakdown=' +
+        outcome.breakdown +
+        ', usageRestoreRequired=' +
+        outcome.usageRestoreRequired +
+        (String.isBlank(outcome.error) ? '' : ', forceDebitError=' + outcome.error)
     );
     if (logId != null) {
       standardResult.data.put('adjustment_log_id', logId);
@@ -184,7 +193,9 @@ public with sharing class GdSaleDeleteBranchHandler {
       // 1. 판매 Order 조회
       List<Order> orders = [
         SELECT Id, MemberNo__c, ActualPaymentAmount__c
-        FROM Order WHERE SaleNo__c = :saleNo LIMIT 1
+        FROM Order
+        WHERE SaleNo__c = :saleNo
+        LIMIT 1
       ];
       if (orders.isEmpty() || orders[0].MemberNo__c == null) {
         out.error = 'sale not found or member missing';
@@ -199,9 +210,7 @@ public with sharing class GdSaleDeleteBranchHandler {
       }
 
       // 2. ContactId → LoyaltyProgramMember
-      List<LoyaltyProgramMember> lpms = [
-        SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE ContactId = :contactId LIMIT 1
-      ];
+      List<LoyaltyProgramMember> lpms = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE ContactId = :contactId LIMIT 1];
       if (lpms.isEmpty()) {
         out.error = 'loyalty member not found for contact';
         return out;
@@ -212,11 +221,9 @@ public with sharing class GdSaleDeleteBranchHandler {
       // 3. 누계 환불 (returnSuccess 만 카운트)
       Decimal totalReturned = 0;
       for (Order ret : [
-        SELECT ActualPaymentAmount__c FROM Order
-        WHERE OriginalOrderId__c = :orderId
-          AND IsDeleted__c = FALSE
-          AND IsReductionOrder__c = TRUE
-          AND Status = 'returnSuccess'
+        SELECT ActualPaymentAmount__c
+        FROM Order
+        WHERE OriginalOrderId__c = :orderId AND IsDeleted__c = FALSE AND IsReductionOrder__c = TRUE AND Status = 'returnSuccess'
       ]) {
         if (ret.ActualPaymentAmount__c != null && ret.ActualPaymentAmount__c > 0) {
           totalReturned += ret.ActualPaymentAmount__c;
@@ -234,17 +241,14 @@ public with sharing class GdSaleDeleteBranchHandler {
       Id promotionId = findPromotionIdForOriginalOrder(orderId);
 
       // 6. 잔여 적립 추정
-      List<GdMigrationUtil.AccrualEstimate> estimates = GdMigrationUtil.calculateAccrualForOldOrder(
-        out.memberId, remainingAmount, promotionId
-      );
+      List<GdMigrationUtil.AccrualEstimate> estimates = GdMigrationUtil.calculateAccrualForOldOrder(out.memberId, remainingAmount, promotionId);
 
       Decimal totalRequested = 0;
       String breakdown = '';
       for (GdMigrationUtil.AccrualEstimate est : estimates) {
         if (est.points != null && est.points > 0) {
           totalRequested += est.points;
-          breakdown += (est.subtypeName == null ? '?' : est.subtypeName) +
-            '=' + est.points.toPlainString() + 'P, ';
+          breakdown += (est.subtypeName == null ? '?' : est.subtypeName) + '=' + est.points.toPlainString() + 'P, ';
         }
       }
       out.requested = totalRequested;
@@ -257,10 +261,12 @@ public with sharing class GdSaleDeleteBranchHandler {
 
       // 7. Option C old sale accrual cancel
       GdOptionCPointAdjustmentUtil.AccrualCancelResult fd = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
-        out.memberId, programId, orderId, null, totalRequested,
-        'OPTC_SALE_DELETE_ETC_ACCRUAL_CANCEL: saleNo=' + saleNo +
-        ', remainingAmount=' + remainingAmount.toPlainString() +
-        ', breakdown=' + breakdown
+        out.memberId,
+        programId,
+        orderId,
+        null,
+        totalRequested,
+        'OPTC_SALE_DELETE_ETC_ACCRUAL_CANCEL: saleNo=' + saleNo + ', remainingAmount=' + remainingAmount.toPlainString() + ', breakdown=' + breakdown
       );
       out.actual = fd.actualPoints;
       out.loss = fd.loss;
@@ -290,8 +296,10 @@ public with sharing class GdSaleDeleteBranchHandler {
     }
     try {
       List<TransactionJournal> tjs = [
-        SELECT PromotionId FROM TransactionJournal
-        WHERE OrderId = :orderId AND PromotionId != null LIMIT 1
+        SELECT PromotionId
+        FROM TransactionJournal
+        WHERE OrderId = :orderId AND PromotionId != NULL
+        LIMIT 1
       ];
       return tjs.isEmpty() ? null : tjs[0].PromotionId;
     } catch (Exception e) {
@@ -310,11 +318,15 @@ public with sharing class GdSaleDeleteBranchHandler {
       return false;
     }
     try {
+      // [Fix #3 2026-05-25] IsDeleted 필터 제거 + 이미 환원된(del_point_) TJ 제외
+      //   배경: 입금 단건 삭제로 IsDel=true 된 PM=81 TJ 가 SOQL 에서 빠져
+      //         환원이 필요한데도 시그널이 false 가 되어 safety net 자체 trigger 안 됨.
+      //   해결: IsDel 필터 제거. 단 del_point_ prefix 로 이미 환원된 TJ 는 idempotency
+      //         차원에서 제외 (중복 환원 방지).
       List<TransactionJournal> pointPaymentTjs = [
-        SELECT Id FROM TransactionJournal
-        WHERE OrderId = :orderId
-          AND PaymentMethod = '81'
-          AND IsDeleted__c = FALSE
+        SELECT Id, DepositNo__c
+        FROM TransactionJournal
+        WHERE OrderId = :orderId AND PaymentMethod = '81' AND (DepositNo__c = NULL OR (NOT DepositNo__c LIKE 'del_point_%'))
         LIMIT 1
       ];
       return !pointPaymentTjs.isEmpty();
@@ -349,18 +361,18 @@ public with sharing class GdSaleDeleteBranchHandler {
       }
       Id orderId = orders[0].Id;
 
+      // [Fix #3 2026-05-25] IsDeleted 필터 제거 + 이미 환원된(del_point_) TJ 제외
+      //   배경: 입금 단건 삭제로 IsDel=true 된 PM=81 TJ 가 SOQL 에서 빠져
+      //         safety net 의 환원 대상이 0건이 되어 사용 포인트 영구 손실.
+      //   해결: IsDel 필터 제거. del_point_ prefix 환원 TJ 는 idempotency 차원 제외.
       List<TransactionJournal> pm81Tjs = [
-        SELECT Id, DepositNo__c, MemberId, OrderId, LoyaltyProgramId,
-               PaymentMethod, TransactionAmount, IsDeleted__c
+        SELECT Id, DepositNo__c, MemberId, OrderId, LoyaltyProgramId, PaymentMethod, TransactionAmount, IsDeleted__c
         FROM TransactionJournal
-        WHERE OrderId = :orderId
-          AND PaymentMethod = '81'
-          AND IsDeleted__c = FALSE
+        WHERE OrderId = :orderId AND PaymentMethod = '81' AND (DepositNo__c = NULL OR (NOT DepositNo__c LIKE 'del_point_%'))
       ];
 
       for (TransactionJournal pm81Tj : pm81Tjs) {
-        GdMigrationUtil.CancelOldSalePointUsageResult r =
-          GdMigrationUtil.cancelOldSalePointUsageSafe(pm81Tj);
+        GdMigrationUtil.CancelOldSalePointUsageResult r = GdMigrationUtil.cancelOldSalePointUsageSafe(pm81Tj);
 
         Map<String, Object> entry = new Map<String, Object>{
           'tjId' => pm81Tj.Id,

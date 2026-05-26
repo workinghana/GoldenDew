@@ -743,7 +743,26 @@ public with sharing class GdMigrationUtil {
    *   - 모든 DML try/catch
    *   - 실패 시 result.success=false, 호출자에게 throw 안 함
    */
-  public static ForceCreditResult forceCreditPointsSafe(Id memberId, Id loyaltyProgramId, Id orderId, Decimal requestedPoints, String reason) {
+  // [Fix #9 2026-05-26] 5-arg 오버로드 — 기존 호출처 호환성 유지
+  public static ForceCreditResult forceCreditPointsSafe(
+      Id memberId, Id loyaltyProgramId, Id orderId,
+      Decimal requestedPoints, String reason
+  ) {
+    return forceCreditPointsSafe(memberId, loyaltyProgramId, orderId,
+                                  requestedPoints, reason, null);
+  }
+
+  // [Fix #9 2026-05-26] 6-arg 신규 — targetExpiryDate 파라미터 추가 (v3 paradigm 정합)
+  //   배경: 기존 코드는 ORDER BY ExpiryDate__c DESC LIMIT 1 로 가장 늦은 lump (residual) 환원.
+  //         OPTC 옛 판매 환원 시 원 사용 lump (use_sum) 이 아닌 곳으로 가서 회계 비정합 발생.
+  //         (회원 253001700092 사건의 근원)
+  //   해결: 호출자가 원 LLT 의 Credit lump ExpiryDate 를 전달하면 그 lump 으로 정합 환원.
+  //   Fallback: targetExpiryDate=null 또는 매칭 lump 없으면 기존 로직 (회귀 안전).
+  public static ForceCreditResult forceCreditPointsSafe(
+      Id memberId, Id loyaltyProgramId, Id orderId,
+      Decimal requestedPoints, String reason,
+      Date targetExpiryDate
+  ) {
     ForceCreditResult result = new ForceCreditResult();
     result.requestedPoints = (requestedPoints == null) ? 0 : requestedPoints;
     result.actualPoints = 0;
@@ -756,22 +775,44 @@ public with sharing class GdMigrationUtil {
     }
 
     try {
-      // 1. 회원의 활성 기타포인트 묶음 잔액 (만료 안 된) 조회
-      List<LoyaltyAggrSubPointExprLedger__c> aggrList = [
-        SELECT CurrencySubTypeId__c, CurrencySubTypeId__r.Name, ExpiryDate__c
-        FROM LoyaltyAggrSubPointExprLedger__c
-        WHERE LoyaltyProgramMemberId__c = :memberId AND CurrencySubTypeId__r.PointTypeCode__c = '04' AND ExpiryDate__c >= TODAY
-        ORDER BY ExpiryDate__c DESC
-        LIMIT 1
-      ];
+      String subtypeName = null;
+      Date expiryDate = null;
 
-      if (aggrList.isEmpty()) {
-        result.error = 'no active migrated lump for member (PointTypeCode=04)';
-        return result;
+      // [Fix #9] targetExpiryDate 명시 시 우선 매칭 (v3 paradigm 정합)
+      if (targetExpiryDate != null && targetExpiryDate >= Date.today()) {
+        List<LoyaltyAggrSubPointExprLedger__c> targetLumps = [
+          SELECT CurrencySubTypeId__c, CurrencySubTypeId__r.Name, ExpiryDate__c
+          FROM LoyaltyAggrSubPointExprLedger__c
+          WHERE LoyaltyProgramMemberId__c = :memberId
+            AND CurrencySubTypeId__r.PointTypeCode__c = '04'
+            AND ExpiryDate__c = :targetExpiryDate
+          LIMIT 1
+        ];
+        if (!targetLumps.isEmpty()) {
+          subtypeName = targetLumps[0].CurrencySubTypeId__r.Name;
+          expiryDate = targetLumps[0].ExpiryDate__c;
+        }
       }
 
-      String subtypeName = aggrList[0].CurrencySubTypeId__r.Name;
-      Date expiryDate = aggrList[0].ExpiryDate__c;
+      // Fallback: targetExpiryDate 없거나 매칭 lump 없으면 기존 로직 (가장 늦은 lump)
+      if (expiryDate == null) {
+        // 1. 회원의 활성 기타포인트 묶음 잔액 (만료 안 된) 조회
+        List<LoyaltyAggrSubPointExprLedger__c> aggrList = [
+          SELECT CurrencySubTypeId__c, CurrencySubTypeId__r.Name, ExpiryDate__c
+          FROM LoyaltyAggrSubPointExprLedger__c
+          WHERE LoyaltyProgramMemberId__c = :memberId AND CurrencySubTypeId__r.PointTypeCode__c = '04' AND ExpiryDate__c >= TODAY
+          ORDER BY ExpiryDate__c DESC
+          LIMIT 1
+        ];
+
+        if (aggrList.isEmpty()) {
+          result.error = 'no active migrated lump for member (PointTypeCode=04)';
+          return result;
+        }
+
+        subtypeName = aggrList[0].CurrencySubTypeId__r.Name;
+        expiryDate = aggrList[0].ExpiryDate__c;
+      }
 
       // 2. force credit TJ insert
       Id accrualJtId = SObjectUtil.findIdByName(JournalType.SObjectType, 'Accrual', true);
@@ -964,13 +1005,21 @@ public with sharing class GdMigrationUtil {
         return out;
       }
 
-      // 3. force-credit 으로 회원 묶음 잔액에 환원
+      // [Fix #9 2026-05-26] 원 LLT 의 Credit lump ExpiryDate 추출 — 정합 환원을 위해 전달
+      //   배경: forceCreditPointsSafe 가 기본적으로 가장 늦은 lump 으로 환원 (결함 ⑨).
+      //         원 사용 lump (use_sum) 으로 환원해야 v3 paradigm 과 회계 정합.
+      Date originExpiryDate = !llts.isEmpty()
+        ? llts[0].CreditLoyaltyLedger.ExpiryDate
+        : null;
+
+      // 3. force-credit 으로 회원 묶음 잔액에 환원 (원 lump 으로)
       GdMigrationUtil.ForceCreditResult fc = forceCreditPointsSafe(
         pm81Tj.MemberId,
         pm81Tj.LoyaltyProgramId,
         pm81Tj.OrderId,
         totalToRestore,
-        'OPTC_OLD_SALE_USAGE_RESTORE: pm81TjId=' + pm81Tj.Id + ', amount=' + pm81Tj.TransactionAmount + ', matchedLLT=' + llts.size()
+        'OPTC_OLD_SALE_USAGE_RESTORE: pm81TjId=' + pm81Tj.Id + ', amount=' + pm81Tj.TransactionAmount + ', matchedLLT=' + llts.size(),
+        originExpiryDate
       );
       out.actualPoints = fc.actualPoints;
       out.unprocessed = fc.unprocessed;

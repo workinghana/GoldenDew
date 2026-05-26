@@ -3576,6 +3576,109 @@ private class GdSaleDepositServiceImplTest {
   }
 
   @IsTest
+  static void deleteSaleDeposit_pointDebit_existingCancelJournal_returnsResult() {
+    setMockServices();
+
+    Order ord = getTestOrder();
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      LIMIT 1
+    ];
+
+    insert new List<TransactionJournal>{
+      new TransactionJournal(
+        DepositNo__c = 'DELSALEIDEMPPT',
+        DeposiSeqNo__c = '1',
+        JournalDate = Date.today(),
+        ActivityDate = Datetime.now(),
+        PaymentMethod = '81',
+        DepositType__c = '01',
+        TransactionAmount = 1000,
+        MemberId = lpm.Id,
+        LoyaltyProgramId = lpm.ProgramId,
+        OrderId = ord.Id,
+        SaleId__c = ord.Id,
+        Status = 'Processed',
+        JournalTypeId = getJournalTypeId('Redemption'),
+        JournalSubTypeId = getJournalSubTypeId('Point Debit'),
+        IsDeleted__c = false
+      ),
+      new TransactionJournal(
+        DepositNo__c = 'del_point_DELSALEIDEMPPT',
+        DeposiSeqNo__c = '1',
+        JournalDate = Date.today(),
+        ActivityDate = Datetime.now(),
+        PaymentMethod = '81',
+        DepositType__c = '03',
+        TransactionAmount = 1000,
+        MemberId = lpm.Id,
+        LoyaltyProgramId = lpm.ProgramId,
+        OrderId = ord.Id,
+        SaleId__c = ord.Id,
+        Status = 'Processed',
+        JournalTypeId = getJournalTypeId('Redemption Reversal'),
+        JournalSubTypeId = getJournalSubTypeId('Point Redeem Cancel'),
+        IsDeleted__c = false
+      )
+    };
+
+    Test.startTest();
+    ApiResult result = new GdSaleDepositServiceImpl().deleteSaleDeposit('DELSALEIDEMPPT');
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertNotEquals(null, result.data.get('pointRedemptionCanceled'));
+  }
+
+  @IsTest
+  static void deleteSaleDeposit_optionCOldSalePointDebit_returnsSafely() {
+    setMockServices();
+
+    Order ord = getTestOrder();
+    ord.EffectiveDate = Date.newInstance(2026, 3, 1);
+    update ord;
+
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      LIMIT 1
+    ];
+
+    insert new TransactionJournal(
+      DepositNo__c = 'DELSALEOPTCPT',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '81',
+      DepositType__c = '01',
+      TransactionAmount = 1000,
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = ord.Id,
+      SaleId__c = ord.Id,
+      Status = 'Processed',
+      InsertId__c = 'MIG_OPTC_CREDIT',
+      JournalTypeId = getJournalTypeId('Redemption'),
+      JournalSubTypeId = getJournalSubTypeId('Point Debit'),
+      IsDeleted__c = false
+    );
+
+    Test.startTest();
+    ApiResult result = new GdSaleDepositServiceImpl().deleteSaleDeposit('DELSALEOPTCPT');
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    if (result.data.containsKey('pointRedemptionCanceled')) {
+      Map<String, Object> restoreResult = (Map<String, Object>) result.data.get('pointRedemptionCanceled');
+      System.assertNotEquals(null, restoreResult);
+      if (restoreResult.containsKey('optionCRestore')) {
+        System.assertEquals(true, restoreResult.get('optionCRestore'));
+      }
+    }
+  }
+
+  @IsTest
   static void deleteSaleDeposit_success_couponRedeem() {
     setMockServices();
 
@@ -3610,6 +3713,108 @@ private class GdSaleDepositServiceImplTest {
 
     Test.startTest();
     ApiResult result = svc.deleteSaleDeposit('DELSALECOUPON');
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    System.assertNotEquals(null, result.data.get('couponCanceled'));
+  }
+
+  @IsTest
+  static void deleteSaleDeposit_optionCOldSaleCouponRedeem_returnsSafely() {
+    setMockServices();
+
+    Order ord = getTestOrder();
+    ord.EffectiveDate = Date.newInstance(2026, 3, 1);
+    update ord;
+
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      LIMIT 1
+    ];
+
+    insert new TransactionJournal(
+      DepositNo__c = 'DELSALEOPTCCP',
+      DeposiSeqNo__c = '1',
+      JournalDate = Date.today(),
+      ActivityDate = Datetime.now(),
+      PaymentMethod = '90',
+      DepositType__c = '01',
+      TransactionAmount = 1000,
+      VoucherCode = 'CP-DEL-OPTC',
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = ord.Id,
+      SaleId__c = ord.Id,
+      Status = 'Processed',
+      InsertId__c = 'MIG_OPTC_CREDIT',
+      JournalTypeId = getJournalTypeId('Redemption'),
+      JournalSubTypeId = getJournalSubTypeId('Coupon Redeem'),
+      IsDeleted__c = false
+    );
+
+    Test.startTest();
+    ApiResult result = new GdSaleDepositServiceImpl().deleteSaleDeposit('DELSALEOPTCCP');
+    Test.stopTest();
+
+    System.assertEquals(200, result.code);
+    if (result.data.containsKey('couponCanceled')) {
+      System.assertNotEquals(null, result.data.get('couponCanceled'));
+    }
+  }
+
+  @IsTest
+  static void deleteSaleDeposit_couponRedeem_existingCancelJournal_returnsResult() {
+    setMockServices();
+
+    Order ord = getTestOrder();
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      LIMIT 1
+    ];
+
+    insert new List<TransactionJournal>{
+      new TransactionJournal(
+        DepositNo__c = 'DELSALEIDEMPCP',
+        DeposiSeqNo__c = '1',
+        JournalDate = Date.today(),
+        ActivityDate = Datetime.now(),
+        PaymentMethod = '90',
+        DepositType__c = '01',
+        TransactionAmount = 1000,
+        VoucherCode = 'CP-DEL-IDEMP',
+        MemberId = lpm.Id,
+        LoyaltyProgramId = lpm.ProgramId,
+        OrderId = ord.Id,
+        SaleId__c = ord.Id,
+        Status = 'Processed',
+        JournalTypeId = getJournalTypeId('Redemption'),
+        JournalSubTypeId = getJournalSubTypeId('Coupon Redeem'),
+        IsDeleted__c = false
+      ),
+      new TransactionJournal(
+        DepositNo__c = 'del_coupon_DELSALEIDEMPCP',
+        DeposiSeqNo__c = '1',
+        JournalDate = Date.today(),
+        ActivityDate = Datetime.now(),
+        PaymentMethod = '90',
+        DepositType__c = '03',
+        TransactionAmount = 1000,
+        VoucherCode = 'CP-DEL-IDEMP',
+        MemberId = lpm.Id,
+        LoyaltyProgramId = lpm.ProgramId,
+        OrderId = ord.Id,
+        SaleId__c = ord.Id,
+        Status = 'Processed',
+        JournalTypeId = getJournalTypeId('Redemption Reversal'),
+        JournalSubTypeId = getJournalSubTypeId('Coupon Redeem Cancel'),
+        IsDeleted__c = false
+      )
+    };
+
+    Test.startTest();
+    ApiResult result = new GdSaleDepositServiceImpl().deleteSaleDeposit('DELSALEIDEMPCP');
     Test.stopTest();
 
     System.assertEquals(200, result.code);

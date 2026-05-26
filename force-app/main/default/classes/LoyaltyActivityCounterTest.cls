@@ -159,9 +159,73 @@ private class LoyaltyActivityCounterTest {
       System.assertEquals(Date.today(), member.Last_Alert_Date__c);
       System.assertEquals(1, mockCallCount);
       System.assertEquals('POST', mockLastMethod);
-      System.assert(mockLastBody.contains(threshold.Activity_Type__c));
+      System.assert(mockLastBody.contains('Activity Counter ALERT-SUCCESS'));
     } else {
       System.assertEquals(null, member.Last_Alert_Date__c);
+      System.assertEquals(0, mockCallCount);
+    }
+  }
+
+  @IsTest
+  static void processMonitoringAsync_immediateSaleDelete_sendsSlackWithoutThresholdMetadata() {
+    MemberFixture f = createActiveMember('SALE-DELETE-IMMEDIATE');
+
+    resetMockState();
+    Test.setMock(HttpCalloutMock.class, new SlackHttpMock(200));
+
+    Test.startTest();
+    LoyaltyActivityCounter.processMonitoringAsync(payload('SaleDelete', f.contactId));
+    Test.stopTest();
+
+    LoyaltyProgramMember member = [
+      SELECT Last_Activity_Date__c, Daily_Activity_Count__c, Last_Alert_Date__c
+      FROM LoyaltyProgramMember
+      WHERE Id = :f.memberId
+    ];
+    System.assertEquals(Date.today(), member.Last_Activity_Date__c);
+    System.assertEquals(1, Integer.valueOf(member.Daily_Activity_Count__c));
+    System.assertEquals(null, member.Last_Alert_Date__c, 'Immediate alerts must not suppress later threshold alerts.');
+
+    if (hasActiveSlackConfig()) {
+      System.assertEquals(1, mockCallCount);
+      System.assert(mockLastBody.contains('판매 삭제'));
+      System.assert(mockLastBody.contains('보통'));
+    } else {
+      System.assertEquals(0, mockCallCount);
+    }
+  }
+
+  @IsTest
+  static void processMonitoringAsync_allImmediateTypes_sendSlackAndCountActivities() {
+    MemberFixture f = createActiveMember('ALL-IMMEDIATE');
+
+    String payloadJson = JSON.serialize(
+      new Map<String, List<String>>{
+        'SaleDelete' => new List<String>{ String.valueOf(f.contactId) },
+        'ReturnCreate' => new List<String>{ String.valueOf(f.contactId) },
+        'ReturnDelete' => new List<String>{ String.valueOf(f.contactId) }
+      }
+    );
+
+    resetMockState();
+    Test.setMock(HttpCalloutMock.class, new SlackHttpMock(200));
+
+    Test.startTest();
+    LoyaltyActivityCounter.processMonitoringAsync(payloadJson);
+    Test.stopTest();
+
+    LoyaltyProgramMember member = [
+      SELECT Last_Activity_Date__c, Daily_Activity_Count__c, Last_Alert_Date__c
+      FROM LoyaltyProgramMember
+      WHERE Id = :f.memberId
+    ];
+    System.assertEquals(Date.today(), member.Last_Activity_Date__c);
+    System.assertEquals(3, Integer.valueOf(member.Daily_Activity_Count__c));
+    System.assertEquals(null, member.Last_Alert_Date__c);
+
+    if (hasActiveSlackConfig()) {
+      System.assertEquals(3, mockCallCount);
+    } else {
       System.assertEquals(0, mockCallCount);
     }
   }
@@ -228,5 +292,18 @@ private class LoyaltyActivityCounterTest {
     System.assertEquals(Integer.valueOf(threshold.Daily_Threshold__c) + 1, Integer.valueOf(member.Daily_Activity_Count__c));
     System.assertEquals(Date.today(), member.Last_Alert_Date__c);
     System.assertEquals(0, mockCallCount);
+  }
+
+  private static String activityLabel(String activityType) {
+    if (activityType == 'Order') {
+      return '주문';
+    }
+    if (activityType == 'Sale') {
+      return '판매';
+    }
+    if (activityType == 'Return') {
+      return '반품';
+    }
+    return activityType;
   }
 }

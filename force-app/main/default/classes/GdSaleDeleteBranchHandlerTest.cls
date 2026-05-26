@@ -337,6 +337,61 @@ private class GdSaleDeleteBranchHandlerTest {
   // G. findPromotionIdForOriginalOrder — TJ 에 PromotionId 있을 때
   // ============================================================
   @IsTest
+  static void checkUsageRestoreRequired_deletedPm81Tj_evaluatesSafely() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SAL-SD-OLD' LIMIT 1];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-SD-TEST' LIMIT 1];
+
+    TransactionJournal pm81 = new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = o.Id,
+      DepositNo__c = 'DEP-SD-PM81-DELETED',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      PaymentMethod = '81',
+      TransactionAmount = 10000,
+      ActivityDate = Date.newInstance(2026, 3, 1),
+      Status = 'Processed',
+      InsertId__c = 'MIG_OPTC_CREDIT',
+      IsDeleted__c = true
+    );
+    insert pm81;
+
+    Test.startTest();
+    Boolean result = GdSaleDeleteBranchHandler.checkUsageRestoreRequired(o.Id);
+    Test.stopTest();
+    System.assertNotEquals(null, result, 'Deleted PM=81 TJ path should evaluate safely.');
+  }
+
+  @IsTest
+  static void checkUsageRestoreRequired_delPointDepositNo_evaluatesSafely() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SAL-SD-OLD' LIMIT 1];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-SD-TEST' LIMIT 1];
+
+    TransactionJournal restoredPm81 = new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = o.Id,
+      DepositNo__c = 'del_point_DEP-SD-PM81',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      PaymentMethod = '81',
+      TransactionAmount = 10000,
+      ActivityDate = Date.newInstance(2026, 3, 1),
+      Status = 'Processed',
+      InsertId__c = 'MIG_OPTC_CREDIT'
+    );
+    insert restoredPm81;
+
+    Test.startTest();
+    Boolean result = GdSaleDeleteBranchHandler.checkUsageRestoreRequired(o.Id);
+    Test.stopTest();
+    System.assertNotEquals(null, result, 'del_point_ prefixed TJ path should evaluate safely.');
+  }
+
+  @IsTest
   static void findPromotionIdForOriginalOrder_withPromotionTj_returnsPromotionId() {
     Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
     Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SAL-SD-OLD' LIMIT 1];
