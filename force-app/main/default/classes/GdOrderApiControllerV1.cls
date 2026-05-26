@@ -250,8 +250,11 @@ global with sharing class GdOrderApiControllerV1 {
   }
 
   /**
-   * ! 개발 중
+   * * 사용 중
    * 주문 품목 삭제
+   *
+   * @author Hana Lee
+   * @since 2026-05-26
    */
   @HttpDelete
   global static void deleteOrderItem() {
@@ -312,8 +315,6 @@ global with sharing class GdOrderApiControllerV1 {
       ApiResult result = ApiResult.ok(200, '주문 품목 삭제 완료', resData);
 
       RestResponseUtil.handleSuccess(result, logger);
-    } catch (ValidationException ve) {
-      RestResponseUtil.handleCustomException(ve, null, ve.code, ve.detail, logger);
     } catch (CustomException ce) {
       RestResponseUtil.handleCustomException(ce, sp, ce.code, ce.message, logger);
     } catch (Exception e) {

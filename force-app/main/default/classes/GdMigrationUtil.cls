@@ -744,12 +744,8 @@ public with sharing class GdMigrationUtil {
    *   - 실패 시 result.success=false, 호출자에게 throw 안 함
    */
   // [Fix #9 2026-05-26] 5-arg 오버로드 — 기존 호출처 호환성 유지
-  public static ForceCreditResult forceCreditPointsSafe(
-      Id memberId, Id loyaltyProgramId, Id orderId,
-      Decimal requestedPoints, String reason
-  ) {
-    return forceCreditPointsSafe(memberId, loyaltyProgramId, orderId,
-                                  requestedPoints, reason, null);
+  public static ForceCreditResult forceCreditPointsSafe(Id memberId, Id loyaltyProgramId, Id orderId, Decimal requestedPoints, String reason) {
+    return forceCreditPointsSafe(memberId, loyaltyProgramId, orderId, requestedPoints, reason, null);
   }
 
   // [Fix #9 2026-05-26] 6-arg 신규 — targetExpiryDate 파라미터 추가 (v3 paradigm 정합)
@@ -759,9 +755,12 @@ public with sharing class GdMigrationUtil {
   //   해결: 호출자가 원 LLT 의 Credit lump ExpiryDate 를 전달하면 그 lump 으로 정합 환원.
   //   Fallback: targetExpiryDate=null 또는 매칭 lump 없으면 기존 로직 (회귀 안전).
   public static ForceCreditResult forceCreditPointsSafe(
-      Id memberId, Id loyaltyProgramId, Id orderId,
-      Decimal requestedPoints, String reason,
-      Date targetExpiryDate
+    Id memberId,
+    Id loyaltyProgramId,
+    Id orderId,
+    Decimal requestedPoints,
+    String reason,
+    Date targetExpiryDate
   ) {
     ForceCreditResult result = new ForceCreditResult();
     result.requestedPoints = (requestedPoints == null) ? 0 : requestedPoints;
@@ -783,9 +782,7 @@ public with sharing class GdMigrationUtil {
         List<LoyaltyAggrSubPointExprLedger__c> targetLumps = [
           SELECT CurrencySubTypeId__c, CurrencySubTypeId__r.Name, ExpiryDate__c
           FROM LoyaltyAggrSubPointExprLedger__c
-          WHERE LoyaltyProgramMemberId__c = :memberId
-            AND CurrencySubTypeId__r.PointTypeCode__c = '04'
-            AND ExpiryDate__c = :targetExpiryDate
+          WHERE LoyaltyProgramMemberId__c = :memberId AND CurrencySubTypeId__r.PointTypeCode__c = '04' AND ExpiryDate__c = :targetExpiryDate
           LIMIT 1
         ];
         if (!targetLumps.isEmpty()) {
@@ -1008,9 +1005,7 @@ public with sharing class GdMigrationUtil {
       // [Fix #9 2026-05-26] 원 LLT 의 Credit lump ExpiryDate 추출 — 정합 환원을 위해 전달
       //   배경: forceCreditPointsSafe 가 기본적으로 가장 늦은 lump 으로 환원 (결함 ⑨).
       //         원 사용 lump (use_sum) 으로 환원해야 v3 paradigm 과 회계 정합.
-      Date originExpiryDate = !llts.isEmpty()
-        ? llts[0].CreditLoyaltyLedger.ExpiryDate
-        : null;
+      Date originExpiryDate = !llts.isEmpty() ? llts[0].CreditLoyaltyLedger.ExpiryDate : null;
 
       // 3. force-credit 으로 회원 묶음 잔액에 환원 (원 lump 으로)
       GdMigrationUtil.ForceCreditResult fc = forceCreditPointsSafe(

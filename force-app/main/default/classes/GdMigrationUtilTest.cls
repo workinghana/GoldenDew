@@ -328,6 +328,30 @@ private class GdMigrationUtilTest {
     System.assertEquals(true, result);
   }
 
+  @IsTest
+  static void shouldApplyByDepositNo_noOrderPostOpenActivityDate_returnsFalse() {
+    setBranchEnabled(true, OPEN_DATE);
+    LoyaltyProgramMember lpm = [SELECT Id FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
+
+    TransactionJournal tj = new TransactionJournal(
+      MemberId = lpm.Id,
+      DepositNo__c = 'DEP-OPTC-ACTIVITY-POST',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      TransactionAmount = 10000,
+      ActivityDate = POST_OPEN_DATE,
+      Status = 'Processed',
+      InsertId__c = 'tester'
+    );
+    insert tj;
+
+    Test.startTest();
+    Boolean result = GdMigrationUtil.shouldApplyOptionCBranchByDepositNo('DEP-OPTC-ACTIVITY-POST');
+    Test.stopTest();
+
+    System.assertEquals(false, result);
+  }
+
   // ============================================================
   // D. shouldApplyOptionCBranchBySaleNo
   // ============================================================
@@ -540,6 +564,37 @@ private class GdMigrationUtilTest {
   // ============================================================
   // J. Phase 6.3 — calculateEligibleAccrualAmount (표준 로직 복제)
   // ============================================================
+
+  @IsTest
+  static void recordLog_withReturnOrderAndLongReason_setsReturnOrderAndTruncatesReason() {
+    Order returnOrder = [SELECT Id FROM Order WHERE SaleNo__c = 'SALE-OPTC-OLD' LIMIT 1];
+    String longReason = 'R'.repeat(35000);
+
+    Test.startTest();
+    Id logId = GdMigrationUtil.recordAdjustmentLog(
+      null,
+      'M-RETURN',
+      'RETURN_DELETE_BRANCH',
+      'DELETE /gd/v1/return',
+      'SALE-OPTC-OLD',
+      100,
+      30,
+      longReason,
+      returnOrder.Id
+    );
+    Test.stopTest();
+
+    System.assertNotEquals(null, logId);
+    MigrationAdjustmentLog__c log = [
+      SELECT ReturnOrderId__c, Reason__c, CustomerLoss__c
+      FROM MigrationAdjustmentLog__c
+      WHERE Id = :logId
+      LIMIT 1
+    ];
+    System.assertEquals(String.valueOf(returnOrder.Id), log.ReturnOrderId__c);
+    System.assertEquals(70, log.CustomerLoss__c);
+    System.assertEquals(30000, log.Reason__c.length());
+  }
 
   @IsTest
   static void calculateEligibleAmount_emptyOrNullList_returnsZero() {
@@ -868,6 +923,24 @@ private class GdMigrationUtilTest {
   // ============================================================
 
   /** JSON 으로 LASEL 객체 (lookup 포함) stub 생성. */
+  @IsTest
+  static void getAvailableBalance_activeMigratedLedgers_returnsSum() {
+    LoyaltyProgramMember lpm = [
+      SELECT Id, ProgramId
+      FROM LoyaltyProgramMember
+      WHERE MembershipNumber = 'M-OPTC-TEST'
+      LIMIT 1
+    ];
+    insertMigratedLumpBalance(lpm, 1000, 'BAL1');
+    insertMigratedLumpBalance(lpm, 250, 'BAL2');
+
+    Test.startTest();
+    Decimal balance = GdMigrationUtil.getAvailableBalance(lpm.Id);
+    Test.stopTest();
+
+    System.assertEquals(1250, balance);
+  }
+
   private static LoyaltyAggrSubPointExprLedger__c stubAggr(Decimal availablePoints, String subtypeName, Integer priority) {
     String jsonStr = JSON.serialize(
       new Map<String, Object>{
@@ -1049,6 +1122,24 @@ private class GdMigrationUtilTest {
     System.assertEquals(300, result.get('구매적립'));
   }
 
+  @IsTest
+  static void distributeDebit_blankOrMissingSubtype_skipped() {
+    LoyaltyAggrSubPointExprLedger__c noSubtype = (LoyaltyAggrSubPointExprLedger__c) JSON.deserialize(
+      JSON.serialize(new Map<String, Object>{ 'AvailablePoints__c' => 100 }),
+      LoyaltyAggrSubPointExprLedger__c.class
+    );
+    List<LoyaltyAggrSubPointExprLedger__c> aggrList = new List<LoyaltyAggrSubPointExprLedger__c>{
+      noSubtype,
+      stubAggr(100, '', 1),
+      stubAggr(300, 'ValidSubtype', 2)
+    };
+
+    Map<String, Decimal> result = GdMigrationUtil.distributeDebitBySubtype(aggrList, 250);
+
+    System.assertEquals(1, result.size());
+    System.assertEquals(250, result.get('ValidSubtype'));
+  }
+
   // ============================================================
   // O. buildForceDebitTJ — TJ 필드 세팅 검증 (DML 없음)
   // ============================================================
@@ -1227,6 +1318,28 @@ private class GdMigrationUtilTest {
     System.assertEquals(300, result.requestedPoints);
     System.assert(result.actualPoints == 300 || result.actualPoints == 0);
     System.assert(result.unprocessed == 0 || result.unprocessed == 300);
+  }
+
+  @IsTest
+  static void forceCreditPointsSafe_targetExpiryDate_usesMatchingLump() {
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-OPTC-TEST' LIMIT 1];
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SALE-OPTC-OLD' LIMIT 1];
+    insertMigratedLumpBalance(lpm, 1000, 'TargetCredit');
+
+    Test.startTest();
+    GdMigrationUtil.ForceCreditResult result = GdMigrationUtil.forceCreditPointsSafe(
+      lpm.Id,
+      lpm.ProgramId,
+      o.Id,
+      200,
+      'credit with target expiry',
+      Date.today().addDays(30)
+    );
+    Test.stopTest();
+
+    System.assertEquals(200, result.requestedPoints);
+    System.assert(result.actualPoints == 200 || result.actualPoints == 0);
+    System.assert(result.unprocessed == 0 || result.unprocessed == 200);
   }
 
   @IsTest
