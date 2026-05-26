@@ -1779,7 +1779,7 @@ public with sharing class OrderNumViewController {
         AdditionalNotes__c,
         DepositType__c
       FROM TransactionJournal
-      WHERE (OrderId IN :saleOrderIds OR SaleId__c IN :saleOrderIds) AND TransactionAmount != NULL AND (IsDeleted__c = FALSE OR IsDeleted__c = NULL)
+      WHERE OrderId IN :saleOrderIds AND TransactionAmount != NULL AND (IsDeleted__c = FALSE OR IsDeleted__c = NULL)
     ]) {
       if (!isOriginalSaleJournalForSet(journal, saleOrderIds)) {
         continue;
@@ -1873,9 +1873,7 @@ public with sharing class OrderNumViewController {
       return false;
     }
 
-    Boolean orderInSet = journal.OrderId != null && saleOrderIds.contains(journal.OrderId);
-    Boolean saleInSet = journal.SaleId__c != null && saleOrderIds.contains(journal.SaleId__c);
-    if (!orderInSet && !saleInSet) {
+    if (journal.OrderId == null || !saleOrderIds.contains(journal.OrderId)) {
       return false;
     }
 
@@ -2501,9 +2499,11 @@ public with sharing class OrderNumViewController {
       'AND JournalType.Name IN :ORDER_PAYMENT_JOURNAL_TYPE_NAMES ' +
       'AND (JournalSubType.Name = NULL ' +
       'OR JournalSubType.Name = :ORDER_DEPOSIT_JOURNAL_SUBTYPE_NAME ';
+    query += 'OR JournalSubType.Name = :SALE_DEPOSIT_JOURNAL_SUBTYPE_NAME ';
 
     if (subtractOrderDepositReversal == true) {
       query += 'OR JournalSubType.Name = :ORDER_DEPOSIT_REVERSAL_JOURNAL_SUBTYPE_NAME ';
+      query += 'OR JournalSubType.Name = :SALE_DEPOSIT_REVERSAL_JOURNAL_SUBTYPE_NAME ';
     }
 
     query += ') ';
@@ -2544,7 +2544,9 @@ public with sharing class OrderNumViewController {
         AND PaymentMethod != NULL
         AND JournalType.Name IN :ORDER_PAYMENT_JOURNAL_TYPE_NAMES
         AND (JournalSubType.Name = :ORDER_DEPOSIT_JOURNAL_SUBTYPE_NAME
-        OR JournalSubType.Name = :ORDER_DEPOSIT_REVERSAL_JOURNAL_SUBTYPE_NAME)
+        OR JournalSubType.Name = :ORDER_DEPOSIT_REVERSAL_JOURNAL_SUBTYPE_NAME
+        OR JournalSubType.Name = :SALE_DEPOSIT_JOURNAL_SUBTYPE_NAME
+        OR JournalSubType.Name = :SALE_DEPOSIT_REVERSAL_JOURNAL_SUBTYPE_NAME)
       GROUP BY PaymentMethod, JournalType.Name
     ]) {
       Decimal amount = (Decimal) ar.get('totalAmount');

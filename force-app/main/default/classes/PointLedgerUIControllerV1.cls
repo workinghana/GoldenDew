@@ -325,6 +325,7 @@ public with sharing class PointLedgerUIControllerV1 {
       PointRedemptionRowDTO row = new PointRedemptionRowDTO();
       row.ledgerId = traceRow.Id;
       row.redemptionDate = getDebitJournalDate(traceRow);
+      row.redemptionSortDateTime = getDebitJournalDateTime(traceRow);
       row.pointTypeName = getTraceabilityPointTypeName(traceRow);
       row.redemptionType = getTraceabilityActionLabel(traceRow.ActionType);
       row.redemptionPoints = traceRow.Points == null ? 0 : Integer.valueOf(traceRow.Points.abs());
@@ -373,6 +374,9 @@ public with sharing class PointLedgerUIControllerV1 {
       row.redemptionDate = expiryRow.ExpiryDate != null
         ? expiryRow.ExpiryDate
         : (expiryRow.ActivityDate != null ? expiryRow.ActivityDate.date() : null);
+      row.redemptionSortDateTime = expiryRow.ExpiryDate != null
+        ? DateTime.newInstanceGmt(expiryRow.ExpiryDate, Time.newInstance(0, 0, 0, 0))
+        : expiryRow.ActivityDate;
       row.pointTypeName = getExpiryPointTypeName(expiryRow, expirySubtypeNameById);
       row.redemptionType = getTraceabilityActionLabel(expiryRow.EventType);
       row.redemptionPoints = expiryRow.Points == null ? 0 : Integer.valueOf(expiryRow.Points.abs());
@@ -400,6 +404,7 @@ public with sharing class PointLedgerUIControllerV1 {
       PointRedemptionRowDTO row = new PointRedemptionRowDTO();
       row.ledgerId = redeemCancelCreditRow.Id;
       row.redemptionDate = getJournalDate(redeemCancelCreditRow.TransactionJournal);
+      row.redemptionSortDateTime = getJournalDateTime(redeemCancelCreditRow.TransactionJournal);
       row.pointTypeName = getExpiryPointTypeName(redeemCancelCreditRow, null);
       row.redemptionType = getTraceabilityActionLabel('DebitCancellation');
       row.redemptionPoints = redeemCancelCreditRow.Points == null ? 0 : Integer.valueOf(redeemCancelCreditRow.Points.abs());
@@ -511,8 +516,20 @@ public with sharing class PointLedgerUIControllerV1 {
     return getJournalDate(traceRow.DebitLoyaltyLedger.TransactionJournal);
   }
 
+  private static DateTime getDebitJournalDateTime(LoyaltyLedgerTraceability traceRow) {
+    if (traceRow == null || traceRow.DebitLoyaltyLedger == null || traceRow.DebitLoyaltyLedger.TransactionJournal == null) {
+      return null;
+    }
+
+    return getJournalDateTime(traceRow.DebitLoyaltyLedger.TransactionJournal);
+  }
+
   private static Date getJournalDate(TransactionJournal journal) {
     return journal != null && journal.JournalDate != null ? journal.JournalDate.date() : null;
+  }
+
+  private static DateTime getJournalDateTime(TransactionJournal journal) {
+    return journal != null ? journal.JournalDate : null;
   }
 
   private static Map<Id, UsageSummary> buildUsageSummaryMap(Id loyaltyProgramMemberId, Set<Id> creditLedgerIds) {
@@ -730,6 +747,8 @@ public with sharing class PointLedgerUIControllerV1 {
     @AuraEnabled
     public Date redemptionDate;
     @AuraEnabled
+    public DateTime redemptionSortDateTime;
+    @AuraEnabled
     public String pointTypeName;
     @AuraEnabled
     public String redemptionType;
@@ -754,8 +773,8 @@ public with sharing class PointLedgerUIControllerV1 {
 
     public Integer compareTo(Object other) {
       PointRedemptionRowDTO target = (PointRedemptionRowDTO) other;
-      Date thisDate = redemptionDate;
-      Date otherDate = target == null ? null : target.redemptionDate;
+      DateTime thisDate = redemptionSortDateTime;
+      DateTime otherDate = target == null ? null : target.redemptionSortDateTime;
 
       if (thisDate == otherDate) {
         return 0;

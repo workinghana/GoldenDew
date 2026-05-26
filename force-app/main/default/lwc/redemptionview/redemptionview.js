@@ -35,7 +35,7 @@ export default class Redemptionview extends NavigationMixin(LightningElement) {
           hasReturnLink: Boolean(row.returnSaleNo && row.recordId),
           rowClass: row.isCancel ? "row-cancel" : ""
         }))
-        .sort((a, b) => this.compareDateAsc(a.redemptionDate, b.redemptionDate));
+        .sort((a, b) => this.compareDateTimeDesc(a.redemptionSortDateTime || a.redemptionDate, b.redemptionSortDateTime || b.redemptionDate));
       this.currentPage = 1;
       this.error = undefined;
       return;
@@ -171,20 +171,29 @@ export default class Redemptionview extends NavigationMixin(LightningElement) {
     return String(value).slice(0, 10);
   }
 
-  compareDateAsc(left, right) {
-    const leftDate = this.normalizeDate(left);
-    const rightDate = this.normalizeDate(right);
+  compareDateTimeDesc(left, right) {
+    const leftTime = this.normalizeDateTime(left);
+    const rightTime = this.normalizeDateTime(right);
 
-    if (!leftDate && !rightDate) {
+    if (!leftTime && !rightTime) {
       return 0;
     }
-    if (!leftDate) {
+    if (!leftTime) {
       return 1;
     }
-    if (!rightDate) {
+    if (!rightTime) {
       return -1;
     }
 
-    return leftDate.localeCompare(rightDate);
+    return rightTime - leftTime;
+  }
+
+  normalizeDateTime(value) {
+    if (!value) {
+      return null;
+    }
+
+    const time = new Date(value).getTime();
+    return Number.isNaN(time) ? null : time;
   }
 }
