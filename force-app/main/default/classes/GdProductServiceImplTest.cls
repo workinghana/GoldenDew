@@ -713,4 +713,53 @@ private class GdProductServiceImplTest {
     System.assertNotEquals(null, ppList);
     System.assertEquals(0, ppList.size());
   }
+
+  /* =========================================================
+   * ProductAccountCategoryCode__c 정규화 매핑 검증
+   * - "3" → "2" 치환 (26.05.27 hana 추가)
+   * - 매핑 미정의 값은 원본 그대로
+   * ========================================================= */
+
+  // 헬퍼 메서드 단위 테스트
+  @IsTest
+  static void test_normalizeProductAccountCategoryCode_mapping() {
+    System.assertEquals('2', GdProductServiceImpl.normalizeProductAccountCategoryCode('3'), '"3"은 "2"로 치환되어야 함');
+    System.assertEquals('4', GdProductServiceImpl.normalizeProductAccountCategoryCode('4'), '매핑 미정의 값은 원본 유지');
+    System.assertEquals('2', GdProductServiceImpl.normalizeProductAccountCategoryCode('2'), '"2"는 원본 유지');
+    System.assertEquals(null, GdProductServiceImpl.normalizeProductAccountCategoryCode(null), 'null은 null 반환');
+  }
+
+  // createProduct: "3" 입력 → Product2에 "2"로 저장
+  @IsTest
+  static void test_createProduct_mapsAccountCategoryCode_3_to_2() {
+    Map<String, Object> req = new Map<String, Object>{
+      'ProductCode' => 'SKU-MAP-001',
+      'Name' => 'Mapping Test Product',
+      'ProductAccountCategoryCode__c' => '3'
+    };
+    Test.startTest();
+    ApiResult res = svc().createProduct(req);
+    Test.stopTest();
+
+    System.assertEquals(200, res.code);
+    Product2 saved = [SELECT ProductAccountCategoryCode__c FROM Product2 WHERE ProductCode = 'SKU-MAP-001' LIMIT 1];
+    System.assertEquals('2', saved.ProductAccountCategoryCode__c, '입력값 "3"은 "2"로 치환되어 저장되어야 함');
+  }
+
+  // updateProduct: "3" 입력 → "2"로 저장
+  @IsTest
+  static void test_updateProduct_mapsAccountCategoryCode_3_to_2() {
+    seedProduct('SKU-UP-MAP-001', 'Update Mapping Test');
+    Map<String, Object> req = new Map<String, Object>{
+      'ProductCode' => 'SKU-UP-MAP-001',
+      'ProductAccountCategoryCode__c' => '3'
+    };
+    Test.startTest();
+    ApiResult res = svc().updateProduct(req);
+    Test.stopTest();
+
+    System.assertEquals(200, res.code);
+    Product2 saved = [SELECT ProductAccountCategoryCode__c FROM Product2 WHERE ProductCode = 'SKU-UP-MAP-001' LIMIT 1];
+    System.assertEquals('2', saved.ProductAccountCategoryCode__c, '수정 입력값 "3"은 "2"로 치환되어 저장되어야 함');
+  }
 }

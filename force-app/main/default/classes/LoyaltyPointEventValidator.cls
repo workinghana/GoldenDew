@@ -36,6 +36,16 @@ public without sharing class LoyaltyPointEventValidator {
     public Map<String, Decimal> actualRedeemCancelByType = new Map<String, Decimal>();
     public Integer mismatchCount = 0;
     public List<String> mismatchDetails = new List<String>();
+    // 보강 #5 — SALE_CREATE 전용 필드 (§ 4)
+    public Decimal expectedDepositTotal = 0;
+    public Decimal actualDepositTotal = 0;
+    public Decimal pointUsageLimit = 0;
+    public Decimal actualPointUsage = 0;
+    public Decimal actualPointDebitLLT = 0;
+    public Decimal expectedPurchaseAccrual = 0;
+    public Decimal actualPurchaseAccrual = 0;
+    public Decimal expectedPromotionAccrual = 0;
+    public Decimal actualPromotionAccrual = 0;
     public String summary;
   }
 
@@ -104,6 +114,43 @@ public without sharing class LoyaltyPointEventValidator {
 
   public static Boolean validateAndAlertReturnDepositDelete(String depositNo, String seqNo) {
     return alertIfInvalid(validateReturnDepositDelete(depositNo, seqNo));
+  }
+
+  public static Boolean validateAndAlertSaleDepositDeleteByTjId(Id tjId) {
+    return alertIfInvalid(validateSaleDepositDeleteByTjId(tjId));
+  }
+
+  public static Boolean validateAndAlertReturnDepositDeleteByTjId(Id tjId) {
+    return alertIfInvalid(validateReturnDepositDeleteByTjId(tjId));
+  }
+
+  // ============================================================
+  // 보강 #5 — 판매 등록 검증 (§ 4 전체)
+  //   5개 절을 통합 검증:
+  //     § 4.1 입금 합계: Order.ActualPaymentAmount__c ↔ 활성 TJ.TransactionAmount 합
+  //     § 4.2 사용 한도: (적립가능 OI 금액 + 수리 OI 금액) ≥ PM=81 입금 합계
+  //     § 4.3 사용 정합: PM=81 입금 합계 = Debit LLT.Points 합
+  //     § 4.4 구매 적립: (적립대상 × 등급률 / 100, HALF_UP) = Purchase Accrual LL 합 (subtype별)
+  //     § 4.5 프로모션 적립: PromotionPointLimit 기준 기대값 = Promotion Point Accrual LL 합
+  //
+  //   주의:
+  //     - PromotionPointLimit.Type__c='none' (이벤트 포인트) 는 검증 스킵 (고정값 정책 다양)
+  //     - 등급 적립 시 프로모션 subtype 은 일반 적립에서 제외 (excludedSubtype 반영)
+  // ============================================================
+  public static ValidationResult validateSaleCreate(String saleNo) {
+    return validateSaleCreate(findOrderBySaleNo(saleNo));
+  }
+
+  public static ValidationResult validateSaleCreate(Id orderId) {
+    return validateSaleCreate(findOrderById(orderId));
+  }
+
+  public static Boolean validateAndAlertSaleCreate(String saleNo) {
+    return alertIfInvalid(validateSaleCreate(saleNo));
+  }
+
+  public static Boolean validateAndAlertSaleCreate(Id orderId) {
+    return alertIfInvalid(validateSaleCreate(orderId));
   }
 
   // ============================================================
@@ -486,6 +533,129 @@ public without sharing class LoyaltyPointEventValidator {
     return alertIfInvalid(validateOriginCreditLLTrace(memberId));
   }
 
+  // ============================================================
+  // 보강 #6 — OPTC_SALE_PATCH force-credit lump 정합성 검증 (§ 11.1 4번째 마커)
+  //
+  //   배경: SALE_PATCH 는 "환원" 이 아닌 "추가 적립" 케이스라 §11.5 의 origin lump
+  //         일치 원칙이 적용되지 않음. 다만 force-credit 가 만료된 lump 또는
+  //         존재하지 않는 lump 으로 가면 회원이 사실상 포인트를 받지 못한다.
+  //
+  //   검증 대상 invariant (현 시점 기준):
+  //     1. Credit LL.ExpiryDate >= Today  — 만료된 lump 향이면 결함
+  //     2. 해당 ExpiryDate 의 LASEL lump 이 존재해야 함
+  //     3. 해당 LASEL.isExpired__c = FALSE 이어야 함
+  //
+  //   향후 보강 가능: force-credit 시점의 latest residual lump 비교 (현재는 단순 invariant 만).
+  // ============================================================
+  public static ValidationResult validateSalePatchAccrualLump(Id memberId) {
+    if (memberId == null) {
+      return invalidMissing('OPTC_SALE_PATCH_LUMP', '회원 ID가 필요합니다.');
+    }
+
+    ValidationResult result = new ValidationResult();
+    result.eventType = 'OPTC_SALE_PATCH_LUMP';
+    result.memberId = memberId;
+    populateMemberById(result, memberId);
+
+    String likeSalePatch = '%' + OPTC_SALE_PATCH_MARKER + '%';
+    List<TransactionJournal> patchTjs = [
+      SELECT Id, AdditionalNotes__c, CreatedDate
+      FROM TransactionJournal
+      WHERE MemberId = :memberId
+        AND JournalSubType.Name = :JOURNAL_SUB_TYPE_API_FORCED_CREDIT
+        AND IsDeleted__c = FALSE
+        AND AdditionalNotes__c LIKE :likeSalePatch
+      LIMIT 1000
+    ];
+
+    if (patchTjs.isEmpty()) {
+      result.isValid = true;
+      result.summary = 'OPTC_SALE_PATCH force-credit TJ 없음 (검증 대상 없음)';
+      return result;
+    }
+
+    Set<Id> patchTjIds = new Map<Id, TransactionJournal>(patchTjs).keySet();
+
+    // 각 force-credit TJ 가 만든 Credit LL.ExpiryDate
+    Map<Id, Date> expiryByTjId = new Map<Id, Date>();
+    for (LoyaltyLedger ll : [
+      SELECT TransactionJournalId, ExpiryDate
+      FROM LoyaltyLedger
+      WHERE TransactionJournalId IN :patchTjIds
+        AND EventType = 'Credit'
+        AND IsDeleted = FALSE
+    ]) {
+      expiryByTjId.put(ll.TransactionJournalId, ll.ExpiryDate);
+    }
+
+    // 회원의 현재 LASEL lump 들 (ExpiryDate 기준 인덱스)
+    Map<Date, LoyaltyAggrSubPointExprLedger__c> laselByExpiry = new Map<Date, LoyaltyAggrSubPointExprLedger__c>();
+    for (LoyaltyAggrSubPointExprLedger__c lasel : [
+      SELECT ExpiryDate__c, AccruedPoints__c, RedeemedPoints__c, ExpiredPoints__c,
+             AvailablePoints__c, isExpired__c, CurrencySubTypeName__c
+      FROM LoyaltyAggrSubPointExprLedger__c
+      WHERE LoyaltyProgramMemberId__c = :memberId
+    ]) {
+      laselByExpiry.put(lasel.ExpiryDate__c, lasel);
+    }
+
+    Date today = Date.today();
+    Integer checkedCount = 0;
+
+    for (TransactionJournal tj : patchTjs) {
+      Date expiry = expiryByTjId.get(tj.Id);
+      if (expiry == null) {
+        // force-credit 결과 Credit LL 자체가 없음 → 실패한 환원
+        result.mismatchCount++;
+        result.mismatchDetails.add(
+          'salePatchTjId=' + tj.Id + ' Credit LL 미존재 (force-credit 실패 가능)'
+        );
+        continue;
+      }
+      checkedCount++;
+
+      // Invariant 1 — 만료된 lump
+      if (expiry < today) {
+        result.mismatchCount++;
+        result.mismatchDetails.add(
+          'salePatchTjId=' + tj.Id + ' lumpExpiry=' + expiry +
+          ' < today=' + today + ' (만료된 lump 으로 적립 → 회원 실수령 0)'
+        );
+        continue;
+      }
+
+      // Invariant 2 — LASEL lump 존재
+      LoyaltyAggrSubPointExprLedger__c lasel = laselByExpiry.get(expiry);
+      if (lasel == null) {
+        result.mismatchCount++;
+        result.mismatchDetails.add(
+          'salePatchTjId=' + tj.Id + ' lumpExpiry=' + expiry +
+          ' (해당 ExpiryDate 의 LASEL 미존재 — rebuild 누락 가능)'
+        );
+        continue;
+      }
+
+      // Invariant 3 — LASEL.isExpired__c = TRUE 면 결함
+      if (lasel.isExpired__c == true) {
+        result.mismatchCount++;
+        result.mismatchDetails.add(
+          'salePatchTjId=' + tj.Id + ' lumpExpiry=' + expiry +
+          ' (LASEL.isExpired=TRUE — 만료 처리된 lump 향)'
+        );
+      }
+    }
+
+    result.isValid = (result.mismatchCount == 0);
+    result.summary = result.isValid
+      ? 'OPTC_SALE_PATCH lump 정합 (검증 ' + checkedCount + '건)'
+      : 'OPTC_SALE_PATCH lump 결함 ' + result.mismatchCount + '건 / 검증 ' + checkedCount + '건';
+    return result;
+  }
+
+  public static Boolean validateAndAlertSalePatchAccrualLump(Id memberId) {
+    return alertIfInvalid(validateSalePatchAccrualLump(memberId));
+  }
+
   private static ValidationResult validateSaleDelete(Order saleOrder) {
     if (saleOrder == null) {
       return invalidMissing('SALE_DELETE', '삭제 판매를 찾을 수 없습니다.');
@@ -496,6 +666,96 @@ public without sharing class LoyaltyPointEventValidator {
     result.actualCreditCancelByType = sumCreditCancellationByOriginOrderByType(saleOrder.Id);
     finalizeResult(result);
     return result;
+  }
+
+  private static ValidationResult validateSaleCreate(Order saleOrder) {
+    if (saleOrder == null) {
+      return invalidMissing('SALE_CREATE', '판매 Order 를 찾을 수 없습니다.');
+    }
+    if (saleOrder.IsReductionOrder__c == true) {
+      return invalidMissing('SALE_CREATE', '반품 Order 는 SALE_CREATE 대상이 아닙니다.');
+    }
+    if (saleOrder.IsDeleted__c == true) {
+      return invalidMissing('SALE_CREATE', '삭제된 판매는 SALE_CREATE 검증 대상이 아닙니다 (별도 SALE_DELETE 검증 사용).');
+    }
+
+    ValidationResult result = baseResult('SALE_CREATE', saleOrder);
+
+    // § 4.1 — 입금 합계
+    result.expectedDepositTotal = absDecimal(saleOrder.ActualPaymentAmount__c);
+    result.actualDepositTotal = sumAllValidDepositsForSale(saleOrder.Id);
+    Decimal depositDiff = result.actualDepositTotal - result.expectedDepositTotal;
+
+    // § 4.2 — 사용 한도 vs 실제 사용
+    result.pointUsageLimit = calculatePointUsageLimit(saleOrder);
+    result.actualPointUsage = sumPointPaymentDeposits(saleOrder.Id);
+    Boolean pointUsageExceedsLimit = result.actualPointUsage > result.pointUsageLimit;
+
+    // § 4.3 — 사용 정합 (PM=81 입금 ↔ Debit LLT)
+    result.actualPointDebitLLT = sumPointDebitLLTByOrder(saleOrder.Id);
+    Decimal debitLLTDiff = result.actualPointDebitLLT - result.actualPointUsage;
+
+    // § 4.4 — 구매 적립 (subtype 별)
+    Decimal eligibleAmount = calculateOriginalSaleEligibleAmount(saleOrder.Id);
+    Set<Id> excludedSubtypeIds = collectPromotionExcludedSubtypeIds(saleOrder.PromotionId__c);
+    result.expectedPurchaseAccrual = estimatePurchaseAccrualTotal(result.memberId, eligibleAmount, excludedSubtypeIds);
+    result.actualPurchaseAccrual = sumAccrualLLByJST(saleOrder.Id, 'Purchase Accrual');
+    Decimal purchaseDiff = result.actualPurchaseAccrual - result.expectedPurchaseAccrual;
+
+    // § 4.5 — 프로모션 적립
+    PromotionEstimate promoEst = estimatePromotionAccrual(saleOrder.PromotionId__c, eligibleAmount);
+    result.expectedPromotionAccrual = promoEst.expected;
+    result.actualPromotionAccrual = sumAccrualLLByJST(saleOrder.Id, 'Promotion Point Accrual');
+    Decimal promoDiff = result.actualPromotionAccrual - result.expectedPromotionAccrual;
+
+    // Mismatch 집계
+    if (depositDiff != 0) {
+      result.mismatchCount++;
+      result.mismatchDetails.add('§4.1 입금합계 불일치: expected=' + formatPoint(result.expectedDepositTotal) +
+                                 ' actual=' + formatPoint(result.actualDepositTotal) +
+                                 ' diff=' + formatPoint(depositDiff));
+    }
+    if (pointUsageExceedsLimit) {
+      result.mismatchCount++;
+      result.mismatchDetails.add('§4.2 포인트 사용 한도 초과: limit=' + formatPoint(result.pointUsageLimit) +
+                                 ' actualUsage=' + formatPoint(result.actualPointUsage));
+    }
+    if (debitLLTDiff != 0) {
+      result.mismatchCount++;
+      result.mismatchDetails.add('§4.3 Debit LLT 불일치: PM81입금=' + formatPoint(result.actualPointUsage) +
+                                 ' DebitLLT합=' + formatPoint(result.actualPointDebitLLT) +
+                                 ' diff=' + formatPoint(debitLLTDiff));
+    }
+    if (purchaseDiff != 0) {
+      result.mismatchCount++;
+      result.mismatchDetails.add('§4.4 구매적립 불일치: expected=' + formatPoint(result.expectedPurchaseAccrual) +
+                                 ' actual=' + formatPoint(result.actualPurchaseAccrual) +
+                                 ' diff=' + formatPoint(purchaseDiff) +
+                                 ' eligible=' + formatPoint(eligibleAmount));
+    }
+    if (promoEst.verifiable && promoDiff != 0) {
+      result.mismatchCount++;
+      result.mismatchDetails.add('§4.5 프로모션적립 불일치: expected=' + formatPoint(result.expectedPromotionAccrual) +
+                                 ' actual=' + formatPoint(result.actualPromotionAccrual) +
+                                 ' diff=' + formatPoint(promoDiff) +
+                                 ' (Type=' + promoEst.typeCode + ')');
+    } else if (!promoEst.verifiable && result.actualPromotionAccrual > 0) {
+      result.mismatchDetails.add('§4.5 프로모션적립 검증 스킵: Type=' + promoEst.typeCode +
+                                 ' (이벤트/고정 포인트 정책 다양) — actual=' + formatPoint(result.actualPromotionAccrual));
+    }
+
+    result.isValid = (result.mismatchCount == 0);
+    result.summary = result.isValid
+      ? 'SALE_CREATE 검증 정상 (§4.1~4.5 모두 통과)'
+      : 'SALE_CREATE 검증 불일치 ' + result.mismatchCount + '건';
+    return result;
+  }
+
+  // 프로모션 적립 추정 결과
+  private class PromotionEstimate {
+    Decimal expected = 0;
+    Boolean verifiable = false;  // false = Type 'none' 등 검증 불가
+    String typeCode = '(없음)';
   }
 
   private static ValidationResult validateReturnCreate(Order returnOrder) {
@@ -585,6 +845,197 @@ public without sharing class LoyaltyPointEventValidator {
     return result;
   }
 
+  // ============================================================
+  // 보강 #5 헬퍼 — SALE_CREATE (§4) 검증용
+  // ============================================================
+
+  // § 4.1 — 판매의 모든 활성 입금 합계 (DepositType 무관, 환불 음수 처리 포함)
+  private static Decimal sumAllValidDepositsForSale(Id orderId) {
+    if (orderId == null) {
+      return 0;
+    }
+    String orderIdText = String.valueOf(orderId);
+    Decimal total = 0;
+    for (TransactionJournal tj : [
+      SELECT PaymentMethod, DepositType__c, TransactionAmount
+      FROM TransactionJournal
+      WHERE (OrderId = :orderId OR SaleId__c = :orderIdText)
+        AND IsDeleted__c = FALSE
+        AND TransactionAmount != NULL
+    ]) {
+      Decimal amt = absDecimal(tj.TransactionAmount);
+      // 환불(DepositType '03'/'05')은 음수로 처리해 판매 금액에 부합
+      if ('03'.equals(tj.DepositType__c) || '05'.equals(tj.DepositType__c)) {
+        total -= amt;
+      } else {
+        total += amt;
+      }
+    }
+    return total;
+  }
+
+  // § 4.2 — 포인트 사용 가능 한도 (적립가능 + 수리)
+  private static Decimal calculatePointUsageLimit(Order saleOrder) {
+    if (saleOrder == null) {
+      return 0;
+    }
+    Decimal usageLimit = 0;
+    Boolean isRepairOrder = '03'.equals(saleOrder.Type);
+    for (OrderItem oi : [
+      SELECT NetSalesUnitPrice__c, Quantity, IsExclude__c
+      FROM OrderItem
+      WHERE OrderId = :saleOrder.Id
+    ]) {
+      Decimal amount = absDecimal(oi.NetSalesUnitPrice__c) * absDecimal(oi.Quantity == null ? 1 : oi.Quantity);
+      if (oi.IsExclude__c != true) {
+        // 적립 가능 상품
+        usageLimit += amount;
+      } else if (isRepairOrder) {
+        // 수리 상품 (IsExclude=true 이지만 원주문 Type='03' 이면 사용 한도 포함)
+        usageLimit += amount;
+      }
+    }
+    return usageLimit;
+  }
+
+  // § 4.2 / 4.3 — PM='81' 입금 합계
+  private static Decimal sumPointPaymentDeposits(Id orderId) {
+    if (orderId == null) {
+      return 0;
+    }
+    String orderIdText = String.valueOf(orderId);
+    List<AggregateResult> rows = [
+      SELECT SUM(TransactionAmount) total
+      FROM TransactionJournal
+      WHERE (OrderId = :orderId OR SaleId__c = :orderIdText)
+        AND PaymentMethod = :PAYMENT_METHOD_POINT
+        AND IsDeleted__c = FALSE
+    ];
+    return aggregateDecimal(rows, 'total').abs();
+  }
+
+  // § 4.3 — Debit LLT.Points 합 (이 판매에서 사용한 포인트)
+  private static Decimal sumPointDebitLLTByOrder(Id orderId) {
+    if (orderId == null) {
+      return 0;
+    }
+    String orderIdText = String.valueOf(orderId);
+    List<AggregateResult> rows = [
+      SELECT SUM(Points) total
+      FROM LoyaltyLedgerTraceability
+      WHERE ActionType = :ACTION_DEBIT
+        AND (DebitLoyaltyLedger.TransactionJournal.OrderId = :orderId
+          OR DebitLoyaltyLedger.TransactionJournal.SaleId__c = :orderIdText)
+        AND DebitLoyaltyLedger.TransactionJournal.IsDeleted__c = FALSE
+        AND DebitLoyaltyLedger.TransactionJournal.JournalSubType.Name = :JOURNAL_SUB_TYPE_POINT_DEBIT
+    ];
+    return aggregateDecimal(rows, 'total').abs();
+  }
+
+  // § 4.4 / 4.5 — 특정 JST 의 적립 LL 합 (이 판매에서 발생)
+  private static Decimal sumAccrualLLByJST(Id orderId, String jstName) {
+    if (orderId == null || String.isBlank(jstName)) {
+      return 0;
+    }
+    String orderIdText = String.valueOf(orderId);
+    List<AggregateResult> rows = [
+      SELECT SUM(Points) total
+      FROM LoyaltyLedger
+      WHERE (TransactionJournal.OrderId = :orderId OR TransactionJournal.SaleId__c = :orderIdText)
+        AND EventType = 'Credit'
+        AND IsDeleted = FALSE
+        AND TransactionJournal.IsDeleted__c = FALSE
+        AND TransactionJournal.JournalSubType.Name = :jstName
+    ];
+    return aggregateDecimal(rows, 'total').abs();
+  }
+
+  // § 4.5 — 프로모션이 점유하는 subtype Id 셋 (등급 적립에서 제외 대상)
+  private static Set<Id> collectPromotionExcludedSubtypeIds(Id promotionId) {
+    Set<Id> result = new Set<Id>();
+    if (promotionId == null) {
+      return result;
+    }
+    for (PromotionPointLimit__c ppl : [
+      SELECT LoyaltyPgmCurrencySubtypeId__c
+      FROM PromotionPointLimit__c
+      WHERE PromotionId__c = :promotionId
+        AND LoyaltyPgmCurrencySubtypeId__c != NULL
+    ]) {
+      result.add(ppl.LoyaltyPgmCurrencySubtypeId__c);
+    }
+    return result;
+  }
+
+  // § 4.4 — 등급 적립 기대값 (subtype 별 합)
+  //   회원의 모든 LoyaltyTierBenefit 순회, subtype 이 excluded 가 아닌 것만 합산.
+  //   각 subtype 별로 (eligible × rate / 100) HALF_UP 후 합 — 실제 코드와 동일 패턴.
+  private static Decimal estimatePurchaseAccrualTotal(Id memberId, Decimal eligibleAmount, Set<Id> excludedSubtypeIds) {
+    if (memberId == null || eligibleAmount == null || eligibleAmount <= 0) {
+      return 0;
+    }
+    Decimal total = 0;
+    for (LoyaltyTierBenefit ltb : [
+      SELECT Benefit.PurchasePointRate__c, Benefit.LoyaltyPgmCurrencySubtypeId__c
+      FROM LoyaltyTierBenefit
+      WHERE LoyaltyTierId IN (SELECT LoyaltyTierId FROM LoyaltyMemberTier WHERE LoyaltyMemberId = :memberId)
+    ]) {
+      if (ltb.Benefit == null || ltb.Benefit.PurchasePointRate__c == null) {
+        continue;
+      }
+      Id subtypeId = ltb.Benefit.LoyaltyPgmCurrencySubtypeId__c;
+      if (excludedSubtypeIds != null && subtypeId != null && excludedSubtypeIds.contains(subtypeId)) {
+        continue;
+      }
+      Decimal rate = ltb.Benefit.PurchasePointRate__c;
+      total += (eligibleAmount * rate / 100).setScale(0, RoundingMode.HALF_UP);
+    }
+    return total;
+  }
+
+  // § 4.5 — 프로모션 적립 기대값
+  //   Type='rate' → (eligible × value / 100) HALF_UP
+  //   Type='none' → 검증 불가 (verifiable=false)
+  //   Type 외 / Promotion 없음 → expected=0, verifiable=true (적립 없어야 정상)
+  private static PromotionEstimate estimatePromotionAccrual(Id promotionId, Decimal eligibleAmount) {
+    PromotionEstimate est = new PromotionEstimate();
+    if (promotionId == null) {
+      est.verifiable = true;
+      est.typeCode = '(프로모션 없음)';
+      return est;
+    }
+    List<PromotionPointLimit__c> pplList = [
+      SELECT Type__c, Value__c
+      FROM PromotionPointLimit__c
+      WHERE PromotionId__c = :promotionId
+    ];
+    if (pplList.isEmpty()) {
+      est.verifiable = true;
+      est.typeCode = '(PromotionPointLimit 없음)';
+      return est;
+    }
+    Boolean anyNone = false;
+    Decimal sumRateExpected = 0;
+    for (PromotionPointLimit__c ppl : pplList) {
+      if ('rate'.equals(ppl.Type__c) && ppl.Value__c != null && eligibleAmount != null && eligibleAmount > 0) {
+        sumRateExpected += (eligibleAmount * ppl.Value__c / 100).setScale(0, RoundingMode.HALF_UP);
+      } else if ('none'.equals(ppl.Type__c)) {
+        anyNone = true;
+      }
+    }
+    if (anyNone) {
+      // 'none' 이 하나라도 있으면 전체 검증 불가 (고정/이벤트 포인트 정책 다양)
+      est.verifiable = false;
+      est.typeCode = 'none(혼합)';
+      est.expected = sumRateExpected;
+    } else {
+      est.verifiable = true;
+      est.typeCode = 'rate';
+      est.expected = sumRateExpected;
+    }
+    return est;
+  }
+
   // 보강 #4 헬퍼 — 입금 TJ 가 직접 발행한 적립 Credit LL 합계 (PointType 별)
   private static Map<String, Decimal> sumAccrualPointsByDepositTJ(Id tjId) {
     Map<String, Decimal> result = new Map<String, Decimal>();
@@ -631,7 +1082,8 @@ public without sharing class LoyaltyPointEventValidator {
     }
     List<Order> rows = [
       SELECT Id, SaleNo__c, OriginalOrderId__c, IsReductionOrder__c, MemberNo__c, AccountId,
-             TotalAmount, ActualPaymentAmount__c, IsDeleted__c, DeleteDateTime__c
+             TotalAmount, ActualPaymentAmount__c, IsDeleted__c, DeleteDateTime__c,
+             Type, PromotionId__c
       FROM Order
       WHERE SaleNo__c = :saleNo
       LIMIT 1
@@ -645,7 +1097,8 @@ public without sharing class LoyaltyPointEventValidator {
     }
     List<Order> rows = [
       SELECT Id, SaleNo__c, OriginalOrderId__c, IsReductionOrder__c, MemberNo__c, AccountId,
-             TotalAmount, ActualPaymentAmount__c, IsDeleted__c, DeleteDateTime__c
+             TotalAmount, ActualPaymentAmount__c, IsDeleted__c, DeleteDateTime__c,
+             Type, PromotionId__c
       FROM Order
       WHERE Id = :orderId
       LIMIT 1

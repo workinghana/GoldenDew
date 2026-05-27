@@ -16,6 +16,11 @@ export default class ProgramMemberField extends LightningElement {
   @track flowTitle;
   @track flowInputVariables = [];
 
+  @track isReconcileOpen = false;
+  @track isVerifyConfirmVisible = false;
+  @track isVerifying = false;
+  @track isFinalConfirmVisible = false;
+
   wiredMemberResult;
   wiredMemberInfoResult;
 
@@ -375,5 +380,46 @@ export default class ProgramMemberField extends LightningElement {
     this.isFlowOpen = false;
     this.flowApiName = null;
     this.flowInputVariables = [];
+  }
+
+  /* ================= 포인트 재정합 ================= */
+
+  handleOpenReconcile() {
+    this.isReconcileOpen = true;
+    this.isVerifyConfirmVisible = false;
+    this.isVerifying = false;
+    this.isFinalConfirmVisible = false;
+  }
+
+  handleCloseReconcile() {
+    this.isReconcileOpen = false;
+    this.isVerifyConfirmVisible = false;
+    this.isVerifying = false;
+    this.isFinalConfirmVisible = false;
+  }
+
+  handleStartVerify() {
+    this.isVerifyConfirmVisible = true;
+  }
+
+  handleConfirmVerify() {
+    this.isVerifyConfirmVisible = false;
+    this.isVerifying = true;
+    // TODO: 실제 포인트 검증 로직 호출 위치
+  }
+
+  handleRequestFinalApply() {
+    this.isFinalConfirmVisible = true;
+  }
+
+  handleCancelFinal() {
+    this.isFinalConfirmVisible = false;
+  }
+
+  handleApplyFinal() {
+    // TODO: 실제 최종 반영(원복) 로직 호출 위치
+    this.isFinalConfirmVisible = false;
+    this.isReconcileOpen = false;
+    this.isVerifying = false;
   }
 }

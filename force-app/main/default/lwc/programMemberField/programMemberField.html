@@ -13,6 +13,8 @@
       <lightning-button label="쿠폰 발급" variant="brand" onclick={handleIssueCoupon}></lightning-button>
 
       <lightning-button label="포인트 지급" variant="neutral" onclick={handleCreditPoints}></lightning-button>
+
+      <lightning-button label="포인트 재정합" variant="brand" onclick={handleOpenReconcile}></lightning-button>
     </div>
   </div>
 
@@ -177,6 +179,122 @@
           <lightning-flow flow-api-name={flowApiName} flow-input-variables={flowInputVariables} onstatuschange={handleFlowStatusChange}>
           </lightning-flow>
         </div>
+      </div>
+    </section>
+
+    <div class="slds-backdrop slds-backdrop_open"></div>
+  </template>
+
+  <!-- ================= 포인트 재정합 Modal ================= -->
+
+  <template if:true={isReconcileOpen}>
+    <section role="dialog" aria-modal="true" aria-labelledby="reconcile-modal-heading" class="slds-modal slds-fade-in-open reconcile-modal">
+      <div class="slds-modal__container reconcile-modal__container">
+        <!-- Header -->
+
+        <header class="slds-modal__header reconcile-modal__header">
+          <lightning-button-icon
+            icon-name="utility:close"
+            alternative-text="닫기"
+            title="닫기"
+            size="medium"
+            class="slds-modal__close"
+            onclick={handleCloseReconcile}
+          >
+          </lightning-button-icon>
+
+          <div class="reconcile-modal__title-wrap">
+            <lightning-icon icon-name="utility:refresh" size="small" class="reconcile-modal__title-icon"></lightning-icon>
+            <h2 id="reconcile-modal-heading" class="reconcile-modal__title">포인트 재정합</h2>
+          </div>
+        </header>
+
+        <!-- Body -->
+
+        <div class="slds-modal__content slds-p-around_large reconcile-modal__content">
+          <template if:false={isVerifying}>
+            <div class="reconcile-verify-area">
+              <button type="button" class="reconcile-verify-btn" onclick={handleStartVerify}>포인트 검증</button>
+            </div>
+          </template>
+
+          <template if:true={isVerifying}>
+            <div class="reconcile-verifying" role="status" aria-live="polite">
+              <div class="reconcile-verifying__spinner">
+                <lightning-spinner alternative-text="검증 진행 중" size="small" variant="brand"></lightning-spinner>
+              </div>
+
+              <div class="reconcile-verifying__title">포인트 정합성 검증을 진행하고 있습니다</div>
+
+              <div class="reconcile-verifying__warning">
+                <lightning-icon icon-name="utility:warning" size="x-small" class="reconcile-verifying__warning-icon"></lightning-icon>
+                <p class="reconcile-verifying__warning-text">
+                  검증 도중 다른 작업을 수행하시면 데이터 정합성에 오차가 발생할 수 있습니다.<br />
+                  완료 알림이 표시될 때까지 잠시만 기다려 주십시오.
+                </p>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Footer -->
+
+        <footer class="slds-modal__footer reconcile-modal__footer">
+          <lightning-button label="최종 반영" variant="brand" onclick={handleRequestFinalApply} class="slds-m-right_small"></lightning-button>
+
+          <lightning-button label="닫기" variant="neutral" onclick={handleCloseReconcile}></lightning-button>
+        </footer>
+
+        <!-- 검증 확인 다이얼로그 (모달 내부 오버레이) -->
+        <template if:true={isVerifyConfirmVisible}>
+          <div class="reconcile-confirm-overlay" role="dialog" aria-modal="true">
+            <div class="reconcile-confirm-dialog">
+              <p class="reconcile-confirm-dialog__message">
+                해당 회원의 포인트 정합성 검증을 진행합니다.<br />
+                계속하시겠습니까?
+              </p>
+
+              <lightning-button variant="brand" label="확인" onclick={handleConfirmVerify} class="reconcile-confirm-dialog__btn"></lightning-button>
+            </div>
+          </div>
+        </template>
+
+        <!-- 최종 반영 경고 다이얼로그 (되돌릴 수 없는 액션) -->
+        <template if:true={isFinalConfirmVisible}>
+          <div class="reconcile-confirm-overlay reconcile-final-overlay" role="alertdialog" aria-modal="true" aria-labelledby="final-confirm-heading">
+            <div class="reconcile-final-dialog">
+              <div class="reconcile-final-dialog__icon-wrap">
+                <lightning-icon icon-name="utility:warning" size="medium" class="reconcile-final-dialog__icon"></lightning-icon>
+              </div>
+
+              <h3 id="final-confirm-heading" class="reconcile-final-dialog__title">최종 반영 전 확인이 필요합니다</h3>
+
+              <p class="reconcile-final-dialog__message">
+                검증된 포인트 값으로 회원의 포인트를 <strong>최종 반영</strong>합니다.<br />
+                반영 이후에는 이전 포인트 상태로 <strong>복원할 수 없으며</strong>,<br />
+                본 작업은 즉시 적용됩니다.
+              </p>
+
+              <p class="reconcile-final-dialog__caution">신중히 확인하신 후 진행해 주십시오.</p>
+
+              <div class="reconcile-final-dialog__actions">
+                <lightning-button
+                  variant="brand"
+                  label="계속 진행"
+                  onclick={handleApplyFinal}
+                  class="reconcile-final-dialog__btn reconcile-final-dialog__btn--apply"
+                ></lightning-button>
+
+                <lightning-button
+                  variant="neutral"
+                  label="취소"
+                  onclick={handleCancelFinal}
+                  class="reconcile-final-dialog__btn reconcile-final-dialog__btn--cancel"
+                ></lightning-button>
+              </div>
+            </div>
+          </div>
+        </template>
       </div>
     </section>
 

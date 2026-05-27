@@ -1,4 +1,27 @@
 public with sharing class GdProductServiceImpl implements GdProductService {
+  /**
+   * 품목계정분류코드(ProductAccountCategoryCode__c) 입력값 정규화 매핑
+   * - ERP에서 들어오는 코드를 로열티 저장값으로 변환
+   * - 매핑이 없는 코드는 입력값 그대로 사용
+   *
+   * 26.05.27 HN 수정 : ERP 코드 "3" → "2" 치환 (고객사 요청)
+   */
+  private static final Map<String, String> PRODUCT_ACCOUNT_CATEGORY_CODE_MAPPING = new Map<String, String>{ '3' => '2' };
+
+  /**
+   * 품목계정분류코드 입력값 정규화
+   * @param  code ERP에서 받은 원본 코드 (null 허용)
+   * @return 매핑 테이블에 정의된 코드면 치환값, 아니면 원본 그대로 반환
+   */
+  @TestVisible
+  private static String normalizeProductAccountCategoryCode(String code) {
+    if (code == null) {
+      return null;
+    }
+    String mapped = PRODUCT_ACCOUNT_CATEGORY_CODE_MAPPING.get(code);
+    return (mapped != null) ? mapped : code;
+  }
+
   public GdProductServiceImpl() {
   }
 
@@ -20,17 +43,15 @@ public with sharing class GdProductServiceImpl implements GdProductService {
       Boolean isActive = ValidationUtil.booleanValidation(reqData.get('IsActive'), 'IsActive', false);
 
       // 26.04.04 WT 수정 :BrandCode__c 추가
+      // 26.05.27 HN 수정 : productAccountCategoryCode 수정
       String brandCode = ValidationUtil.stringValidationEx(reqData.get('BrandCode__c'), 'BrandCode__c', false, true);
 
       String largeCategoryCode = ValidationUtil.stringValidationEx(reqData.get('LargeCategoryCode__c'), 'LargeCategoryCode__c', false, true); // 대분류 코드
       String mediumCategoryCode = ValidationUtil.stringValidationEx(reqData.get('MediumCategoryCode__c'), 'MediumCategoryCode__c', false, true); // 중분류 코드
       String smallCategoryCode = ValidationUtil.stringValidationEx(reqData.get('SmallCategoryCode__c'), 'SmallCategoryCode__c', false, true); // 소분류 코드
-      String productAccountCategoryCode = ValidationUtil.stringValidationEx(
-        reqData.get('ProductAccountCategoryCode__c'),
-        'ProductAccountCategoryCode__c',
-        false,
-        false
-      ); // 품목계정분류코드
+      String productAccountCategoryCode = normalizeProductAccountCategoryCode(
+        ValidationUtil.stringValidationEx(reqData.get('ProductAccountCategoryCode__c'), 'ProductAccountCategoryCode__c', false, false)
+      ); // 품목계정분류코드 (ERP 코드 정규화 적용)
 
       String clarity = ValidationUtil.stringValidation(reqData.get('Clarity2__c'), 'Clarity2__c', false);
       String color = ValidationUtil.stringValidation(reqData.get('Color2__c'), 'Color2__c', false);
@@ -138,17 +159,15 @@ public with sharing class GdProductServiceImpl implements GdProductService {
       Boolean isActive = ValidationUtil.booleanValidation(reqData.get('IsActive'), 'IsActive', false);
 
       // 26.04.04 WT 수정 : BrandCode__c 추가
+      // 26.05.27 HN 수정 : productAccountCategoryCode 수정
       String brandCode = ValidationUtil.stringValidationEx(reqData.get('BrandCode__c'), 'SystemCode__c', false, true);
 
       String largeCategoryCode = ValidationUtil.stringValidationEx(reqData.get('LargeCategoryCode__c'), 'LargeCategoryCode__c', false, true); //대분류 코드
       String mediumCategoryCode = ValidationUtil.stringValidationEx(reqData.get('MediumCategoryCode__c'), 'MediumCategoryCode__c', false, true); //중분류 코드
       String smallCategoryCode = ValidationUtil.stringValidationEx(reqData.get('SmallCategoryCode__c'), 'SmallCategoryCode__c', false, true); //소분류 코드
-      String productAccountCategoryCode = ValidationUtil.stringValidationEx(
-        reqData.get('ProductAccountCategoryCode__c'),
-        'ProductAccountCategoryCode__c',
-        false,
-        false
-      ); // 품목계정분류코드
+      String productAccountCategoryCode = normalizeProductAccountCategoryCode(
+        ValidationUtil.stringValidationEx(reqData.get('ProductAccountCategoryCode__c'), 'ProductAccountCategoryCode__c', false, false)
+      ); // 품목계정분류코드 (ERP 코드 정규화 적용)
 
       String clarity = ValidationUtil.stringValidation(reqData.get('Clarity2__c'), 'Clarity2__c', false);
       String color = ValidationUtil.stringValidation(reqData.get('Color2__c'), 'Color2__c', false);
