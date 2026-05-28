@@ -4,7 +4,7 @@
  * @author Changhwan Kim
  * @since 2026-01-06
  */
-@RestResource(urlMapping='/gd/v1/order/*')
+@RestResource(urlMapping='/gd/v1/order')
 global with sharing class GdOrderApiControllerV1 {
   private static GdOrderService orderService;
   private static GdOrderItemService orderItemService;
@@ -250,12 +250,13 @@ global with sharing class GdOrderApiControllerV1 {
   }
 
   /**
-   * * 사용 중
+   * ! GdOrderItemApiControllerV1로 이관
    * 주문 품목 삭제
    *
    * @author Hana Lee
    * @since 2026-05-26
    */
+  /*
   @HttpDelete
   global static void deleteOrderItem() {
     // 로그 객체 생성 (JobType: API)
@@ -327,6 +328,7 @@ global with sharing class GdOrderApiControllerV1 {
     }
     return;
   }
+  */
 
   // /**
   //  * ! 사용 x

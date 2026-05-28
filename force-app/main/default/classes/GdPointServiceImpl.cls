@@ -4765,12 +4765,33 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
       // 계층 보상 가져오기
       List<LoyaltyTierBenefit> ltbList = [
-        SELECT Benefit.PurchasePointRate__c, Benefit.LoyaltyPgmCurrencySubtypeId__r.Name, Benefit.LoyaltyPgmCurrencySubtypeId__c
+        SELECT Benefit.PurchasePointRate__c,
+               Benefit.LoyaltyPgmCurrencySubtypeId__r.Name,
+               Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c,
+               Benefit.LoyaltyPgmCurrencySubtypeId__c
         FROM LoyaltyTierBenefit
         WHERE LoyaltyTierId IN (SELECT LoyaltyTierId FROM LoyaltyMemberTier WHERE LoyaltyMemberId = :data[0].MemberId)
       ];
       if (ltbList.isEmpty()) {
         throw new CustomException(400, '해당 회원의 등급 보상이 없습니다. ' + data[0].MemberId);
+      }
+
+      // [Fix Bug A 2026-05-27] Promotion.PointTypeCode__c 기반 적립 제외 정책 (V2 paradigm backport)
+      //   배경: 본 V1 메서드는 V2 (creditPointsOnPurchaseV2 L4880-4889) 와 달리 Promotion 의
+      //         적립 제외 정책을 미반영. 반품 입금 삭제 fallback (GdReturnDepositServiceImpl:973)
+      //         가 본 메서드를 호출할 때 promotion 이 제외한 PointType 까지 부당 적립 발생.
+      //         (회원 253007200063 케이스의 사은포인트 114,660 부당 적립 사건)
+      //   해결: V2 와 동일하게 PromotionId 기반 excludedPointTypeCodeSet 계산 + Tier loop 에서 SKIP.
+      Set<String> excludedPointTypeCodeSet = new Set<String>();
+      if (data[0].PromotionId != null) {
+        List<Promotion> pList = [SELECT PointTypeCode__c FROM Promotion WHERE Id = :data[0].PromotionId LIMIT 1];
+        if (!pList.isEmpty() && String.isNotBlank(pList[0].PointTypeCode__c)) {
+          for (String code : pList[0].PointTypeCode__c.split(';')) {
+            if (String.isNotBlank(code)) {
+              excludedPointTypeCodeSet.add(code.trim());
+            }
+          }
+        }
       }
 
       Id purchaseAccrualOrderId = resolvePurchaseAccrualOrderId(data[0]);
@@ -4790,6 +4811,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       }
       tj.JournalTypeId = jtListByCreditPoint[0].Id;
       tj.JournalSubTypeId = jstListByCreditPoint[0].Id;
+      tj.PromotionId = data[0].PromotionId;   // [Fix Bug A] sourceTj 의 PromotionId 전파
 
       Long insertJournalStartMs = Datetime.now().getTime();
       Integer insertJournalStartCpu = Limits.getCpuTime();
@@ -4811,6 +4833,14 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       }
 
       for (LoyaltyTierBenefit ltb : ltbList) {
+        // [Fix Bug A 2026-05-27] Promotion 적립 제외 정책 — PointTypeCode 매칭 시 SKIP
+        String pointTypeCode = (ltb.Benefit == null || ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r == null)
+          ? null
+          : ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c;
+        if (String.isNotBlank(pointTypeCode) && excludedPointTypeCodeSet.contains(pointTypeCode.trim())) {
+          continue;
+        }
+
         Map<String, Object> req = new Map<String, Object>();
         req.put('loyaltyProgramMemberId', data[0].MemberId);
         req.put('journalId', tj.Id);
@@ -5595,7 +5625,10 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
       // 계층 보상 조회
       List<LoyaltyTierBenefit> ltbList = [
-        SELECT Benefit.PurchasePointRate__c, Benefit.LoyaltyPgmCurrencySubtypeId__r.Name, Benefit.LoyaltyPgmCurrencySubtypeId__c, LoyaltyTierId
+        SELECT Benefit.PurchasePointRate__c,
+               Benefit.LoyaltyPgmCurrencySubtypeId__r.Name,
+               Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c,
+               Benefit.LoyaltyPgmCurrencySubtypeId__c, LoyaltyTierId
         FROM LoyaltyTierBenefit
         WHERE LoyaltyTierId = :ltList[0].Id
       ];
@@ -5610,6 +5643,23 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       }
       if (tj.TransactionAmount == null || tj.TransactionAmount == 0) {
         return result;
+      }
+
+      // [Fix Bug A 2026-05-27] Promotion.PointTypeCode__c 기반 적립 제외 정책 (V2 paradigm backport)
+      //   배경: V1 메서드들이 V2 (creditPointsOnPurchaseV2 L4880-4889) 의 PromotionId 제외 정책 미반영.
+      //         반품 입금 삭제 (GdReturnDepositServiceImpl:970, 973) 에서 본 메서드 호출 시
+      //         promotion 이 제외한 PointType (예: 사은포인트) 까지 부당 적립 발생.
+      //   해결: PromotionId 기반 excludedPointTypeCodeSet 계산 + Tier loop 에서 SKIP + newTj.PromotionId 전파.
+      Set<String> excludedPointTypeCodeSet = new Set<String>();
+      if (tj.PromotionId != null) {
+        List<Promotion> pList = [SELECT PointTypeCode__c FROM Promotion WHERE Id = :tj.PromotionId LIMIT 1];
+        if (!pList.isEmpty() && String.isNotBlank(pList[0].PointTypeCode__c)) {
+          for (String code : pList[0].PointTypeCode__c.split(';')) {
+            if (String.isNotBlank(code)) {
+              excludedPointTypeCodeSet.add(code.trim());
+            }
+          }
+        }
       }
 
       Datetime purchaseAccrualDatetime = resolvePurchaseAccrualDatetime(tj.OrderId);
@@ -5630,6 +5680,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       newTj.JournalTypeId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_ACCRUAL, true);
       newTj.JournalSubTypeId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_PURCHASE_ACCRUAL, true);
       newTj.AdditionalNotes__c = additionalNotes;
+      newTj.PromotionId = tj.PromotionId;   // [Fix Bug A] sourceTj 의 PromotionId 전파
 
       insert newTj;
 
@@ -5639,6 +5690,14 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       }
 
       for (LoyaltyTierBenefit ltb : ltbList) {
+        // [Fix Bug A 2026-05-27] Promotion 적립 제외 정책 — PointTypeCode 매칭 시 SKIP
+        String pointTypeCode = (ltb.Benefit == null || ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r == null)
+          ? null
+          : ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c;
+        if (String.isNotBlank(pointTypeCode) && excludedPointTypeCodeSet.contains(pointTypeCode.trim())) {
+          continue;
+        }
+
         Map<String, Object> req = new Map<String, Object>();
         req.put('loyaltyProgramMemberId', newTj.MemberId);
         req.put('journalId', newTj.Id);

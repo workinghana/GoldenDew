@@ -587,27 +587,37 @@ public with sharing class GdReturnDepositServiceImpl implements GdReturnDepositS
         true
       );
 
-      linkedAccrualReversalTjList = [
-        SELECT
-          Id,
-          JournalSubTypeId,
-          LoyaltyProgramId,
-          MemberId,
-          OrderId,
-          PromotionId,
-          OrderId__c,
-          SaleId__c,
-          DepositNo__c,
-          RelatedJournalId,
-          IsDeleted__c,
-          DeleteDateTime__c
-        FROM TransactionJournal
-        WHERE
-          RelatedJournalId = :sourceTj.Id
-          AND MemberId = :sourceTj.MemberId
-          AND IsDeleted__c = FALSE
-          AND JournalSubTypeId IN :new Set<Id>{ cancelPurchaseAccrualJstId, promotionPointAccrualReversalJstId }
-      ];
+      // [Fix Bug B 2026-05-27] SaleId__c fallback 매칭 추가.
+      //   배경: 기존 SOQL 은 RelatedJournalId = sourceTj.Id 만 매칭하나, 반품 등록 시 발생한
+      //         Cancel Purchase Accrual TJ 의 RelatedJournalId 가 null 인 경우가 있어 매칭 실패.
+      //         → 반품 입금 삭제 시 부수 CPA TJ 미정리 → 후속 반품 등록 시 같은 적립 LL 이중 cancel.
+      //         (회원 253007200063 케이스의 38,220 over-cancellation 사건)
+      //   해결: RelatedJournalId 매칭 + sourceTj.SaleId__c 존재 시 SaleId__c 매칭 fallback.
+      //         SOQL 안에 변수 null check 불가능하므로 Apex 분기.
+      String saleIdText = sourceTj.SaleId__c;
+      if (String.isNotBlank(saleIdText)) {
+        linkedAccrualReversalTjList = [
+          SELECT
+            Id, JournalSubTypeId, LoyaltyProgramId, MemberId, OrderId, PromotionId,
+            OrderId__c, SaleId__c, DepositNo__c, RelatedJournalId, IsDeleted__c, DeleteDateTime__c
+          FROM TransactionJournal
+          WHERE MemberId = :sourceTj.MemberId
+            AND IsDeleted__c = FALSE
+            AND JournalSubTypeId IN :new Set<Id>{ cancelPurchaseAccrualJstId, promotionPointAccrualReversalJstId }
+            AND (RelatedJournalId = :sourceTj.Id OR SaleId__c = :saleIdText)
+        ];
+      } else {
+        linkedAccrualReversalTjList = [
+          SELECT
+            Id, JournalSubTypeId, LoyaltyProgramId, MemberId, OrderId, PromotionId,
+            OrderId__c, SaleId__c, DepositNo__c, RelatedJournalId, IsDeleted__c, DeleteDateTime__c
+          FROM TransactionJournal
+          WHERE MemberId = :sourceTj.MemberId
+            AND IsDeleted__c = FALSE
+            AND JournalSubTypeId IN :new Set<Id>{ cancelPurchaseAccrualJstId, promotionPointAccrualReversalJstId }
+            AND RelatedJournalId = :sourceTj.Id
+        ];
+      }
 
       if (
         sourceTj.JournalSubTypeId == pointRedeemCancelJstId ||

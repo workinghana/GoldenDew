@@ -12,15 +12,6 @@ private class GdOrderApiControllerV1Test {
     RestContext.response = new RestResponse();
   }
 
-  private static void setupRestWithParams(String method, Map<String, String> params) {
-    setupRest(method, null);
-    if (params != null) {
-      for (String key : params.keySet()) {
-        RestContext.request.params.put(key, params.get(key));
-      }
-    }
-  }
-
   private static Id createOrderRecord() {
     Account accountRecord = [SELECT Id FROM Account LIMIT 1];
     Id standardPricebookId = Test.getStandardPricebookId();
@@ -32,49 +23,6 @@ private class GdOrderApiControllerV1Test {
     Order orderRecord = new Order(AccountId = accountRecord.Id, Status = 'Draft', EffectiveDate = Date.today(), Pricebook2Id = standardPricebookId);
     insert orderRecord;
     return orderRecord.Id;
-  }
-
-  private static Order createOrderRecordWithOrderNo(String orderNo) {
-    Account accountRecord = [SELECT Id FROM Account LIMIT 1];
-    Id standardPricebookId = Test.getStandardPricebookId();
-    try {
-      update new Pricebook2(Id = standardPricebookId, IsActive = true);
-    } catch (Exception ignore) {
-    }
-
-    Order orderRecord = new Order(
-      AccountId = accountRecord.Id,
-      Status = 'Draft',
-      EffectiveDate = Date.today(),
-      Pricebook2Id = standardPricebookId,
-      OrderNo__c = orderNo
-    );
-    insert orderRecord;
-    return orderRecord;
-  }
-
-  private static OrderItem createOrderItemForDelete(Order orderRecord, String orderSeqNo) {
-    Product2 productRecord = new Product2(Name = 'Order API Delete Product', ProductCode = 'OAPI-DEL-' + orderSeqNo, IsActive = true);
-    insert productRecord;
-
-    PricebookEntry pbe = new PricebookEntry(
-      Pricebook2Id = Test.getStandardPricebookId(),
-      Product2Id = productRecord.Id,
-      UnitPrice = 1000,
-      IsActive = true
-    );
-    insert pbe;
-
-    OrderItem item = new OrderItem(
-      OrderId = orderRecord.Id,
-      PricebookEntryId = pbe.Id,
-      Quantity = 1,
-      UnitPrice = 1000,
-      OrderSeqNo__c = orderSeqNo,
-      OrderItemNo__c = String.valueOf(orderRecord.Id) + '-' + orderSeqNo
-    );
-    insert item;
-    return item;
   }
 
   @TestSetup
@@ -441,50 +389,33 @@ private class GdOrderApiControllerV1Test {
   }
 
   @IsTest
-  static void deleteOrderItem_missingOrderNo_returns400() {
-    setupRestWithParams('DELETE', new Map<String, String>{ 'OrderSeqNo__c' => '001' });
+  static void updateOrder_withoutOptionalSections_returns200() {
+    MockOrderService orderService = new MockOrderService();
+    orderService.createOrderId = createOrderRecord();
+
+    GdOrderApiControllerV1.setOrderService(orderService);
+    GdOrderApiControllerV1.setOrderItemService(new MockOrderItemService());
+    GdOrderApiControllerV1.setOrderDepositService(new MockOrderDepositService());
+    setupRest('PATCH', '{"orderNo":"ORD-001"}');
 
     Test.startTest();
-    GdOrderApiControllerV1.deleteOrderItem();
-    Test.stopTest();
-
-    System.assertEquals(400, RestContext.response.statusCode);
-  }
-
-  @IsTest
-  static void deleteOrderItem_orderNotFound_returns400() {
-    setupRestWithParams('DELETE', new Map<String, String>{ 'OrderNo__c' => 'ORD-NOT-FOUND', 'OrderSeqNo__c' => '001' });
-
-    Test.startTest();
-    GdOrderApiControllerV1.deleteOrderItem();
-    Test.stopTest();
-
-    System.assertEquals(400, RestContext.response.statusCode);
-  }
-
-  @IsTest
-  static void deleteOrderItem_orderItemNotFound_returns400() {
-    createOrderRecordWithOrderNo('ORD-DELETE-NOITEM');
-    setupRestWithParams('DELETE', new Map<String, String>{ 'OrderNo__c' => 'ORD-DELETE-NOITEM', 'OrderSeqNo__c' => '999' });
-
-    Test.startTest();
-    GdOrderApiControllerV1.deleteOrderItem();
-    Test.stopTest();
-
-    System.assertEquals(400, RestContext.response.statusCode);
-  }
-
-  @IsTest
-  static void deleteOrderItem_success_returns200AndDeletesItem() {
-    Order orderRecord = createOrderRecordWithOrderNo('ORD-DELETE-SUCCESS');
-    OrderItem item = createOrderItemForDelete(orderRecord, '001');
-    setupRestWithParams('DELETE', new Map<String, String>{ 'OrderNo__c' => 'ORD-DELETE-SUCCESS', 'OrderSeqNo__c' => '001' });
-
-    Test.startTest();
-    GdOrderApiControllerV1.deleteOrderItem();
+    GdOrderApiControllerV1.updateOrder();
     Test.stopTest();
 
     System.assertEquals(200, RestContext.response.statusCode);
-    System.assertEquals(0, [SELECT COUNT() FROM OrderItem WHERE Id = :item.Id]);
+  }
+
+  @IsTest
+  static void createOrder_nullTransactionJournal_returns400() {
+    GdOrderApiControllerV1.setOrderService(new MockOrderService());
+    GdOrderApiControllerV1.setOrderItemService(new MockOrderItemService());
+    GdOrderApiControllerV1.setOrderDepositService(new MockOrderDepositService());
+    setupRest('POST', '{"orderNo":"ORD-001","TransactionJournal":null}');
+
+    Test.startTest();
+    GdOrderApiControllerV1.createOrder();
+    Test.stopTest();
+
+    System.assertEquals(400, RestContext.response.statusCode);
   }
 }

@@ -4134,4 +4134,19 @@ private class GdReturnDepositServiceImplTest {
     }
     System.assertEquals(true, thrown);
   }
+
+  @IsTest
+  static void testVisibleHelpers_emptyInputsReturnSafely() {
+    LoyaltyProgramMember lpm = [SELECT Id FROM LoyaltyProgramMember LIMIT 1];
+
+    GdReturnDepositServiceImpl.validateRestoredPointLedgersFullyRecoverableV2(null, lpm.Id);
+    GdReturnDepositServiceImpl.validateRestoredPointLedgersFullyRecoverableV2(new List<LoyaltyLedger>(), lpm.Id);
+    GdReturnDepositServiceImpl.validateRestoredPointLedgersFullyRecoverable(null, lpm.Id);
+    GdReturnDepositServiceImpl.validateRestoredPointLedgersFullyRecoverable(new List<LoyaltyLedger>(), lpm.Id);
+
+    System.assertEquals(0, GdReturnDepositServiceImpl.getOriginalAccrualEligibleDepositAmount(null));
+    System.assertEquals(0, GdReturnDepositServiceImpl.getReturnAccrualEligibleDepositAmount(new List<TransactionJournal>()));
+    System.assertEquals(0, GdReturnDepositServiceImpl.getExcludedReturnAmount((Id) null));
+    System.assertEquals(0, GdReturnDepositServiceImpl.getCancelableEcoPointLedgers(null));
+  }
 }

@@ -417,6 +417,77 @@ private class GdPointServiceImplTest {
     .Id;
   }
 
+  private static Id ensureSubtypeByCode(String pointTypeCode, String subtypeName, Integer usagePriorityNumber) {
+    List<LoyaltyPgmCurrencySubtype> existingSubtypes = [
+      SELECT Id
+      FROM LoyaltyPgmCurrencySubtype
+      WHERE PointTypeCode__c = :pointTypeCode
+      LIMIT 1
+    ];
+    if (!existingSubtypes.isEmpty()) {
+      return existingSubtypes[0].Id;
+    }
+
+    Id memberId = getMemberId(TEST_MEMBER_NO);
+    Id loyaltyProgramId = [
+      SELECT ProgramId
+      FROM LoyaltyProgramMember
+      WHERE Id = :memberId
+      LIMIT 1
+    ]
+    .ProgramId;
+
+    LoyaltyPgmCurrencySubtype subtype = new LoyaltyPgmCurrencySubtype(
+      LoyaltyProgramCurrencyId = getLoyaltyProgramCurrencyId(loyaltyProgramId),
+      Name = subtypeName,
+      PointTypeCode__c = pointTypeCode,
+      UsagePriorityNumber = usagePriorityNumber,
+      IsActive = true
+    );
+    insert subtype;
+    return subtype.Id;
+  }
+
+  private static void insertTierBenefitForMemberTier(Id subtypeId, Decimal rate) {
+    Id memberId = getMemberId(TEST_MEMBER_NO);
+    Id loyaltyProgramId = [
+      SELECT ProgramId
+      FROM LoyaltyProgramMember
+      WHERE Id = :memberId
+      LIMIT 1
+    ]
+    .ProgramId;
+    Id tierId = [
+      SELECT LoyaltyTierId
+      FROM LoyaltyMemberTier
+      WHERE LoyaltyMemberId = :memberId
+      LIMIT 1
+    ]
+    .LoyaltyTierId;
+
+    String processType = BenefitType.ProcessType.getDescribe().getPicklistValues()[0].getValue();
+    BenefitType benefitType = new BenefitType(
+      Name = 'BT-PT-' + String.valueOf(DateTime.now().getTime()),
+      ProcessType = processType,
+      LoyaltyProgramId = loyaltyProgramId
+    );
+    insert benefitType;
+
+    Benefit benefit = new Benefit(
+      Name = 'BEN-PT-' + String.valueOf(DateTime.now().getTime()),
+      BenefitTypeId = benefitType.Id,
+      PurchasePointRate__c = rate,
+      LoyaltyPgmCurrencySubtypeId__c = subtypeId
+    );
+    insert benefit;
+
+    insert new LoyaltyTierBenefit(
+      Name = 'LTB-PT-' + String.valueOf(DateTime.now().getTime()),
+      LoyaltyTierId = tierId,
+      BenefitId = benefit.Id
+    );
+  }
+
   private static TransactionJournal buildPurchaseJournal(Id promotionId, Decimal amount) {
     Id memberId = getMemberId(TEST_MEMBER_NO);
     Id orderId = getOrderId();
@@ -5593,5 +5664,210 @@ private class GdPointServiceImplTest {
 
     Map<String, Integer> pointByTypeCode = toAvailablePointMap(result);
     System.assertEquals(null, pointByTypeCode.get('02'), 'same sale credits should be excluded from the available point response');
+  }
+
+  @IsTest
+  static void usageBucketV2_allocateAndSort_coverBranches() {
+    GdPointServiceImpl.UsageBucketV2 firstBucket = new GdPointServiceImpl.UsageBucketV2(
+      Date.today().addDays(5),
+      'TYPE_B',
+      1,
+      'a01000000001001AAA',
+      'credit-1',
+      'debit-1'
+    );
+    firstBucket.addEntry('0lT000000000001AAA', null);
+    firstBucket.addEntry('0lT000000000002AAA', 40);
+    firstBucket.addEntry('0lT000000000003AAA', 60);
+
+    Map<Id, Decimal> emptyAllocation = firstBucket.allocateCancel(0);
+    Map<Id, Decimal> partialAllocation = firstBucket.allocateCancel(70);
+
+    System.assertEquals(0, emptyAllocation.size());
+    System.assertEquals(2, partialAllocation.size());
+    System.assertEquals(40, partialAllocation.get('0lT000000000002AAA'));
+    System.assertEquals(30, partialAllocation.get('0lT000000000003AAA'));
+
+    GdPointServiceImpl.UsageBucketV2 secondBucket = new GdPointServiceImpl.UsageBucketV2(
+      Date.today().addDays(10),
+      'TYPE_A',
+      2,
+      'a01000000001002AAA',
+      'credit-2',
+      'debit-2'
+    );
+    secondBucket.addEntry('0lT000000000004AAA', 10);
+
+    List<GdPointServiceImpl.UsageBucketV2> bucketList = new List<GdPointServiceImpl.UsageBucketV2>{ firstBucket, secondBucket };
+    bucketList.sort(new GdPointServiceImpl.UsageBucketV2CancelSorter());
+
+    System.assertEquals('TYPE_A', bucketList[0].pointSubTypeName);
+
+    GdPointServiceImpl.CancelPortionV2 portionWithIds = new GdPointServiceImpl.CancelPortionV2(firstBucket, 25, 'credit-override', 'debit-override');
+    System.assertEquals(25, portionWithIds.cancelPoints);
+    System.assertEquals('credit-override', portionWithIds.creditLoyaltyLedgerId);
+    System.assertEquals('debit-override', portionWithIds.debitLoyaltyLedgerId);
+  }
+
+  @IsTest
+  static void publicDebitHelpers_invalidInputs_throwExpectedCustomExceptions() {
+    GdPointServiceImpl service = new GdPointServiceImpl();
+
+    try {
+      service.debitPointForSaleUpdate(null);
+      System.assert(false, 'Expected null transaction journal to throw.');
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
+    }
+
+    try {
+      service.debitSpecificPointsV2(new TransactionJournal(), null);
+      System.assert(false, 'Expected empty source ledger list to throw.');
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
+    }
+
+    try {
+      service.debitSpecificPointsV3(null, new Map<Id, Decimal>());
+      System.assert(false, 'Expected null transaction journal to throw.');
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
+    }
+
+    TransactionJournal missingMemberTj = new TransactionJournal(TransactionAmount = 10);
+    try {
+      service.debitSpecificPointsV3(missingMemberTj, new Map<Id, Decimal>{ getOrderId() => 10 });
+      System.assert(false, 'Expected missing member to throw.');
+    } catch (CustomException e) {
+      System.assertEquals(400, e.code);
+    }
+  }
+
+  @IsTest
+  static void debitSpecificPointsV3_withAvailableCreditLedger_createsDebitTraceability() {
+    GdPointServiceImpl service = new GdPointServiceImpl();
+    Id memberId = getMemberId(TEST_MEMBER_NO);
+    Id orderId = getOrderId();
+    Id loyaltyProgramId = [
+      SELECT ProgramId
+      FROM LoyaltyProgramMember
+      WHERE Id = :memberId
+      LIMIT 1
+    ]
+    .ProgramId;
+    Id loyaltyProgramCurrencyId = getLoyaltyProgramCurrencyId(loyaltyProgramId);
+    Id subtypeId = getSubtypeIdByCode('02');
+
+    TransactionJournal creditTj = new TransactionJournal(
+      ActivityDate = Datetime.now().addDays(-1),
+      JournalDate = Datetime.now().addDays(-1),
+      LoyaltyProgramId = loyaltyProgramId,
+      MemberId = memberId,
+      OrderId = orderId,
+      SaleId__c = orderId,
+      TransactionAmount = 250,
+      PaymentMethod = '11',
+      JournalTypeId = getJournalTypeId('Accrual'),
+      JournalSubTypeId = getJournalSubTypeId('Purchase Accrual'),
+      Status = 'Processed'
+    );
+    insert creditTj;
+
+    LoyaltyLedger creditLedger = new LoyaltyLedger(
+      LoyaltyProgramMemberId = memberId,
+      LoyaltyProgramCurrencyId = loyaltyProgramCurrencyId,
+      LoyaltyPgmCrcySubtypeId = subtypeId,
+      TransactionJournalId = creditTj.Id,
+      ActivityDate = Datetime.now().addDays(-1),
+      Points = 250,
+      ExpiryDate = Date.today().addMonths(6),
+      EventType = 'Credit'
+    );
+    insert creditLedger;
+
+    TransactionJournal debitTj = new TransactionJournal(
+      ActivityDate = Datetime.now(),
+      JournalDate = Datetime.now(),
+      LoyaltyProgramId = loyaltyProgramId,
+      MemberId = memberId,
+      OrderId = orderId,
+      SaleId__c = orderId,
+      TransactionAmount = 120,
+      PaymentMethod = '81'
+    );
+
+    Test.startTest();
+    List<PointDebitDTO> result = service.debitSpecificPointsV3(debitTj, new Map<Id, Decimal>{ creditLedger.Id => 120 });
+    Test.stopTest();
+
+    System.assertNotEquals(null, result);
+
+    List<LoyaltyLedgerTraceability> traces = [
+      SELECT Id, Points, DebitLoyaltyLedgerId
+      FROM LoyaltyLedgerTraceability
+      WHERE CreditLoyaltyLedgerId = :creditLedger.Id AND ActionType = 'Debit'
+    ];
+    System.assertEquals(1, traces.size());
+    System.assertEquals(120, traces[0].Points);
+    System.assertNotEquals(null, traces[0].DebitLoyaltyLedgerId);
+  }
+
+  @IsTest
+  static void creditEtcPointsOnPurchaseForOldSale_withGradeBenefit_redirectsToEtcSubtype() {
+    Id purchaseSubtypeId = ensureSubtypeByCode('01', 'PURCHASE_POINT_TEST', 4);
+    ensureSubtypeByCode('04', 'ETC_POINT_TEST', 5);
+    insertTierBenefitForMemberTier(purchaseSubtypeId, 10);
+
+    GdPointServiceImpl service = new GdPointServiceImpl();
+    TransactionJournal purchaseTj = buildPurchaseJournal(null, 1000);
+
+    Test.startTest();
+    List<PointCreditDTO> result = service.creditEtcPointsOnPurchaseForOldSale(new List<TransactionJournal>{ purchaseTj }, 0);
+    Test.stopTest();
+
+    System.assertNotEquals(null, result);
+    System.assertEquals(false, result.isEmpty());
+    System.assertEquals('04', result[0].CD_TYPE_POINT);
+
+    List<TransactionJournal> oldSaleEtcJournals = [
+      SELECT Id, TransactionAmount
+      FROM TransactionJournal
+      WHERE AdditionalNotes__c = 'OPTC_OLD_SALE_ETC_ACCRUAL'
+    ];
+    System.assertEquals(1, oldSaleEtcJournals.size());
+    System.assertEquals(100, oldSaleEtcJournals[0].TransactionAmount);
+  }
+
+  @IsTest
+  static void testVisibleHelpers_findCancelableAndFallbackKey_coverEdgeBranches() {
+    Id orderId = getOrderId();
+    Id accrualJtId = getJournalTypeId('Accrual');
+    Id purchaseAccrualJstId = getJournalSubTypeId('Purchase Accrual');
+
+    System.assertEquals(0, GdPointServiceImpl.findCancelableAccrualCreditLedgers(null, accrualJtId, purchaseAccrualJstId).size());
+    System.assertEquals(0, GdPointServiceImpl.findCancelableAccrualCreditLedgers(new TransactionJournal(OrderId = orderId), null, purchaseAccrualJstId).size());
+
+    TransactionJournal saleSourceTj = new TransactionJournal(OrderId = orderId, SaleId__c = String.valueOf(orderId));
+    saleSourceTj.put('OrderId__c', String.valueOf(orderId));
+    System.assertEquals(0, GdPointServiceImpl.findCancelableAccrualCreditLedgers(saleSourceTj, accrualJtId, purchaseAccrualJstId).size());
+
+    LoyaltyLedger invalidLedger = new LoyaltyLedger(Points = 10);
+    System.assertEquals(null, GdPointServiceImpl.buildFallbackPurchaseCancelBucketKey(invalidLedger, 1000));
+
+    Id subtypeId = getSubtypeIdByCode('02');
+    LoyaltyLedger validLedger = (LoyaltyLedger) JSON.deserialize(
+      JSON.serialize(
+        new Map<String, Object>{
+          'Points' => 25,
+          'LoyaltyPgmCrcySubtypeId' => subtypeId,
+          'LoyaltyPgmCrcySubtype' => new Map<String, Object>{ 'Name' => 'GENERAL_POINT' }
+        }
+      ),
+      LoyaltyLedger.class
+    );
+    String key = GdPointServiceImpl.buildFallbackPurchaseCancelBucketKey(validLedger, 1000);
+    System.assert(key != null && key.startsWith('GENERAL_POINT|'));
+
+    System.assertEquals(0, GdPointServiceImpl.calculateOriginalPurchaseAccrualBaseAmount(null));
   }
 }

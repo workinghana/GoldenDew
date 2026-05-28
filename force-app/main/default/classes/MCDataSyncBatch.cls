@@ -39,7 +39,7 @@ global class MCDataSyncBatch implements Database.Batchable<SObject>, Database.Al
             Map<String, String> item = new Map<String, String>();
             for (String field : fields) {
                 Object val = rec.get(field);
-                item.put(field, val != null ? String.valueOf(val) : '');
+                item.put(field, normalizeMcValue(val));
             }
             items.add(item);
         }
@@ -64,6 +64,7 @@ global class MCDataSyncBatch implements Database.Batchable<SObject>, Database.Al
             HttpResponse res = new Http().send(req);
             if (res.getStatusCode() == 202) {
                 successCount += items.size();
+                System.debug('MC Accepted: ' + res.getStatusCode() + ' ' + res.getBody());
             } else {
                 errorCount += items.size();
                 System.debug('MC Error: ' + res.getStatusCode() + ' ' + res.getBody());
@@ -72,6 +73,19 @@ global class MCDataSyncBatch implements Database.Batchable<SObject>, Database.Al
             errorCount += items.size();
             System.debug('Exception: ' + e.getMessage());
         }
+    }
+    
+    private String normalizeMcValue(Object value) {
+        if (value == null) {
+            return '';
+        }
+        
+        String textValue = String.valueOf(value);
+        if (String.isNotBlank(textValue) && textValue.trim().equalsIgnoreCase('NULL')) {
+            return '';
+        }
+        
+        return textValue;
     }
     
     global void finish(Database.BatchableContext bc) {
