@@ -61,12 +61,22 @@
 
           <div class="detail-row">
             <span class="label">매장(구분)</span>
-            <span>{storeGroupText}</span>
+            <span class="detail-value-row">
+              <span>{storeGroupDisplay}</span>
+              <template if:true={hasMoreStoreGroup}>
+                <button type="button" class="more-btn" onclick={handleOpenStoreGroupModal}>더보기</button>
+              </template>
+            </span>
           </div>
 
           <div class="detail-row">
             <span class="label">매장(계열)</span>
-            <span>{storeDetailText}</span>
+            <span class="detail-value-row">
+              <span>{storeDetailDisplay}</span>
+              <template if:true={hasMoreStoreDetail}>
+                <button type="button" class="more-btn" onclick={handleOpenStoreDetailModal}>더보기</button>
+              </template>
+            </span>
           </div>
         </div>
       </div>
@@ -105,5 +115,63 @@
         </div>
       </div>
     </section>
+
+    <!-- ================= 매장(구분) 전체 목록 모달 ================= -->
+    <template if:true={isStoreGroupModalOpen}>
+      <section role="dialog" aria-modal="true" aria-labelledby="store-group-modal-heading" class="slds-modal slds-fade-in-open store-detail-modal">
+        <div class="slds-modal__container">
+          <header class="slds-modal__header">
+            <lightning-button-icon
+              icon-name="utility:close"
+              alternative-text="닫기"
+              title="닫기"
+              class="slds-modal__close"
+              onclick={handleCloseStoreGroupModal}
+            ></lightning-button-icon>
+
+            <h2 id="store-group-modal-heading" class="slds-text-heading_medium store-detail-modal__title">적용 매장(구분) 전체 목록</h2>
+          </header>
+
+          <div class="slds-modal__content slds-p-around_medium">
+            <ul class="store-detail-list">
+              <template for:each={storegroupItems} for:item="item">
+                <li key={item}>{item}</li>
+              </template>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+
+    <!-- ================= 매장(계열) 전체 목록 모달 ================= -->
+    <template if:true={isStoreDetailModalOpen}>
+      <section role="dialog" aria-modal="true" aria-labelledby="store-detail-modal-heading" class="slds-modal slds-fade-in-open store-detail-modal">
+        <div class="slds-modal__container">
+          <header class="slds-modal__header">
+            <lightning-button-icon
+              icon-name="utility:close"
+              alternative-text="닫기"
+              title="닫기"
+              class="slds-modal__close"
+              onclick={handleCloseStoreDetailModal}
+            ></lightning-button-icon>
+
+            <h2 id="store-detail-modal-heading" class="slds-text-heading_medium store-detail-modal__title">적용 매장(계열) 전체 목록</h2>
+          </header>
+
+          <div class="slds-modal__content slds-p-around_medium">
+            <ul class="store-detail-list">
+              <template for:each={storedetailItems} for:item="item">
+                <li key={item}>{item}</li>
+              </template>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
   </template>
 </template>

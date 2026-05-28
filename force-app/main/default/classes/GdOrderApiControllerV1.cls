@@ -4,7 +4,7 @@
  * @author Changhwan Kim
  * @since 2026-01-06
  */
-@RestResource(urlMapping='/gd/v1/order')
+@RestResource(urlMapping='/gd/v1/order/*')
 global with sharing class GdOrderApiControllerV1 {
   private static GdOrderService orderService;
   private static GdOrderItemService orderItemService;

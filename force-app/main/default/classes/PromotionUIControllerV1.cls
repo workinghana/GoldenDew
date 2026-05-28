@@ -39,7 +39,8 @@ public with sharing class PromotionUIControllerV1 {
         DiscountRate__c,
         ProductCatalogId,
         IsPointUsageAllowed__c,
-        PointTypeCode__c
+        PointTypeCode__c,
+        StoreType__c
       FROM Promotion
       WHERE Id = :promotionId
       LIMIT 1
@@ -76,28 +77,25 @@ public with sharing class PromotionUIControllerV1 {
     List<Account> accounts = new List<Account>();
     if (!accountIds.isEmpty()) {
       accounts = [
-        SELECT Id, StoreGroupCode__c, StoreType__c
+        SELECT Id, Name
         FROM Account
         WHERE Id IN :accountIds
       ];
     }
 
-    Set<String> storeTypes = new Set<String>();
-    Set<String> storeGroups = new Set<String>();
+    Set<String> storeNames = new Set<String>();
 
     for (Account acc : accounts) {
-      if (acc.StoreType__c != null) {
-        storeTypes.add(getPicklistLabel(Account.StoreType__c, acc.StoreType__c));
-      }
-
-      if (acc.StoreGroupCode__c != null) {
-        storeGroups.add(getPicklistLabel(Account.StoreGroupCode__c, acc.StoreGroupCode__c));
+      if (!String.isBlank(acc.Name)) {
+        storeNames.add(acc.Name);
       }
     }
 
-    dto.storegroup = storeTypes.isEmpty() ? null : String.join(new List<String>(storeTypes), ', ');
+    // 매장(구분): PromotionAccount__c 자식 → Account.Name (26.05.28 hana 수정)
+    dto.storegroup = storeNames.isEmpty() ? null : String.join(new List<String>(storeNames), ';');
 
-    dto.storedetail = storeGroups.isEmpty() ? null : String.join(new List<String>(storeGroups), ', ');
+    // 매장(계열): Promotion.StoreType__c 멀티픽리스트 Label 기반 (26.05.28 hana 수정)
+    dto.storedetail = getMultiPicklistLabels(Promotion.StoreType__c, p.StoreType__c);
 
     /* =====================================================
      * 상품 조회

@@ -1,4 +1,4 @@
-import { LightningElement, api, wire } from "lwc";
+import { LightningElement, api, wire, track } from "lwc";
 import { getRecord } from "lightning/uiRecordApi";
 
 import getPromotionHistory from "@salesforce/apex/PromotionUIControllerV1.getPromotionHistory";
@@ -29,6 +29,9 @@ export default class Promotionview extends LightningElement {
   pointAccrualAvailablePointTypes;
   pointAccrualUnavailablePointTypes;
   couponAvailable;
+
+  @track isStoreDetailModalOpen = false;
+  @track isStoreGroupModalOpen = false;
 
   wiredPromotionHistoryResult;
   timer;
@@ -162,12 +165,60 @@ export default class Promotionview extends LightningElement {
     return value ?? fallbackText;
   }
 
-  get storeGroupText() {
-    return this.getDisplayText(this.storegroup, "적용 없음");
+  /* 매장(구분) — PromotionAccount__c 자식 → Account.StoreGroupCode__c Label */
+  get storegroupItems() {
+    if (!this.storegroup) return [];
+    return this.storegroup
+      .split(/[;,]\s*/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
   }
 
-  get storeDetailText() {
-    return this.getDisplayText(this.storedetail, "적용 없음");
+  get storeGroupDisplay() {
+    const items = this.storegroupItems;
+    if (items.length === 0) return "적용 없음";
+    if (items.length === 1) return items[0];
+    return `${items[0]} 외 ${items.length - 1}개`;
+  }
+
+  get hasMoreStoreGroup() {
+    return this.storegroupItems.length > 1;
+  }
+
+  handleOpenStoreGroupModal() {
+    this.isStoreGroupModalOpen = true;
+  }
+
+  handleCloseStoreGroupModal() {
+    this.isStoreGroupModalOpen = false;
+  }
+
+  /* 매장(계열) — Promotion.StoreType__c 멀티픽리스트 Label을 세미콜론 분리 표시 */
+  get storedetailItems() {
+    if (!this.storedetail) return [];
+    return this.storedetail
+      .split(/[;,]\s*/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
+  }
+
+  get storeDetailDisplay() {
+    const items = this.storedetailItems;
+    if (items.length === 0) return "적용 없음";
+    if (items.length === 1) return items[0];
+    return `${items[0]} 외 ${items.length - 1}개`;
+  }
+
+  get hasMoreStoreDetail() {
+    return this.storedetailItems.length > 1;
+  }
+
+  handleOpenStoreDetailModal() {
+    this.isStoreDetailModalOpen = true;
+  }
+
+  handleCloseStoreDetailModal() {
+    this.isStoreDetailModalOpen = false;
   }
 
   get productNamesText() {
