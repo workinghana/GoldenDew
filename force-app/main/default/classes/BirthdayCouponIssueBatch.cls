@@ -182,7 +182,7 @@ public with sharing class BirthdayCouponIssueBatch implements Database.Batchable
             break;
           }
         }
-        if (!hasEligible) {
+        if (hasEligible) {
           // 정책: 지급할 쿠폰이 전혀 없으면 스킵(실패로 잡고 싶으면 failIds 추가)
           continue;
         }

@@ -134,8 +134,7 @@ public with sharing class IssueUploadCouponBatch implements Database.Batchable<I
         'loyaltyProgramMemberId' => memberId,
         'programName' => programName,
         'voucherDefinitionName' => voucherDefinitionName,
-        'effectiveDate' => String.valueOf(requestedEffectiveDate),
-        'voucherCode' => voucherCode
+        'effectiveDate' => String.valueOf(requestedEffectiveDate)
       };
 
       System.debug('REQ MAP >>> ' + JSON.serializePretty(req));

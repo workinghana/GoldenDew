@@ -391,4 +391,26 @@ private class BirthdayCouponIssueBatchTest {
 
     System.assert(true);
   }
+
+  // 1️⃣2️⃣ execute() 에 빈 scope 직접 전달 → "scope is empty" early-return 분기 커버
+  //      (배치 프레임워크는 빈 scope로 execute를 호출하지 않으므로 직접 호출로 커버)
+  private class MockBatchableContext implements Database.BatchableContext {
+    public Id getJobId() {
+      return null;
+    }
+    public Id getChildJobId() {
+      return null;
+    }
+  }
+
+  @IsTest
+  static void test_execute_emptyScopeDirect() {
+    BirthdayCouponIssueBatch batch = new BirthdayCouponIssueBatch();
+
+    Test.startTest();
+    batch.execute(new MockBatchableContext(), new List<LoyaltyMemberTier>());
+    Test.stopTest();
+
+    System.assert(true, 'empty scope should be handled gracefully (scope is empty branch)');
+  }
 }

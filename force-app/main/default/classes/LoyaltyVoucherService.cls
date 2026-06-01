@@ -33,7 +33,7 @@ public with sharing class LoyaltyVoucherService {
           .setLoyaltyProgramMemberId(loyaltyProgramMemberId)
           .setProgramName(programName)
           .setVoucherDefinitionName(voucherDefinitionName)
-          .setVoucherCode(voucherCode)
+          //.setVoucherCode(voucherCode)
           .setJournalId(journalId);
 
         if (additionalNotes != null) {
@@ -114,7 +114,7 @@ public with sharing class LoyaltyVoucherService {
           .setLoyaltyProgramMemberId(loyaltyProgramMemberId)
           .setProgramName(programName)
           .setVoucherDefinitionName(voucherDefinitionName)
-          .setVoucherCode(voucherCode)
+          //.setVoucherCode(voucherCode)
           .setJournalId(journalId);
 
         if (additionalNotes != null) {

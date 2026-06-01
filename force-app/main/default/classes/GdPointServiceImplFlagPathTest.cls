@@ -273,19 +273,15 @@ private class GdPointServiceImplFlagPathTest {
     TransactionJournal debitTj = new TransactionJournal(
       LoyaltyProgramId = member.ProgramId,
       MemberId = member.Id,
-      ActivityDate = Datetime.now().addDays(-1),
-      JournalDate = Datetime.now().addDays(-1),
+      ActivityDate = Datetime.now(),
+      JournalDate = Datetime.now(),
       TransactionAmount = 250,
       PaymentMethod = '81'
     );
 
     Test.startTest();
-    try {
-      List<GdSaleApiController.PointDebitDTO> result = new GdPointServiceImpl().debitPointsCustom(debitTj);
-      System.assertNotEquals(null, result);
-    } catch (Exception e) {
-      System.assert(true, e.getMessage());
-    }
+    List<GdSaleApiController.PointDebitDTO> result = new GdPointServiceImpl().debitPointsCustom(debitTj);
+    System.assertNotEquals(null, result);
     Test.stopTest();
   }
 }

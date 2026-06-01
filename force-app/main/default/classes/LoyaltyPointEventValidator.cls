@@ -5,6 +5,7 @@ public without sharing class LoyaltyPointEventValidator {
   private static final String JOURNAL_SUB_TYPE_POINT_REDEEM_CANCEL = 'Point Redeem Cancel';
   private static final String JOURNAL_SUB_TYPE_API_FORCED_CREDIT = 'Api Forced Credit';
   private static final String JOURNAL_SUB_TYPE_POINT_DEBIT = 'Point Debit';
+  private static final String JOURNAL_SUB_TYPE_PURCHASE_ACCRUAL = 'Purchase Accrual';
   private static final String ACTION_DEBIT = 'Debit';
   private static final String ORIGIN_CREDIT_LL_TOKEN = 'ORIGIN_CREDIT_LL=';
   private static final String OPTC_RESTORE_MARKER = 'OPTC_OLD_SALE_USAGE_RESTORE';
@@ -654,6 +655,137 @@ public without sharing class LoyaltyPointEventValidator {
 
   public static Boolean validateAndAlertSalePatchAccrualLump(Id memberId) {
     return alertIfInvalid(validateSalePatchAccrualLump(memberId));
+  }
+
+  // ============================================================
+  // 보강 #7 — 반품 입금 삭제 시 적립 복원 paradigm 의 프로모션 제외 정책 검증
+  //
+  //   배경: 반품 입금 삭제 fallback (GdReturnDepositServiceImpl L972-973) 에서
+  //         creditPointsOnPurchase / creditPointsOnPurchaseByGrade 가 호출되면서
+  //         원판매 프로모션의 PointTypeCode__c 제외 정책이 적용 안 되어
+  //         프로모션이 제외한 PointType (예: 사은포인트) 까지 부당 적립 발생.
+  //         (회원 253007200063 강명성 사건의 사은포인트 114,660P 부당 적립)
+  //
+  //   검증 대상 패턴:
+  //     - 반품 Order (Order.IsReductionOrder__c = TRUE) 에 생성된 Purchase Accrual TJ
+  //     - 그 TJ 의 PromotionId = NULL (원판매 프로모션 정보 단절)
+  //     - 원판매 (Order.OriginalOrderId__c) 의 PromotionId__r.PointTypeCode__c 와
+  //       그 TJ 가 만든 Credit LL 의 PointType 가 매칭되면 부당 적립 확정
+  //
+  //   회원 단위 스캔. memberId=null 이면 invalid.
+  // ============================================================
+  public static ValidationResult validateReturnDepositRestoredAccrual(Id memberId) {
+    if (memberId == null) {
+      return invalidMissing('RETURN_DEPOSIT_RESTORED_ACCRUAL', '회원 ID가 필요합니다.');
+    }
+
+    ValidationResult result = new ValidationResult();
+    result.eventType = 'RETURN_DEPOSIT_RESTORED_ACCRUAL';
+    result.memberId = memberId;
+    populateMemberById(result, memberId);
+
+    // 1. 의심 후보 TJ 조회 — 반품 Order 의 Purchase Accrual + PromotionId=NULL
+    List<TransactionJournal> suspectTjs = [
+      SELECT Id, OrderId, SaleId__c,
+             Order.SaleNo__c,
+             Order.OriginalOrderId__c,
+             Order.OriginalOrderId__r.SaleNo__c,
+             Order.OriginalOrderId__r.PromotionId__c,
+             Order.OriginalOrderId__r.PromotionId__r.Name,
+             Order.OriginalOrderId__r.PromotionId__r.PointTypeCode__c,
+             CreatedDate
+      FROM TransactionJournal
+      WHERE MemberId = :memberId
+        AND JournalSubType.Name = :JOURNAL_SUB_TYPE_PURCHASE_ACCRUAL
+        AND PromotionId = NULL
+        AND IsDeleted__c = FALSE
+        AND Order.IsReductionOrder__c = TRUE
+        AND Order.OriginalOrderId__c != NULL
+      LIMIT 1000
+    ];
+
+    if (suspectTjs.isEmpty()) {
+      result.isValid = true;
+      result.summary = '의심 패턴 없음 (반품 Order 의 PromotionId=NULL Purchase Accrual TJ 0건)';
+      return result;
+    }
+
+    // 2. 후보 TJ 들의 Credit LL 일괄 조회
+    Set<Id> suspectTjIds = new Map<Id, TransactionJournal>(suspectTjs).keySet();
+    Map<Id, List<LoyaltyLedger>> llsByTjId = new Map<Id, List<LoyaltyLedger>>();
+    for (LoyaltyLedger ll : [
+      SELECT Id, Points, TransactionJournalId,
+             LoyaltyPgmCrcySubtype.PointTypeCode__c,
+             LoyaltyPgmCrcySubtype.Name
+      FROM LoyaltyLedger
+      WHERE TransactionJournalId IN :suspectTjIds
+        AND EventType = 'Credit'
+        AND IsDeleted = FALSE
+        AND Points > 0
+    ]) {
+      if (!llsByTjId.containsKey(ll.TransactionJournalId)) {
+        llsByTjId.put(ll.TransactionJournalId, new List<LoyaltyLedger>());
+      }
+      llsByTjId.get(ll.TransactionJournalId).add(ll);
+    }
+
+    // 3. 매칭 검증 — 원판매 프로모션 제외 정책 위반 LL 식별
+    Integer checkedCount = 0;
+    Integer skippedNoExclusion = 0;
+    for (TransactionJournal tj : suspectTjs) {
+      Order origOrder = tj.Order == null ? null : tj.Order.OriginalOrderId__r;
+      if (origOrder == null || origOrder.PromotionId__c == null) {
+        skippedNoExclusion++;
+        continue;
+      }
+      String excludedCodes = origOrder.PromotionId__r == null ? null : origOrder.PromotionId__r.PointTypeCode__c;
+      if (String.isBlank(excludedCodes)) {
+        skippedNoExclusion++;
+        continue;
+      }
+
+      Set<String> excludedSet = new Set<String>();
+      for (String code : excludedCodes.split(';')) {
+        if (String.isNotBlank(code)) {
+          excludedSet.add(code.trim());
+        }
+      }
+
+      List<LoyaltyLedger> tjLLs = llsByTjId.get(tj.Id);
+      if (tjLLs == null || tjLLs.isEmpty()) {
+        continue;
+      }
+      checkedCount++;
+
+      for (LoyaltyLedger ll : tjLLs) {
+        String llPointType = ll.LoyaltyPgmCrcySubtype == null ? null : ll.LoyaltyPgmCrcySubtype.PointTypeCode__c;
+        if (String.isNotBlank(llPointType) && excludedSet.contains(llPointType.trim())) {
+          // 결함 확정 — 프로모션이 제외한 PointType 에 적립됨
+          result.mismatchCount++;
+          result.mismatchDetails.add(
+            'TJ=' + tj.Id +
+            ' returnSale=' + tj.Order.SaleNo__c +
+            ' origSale=' + origOrder.SaleNo__c +
+            ' Promo=' + origOrder.PromotionId__r.Name +
+            ' excludedCodes=' + excludedCodes +
+            ' LL=' + ll.Id +
+            ' subType=' + ll.LoyaltyPgmCrcySubtype.Name +
+            ' (PT=' + llPointType + ')' +
+            ' Points=' + ll.Points
+          );
+        }
+      }
+    }
+
+    result.isValid = (result.mismatchCount == 0);
+    result.summary = result.isValid
+      ? '반품 입금 삭제 복원 적립 정합 (의심 TJ ' + suspectTjs.size() + '건 / 검증 ' + checkedCount + '건 / skip ' + skippedNoExclusion + '건)'
+      : '반품 입금 삭제 복원 적립 결함 ' + result.mismatchCount + '건 — 원판매 프로모션 제외 정책 위반 (보강 #7 패턴)';
+    return result;
+  }
+
+  public static Boolean validateAndAlertReturnDepositRestoredAccrual(Id memberId) {
+    return alertIfInvalid(validateReturnDepositRestoredAccrual(memberId));
   }
 
   private static ValidationResult validateSaleDelete(Order saleOrder) {

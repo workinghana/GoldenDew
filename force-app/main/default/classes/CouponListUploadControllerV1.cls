@@ -248,10 +248,7 @@ public with sharing class CouponListUploadControllerV1 {
           'loyaltyProgramMemberId' => memberId,
           'programName' => voucherDefinition.LoyaltyProgram.Name,
           'voucherDefinitionName' => voucherDefinition.Name,
-          'effectiveDate' => String.valueOf(requestedIssueDate),
-          'voucherCode' => 'VC' +
-          Datetime.now().getTime() +
-          String.valueOf(Math.abs(Crypto.getRandomInteger()))
+          'effectiveDate' => String.valueOf(requestedIssueDate)
         }
       );
     }

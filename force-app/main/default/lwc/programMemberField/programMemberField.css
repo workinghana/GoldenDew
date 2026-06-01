@@ -573,11 +573,109 @@
   line-height: 1.7;
   font-weight: 500;
   margin: 0;
+  white-space: pre-line;
 }
 
 .reconcile-confirm-dialog__btn {
   display: inline-flex;
   justify-content: center;
+}
+
+/* 검증 결과 다이얼로그 */
+.reconcile-result-dialog__icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  margin-bottom: 4px;
+}
+
+.reconcile-result-dialog__icon-wrap--success {
+  background: #dcfce7;
+}
+
+.reconcile-result-dialog__icon-wrap--warning {
+  background: #fef3c7;
+}
+
+.reconcile-result-dialog__icon--success {
+  --sds-c-icon-color-foreground-default: #15803d;
+}
+
+.reconcile-result-dialog__icon--warning {
+  --sds-c-icon-color-foreground-default: #b45309;
+}
+
+.reconcile-result-dialog__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1f2937;
+  margin: 0;
+  text-align: center;
+}
+
+.reconcile-result-dialog__detail {
+  width: 100%;
+  padding: 14px 18px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0 4px;
+}
+
+.reconcile-result-dialog__detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.reconcile-result-dialog__detail-label {
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.reconcile-result-dialog__detail-value {
+  color: #1f2937;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.reconcile-result-dialog__detail-row--diff {
+  border-top: 1px dashed #e5e7eb;
+  padding-top: 8px;
+  margin-top: 2px;
+}
+
+.reconcile-result-dialog__detail-row--diff .reconcile-result-dialog__detail-label {
+  color: #9f1239;
+  font-weight: 600;
+}
+
+.reconcile-result-dialog__detail-row--diff .reconcile-result-dialog__detail-value {
+  color: #9f1239;
+  font-size: 14px;
+}
+
+/* 차이가 0인 성공 상태 — 초록 톤으로 강조 */
+.reconcile-result-dialog__detail-row--diff-zero .reconcile-result-dialog__detail-label {
+  color: #15803d;
+}
+
+.reconcile-result-dialog__detail-row--diff-zero .reconcile-result-dialog__detail-value {
+  color: #15803d;
+}
+
+.reconcile-result-dialog__actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 4px;
 }
 
 .reconcile-modal__footer {

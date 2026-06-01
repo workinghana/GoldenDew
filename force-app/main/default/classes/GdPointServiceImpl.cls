@@ -1,3 +1,16 @@
+/**
+ * 포인트 처리 서비스 로직
+ *
+ * @author Changhwan Kim
+ * @testClass GdPointServiceImplTest
+ * @testClass GdPointServiceImplBranchTest
+ * @testClass GdPointServiceImplBug2Test
+ * @testClass GdPointServiceImplCoverageTest
+ * @testClass GdPointServiceImplFlagPathTest
+ * @testClass GdPointServiceImplHelperTest
+ * @testClass GdPointServiceImplSeeAllTest
+ * @testClass GdPointServiceImplV3Test
+ */
 public with sharing class GdPointServiceImpl implements GdPointService {
   private static final String JOURNAL_TYPE_NAME_ACCRUAL = 'Accrual'; // 포인트/쿠폰 지급
   private static final String JOURNAL_TYPE_NAME_REDEMPTION = 'Redemption'; // 포인트/쿠폰 사용
@@ -387,6 +400,8 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     return null;
   }
 
+  /*
+  ! 사용 X
   private static List<AvailableCreditBalance> buildAvailableCreditBalances(
     Id memberId,
     SaleSequenceCutoff cutoff,
@@ -807,6 +822,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
     return result;
   }
+  */
 
   /**
    * [도움창 전용] buildAvailableCreditBalances 의 hierarchy 적용 변형.
@@ -2136,11 +2152,14 @@ public with sharing class GdPointServiceImpl implements GdPointService {
    * @version V2
    */
   public ApiResult getPointApplyHelpV2(Map<String, Object> reqData) {
-    Boolean useSaleSequenceWrapper = true;
-    if (useSaleSequenceWrapper) {
-      // Legacy V2 body is intentionally left below for quick rollback/reference.
-      return getPointApplyHelpBySaleSequence(reqData);
-    }
+    // Boolean useSaleSequenceWrapper = true;
+    // if (useSaleSequenceWrapper) {
+    // Legacy V2 body is intentionally left below for quick rollback/reference.
+    return getPointApplyHelpBySaleSequence(reqData);
+    // }
+
+    /*
+    ! 아래 코드 진행 X
     Map<String, Object> data = new Map<String, Object>();
     try {
       if (reqData == null || reqData.isEmpty()) {
@@ -2460,6 +2479,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     } catch (Exception e) {
       throw e;
     }
+    */
   }
 
   // 포인트 적용 도움창 조회 관련 매서드 1
@@ -4157,10 +4177,13 @@ public with sharing class GdPointServiceImpl implements GdPointService {
    * 포인트 사용
    */
   public List<GdSaleApiController.PointDebitDTO> debitPoint(TransactionJournal tj) {
-    Boolean useCustomDebit = true;
-    if (useCustomDebit) {
-      return debitPointsCustom(tj);
-    }
+    // Boolean useCustomDebit = true;
+    // if (useCustomDebit) {
+    return debitPointsCustom(tj);
+    // }
+
+    /*
+    ! 아래 코드 진행 X
 
     // 신규 로직 (2026-04-??) Start.
     // Boolean useSaleSequenceWrapper = true;
@@ -4345,6 +4368,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     } catch (Exception e) {
       throw e;
     }
+    */
   }
 
   /**
@@ -4765,10 +4789,11 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
       // 계층 보상 가져오기
       List<LoyaltyTierBenefit> ltbList = [
-        SELECT Benefit.PurchasePointRate__c,
-               Benefit.LoyaltyPgmCurrencySubtypeId__r.Name,
-               Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c,
-               Benefit.LoyaltyPgmCurrencySubtypeId__c
+        SELECT
+          Benefit.PurchasePointRate__c,
+          Benefit.LoyaltyPgmCurrencySubtypeId__r.Name,
+          Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c,
+          Benefit.LoyaltyPgmCurrencySubtypeId__c
         FROM LoyaltyTierBenefit
         WHERE LoyaltyTierId IN (SELECT LoyaltyTierId FROM LoyaltyMemberTier WHERE LoyaltyMemberId = :data[0].MemberId)
       ];
@@ -4811,7 +4836,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       }
       tj.JournalTypeId = jtListByCreditPoint[0].Id;
       tj.JournalSubTypeId = jstListByCreditPoint[0].Id;
-      tj.PromotionId = data[0].PromotionId;   // [Fix Bug A] sourceTj 의 PromotionId 전파
+      tj.PromotionId = data[0].PromotionId; // [Fix Bug A] sourceTj 의 PromotionId 전파
 
       Long insertJournalStartMs = Datetime.now().getTime();
       Integer insertJournalStartCpu = Limits.getCpuTime();
@@ -4834,7 +4859,8 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
       for (LoyaltyTierBenefit ltb : ltbList) {
         // [Fix Bug A 2026-05-27] Promotion 적립 제외 정책 — PointTypeCode 매칭 시 SKIP
-        String pointTypeCode = (ltb.Benefit == null || ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r == null)
+        String pointTypeCode = (ltb.Benefit == null ||
+          ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r == null)
           ? null
           : ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c;
         if (String.isNotBlank(pointTypeCode) && excludedPointTypeCodeSet.contains(pointTypeCode.trim())) {
@@ -5625,10 +5651,12 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
       // 계층 보상 조회
       List<LoyaltyTierBenefit> ltbList = [
-        SELECT Benefit.PurchasePointRate__c,
-               Benefit.LoyaltyPgmCurrencySubtypeId__r.Name,
-               Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c,
-               Benefit.LoyaltyPgmCurrencySubtypeId__c, LoyaltyTierId
+        SELECT
+          Benefit.PurchasePointRate__c,
+          Benefit.LoyaltyPgmCurrencySubtypeId__r.Name,
+          Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c,
+          Benefit.LoyaltyPgmCurrencySubtypeId__c,
+          LoyaltyTierId
         FROM LoyaltyTierBenefit
         WHERE LoyaltyTierId = :ltList[0].Id
       ];
@@ -5680,7 +5708,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       newTj.JournalTypeId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_ACCRUAL, true);
       newTj.JournalSubTypeId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_PURCHASE_ACCRUAL, true);
       newTj.AdditionalNotes__c = additionalNotes;
-      newTj.PromotionId = tj.PromotionId;   // [Fix Bug A] sourceTj 의 PromotionId 전파
+      newTj.PromotionId = tj.PromotionId; // [Fix Bug A] sourceTj 의 PromotionId 전파
 
       insert newTj;
 
@@ -5691,7 +5719,8 @@ public with sharing class GdPointServiceImpl implements GdPointService {
 
       for (LoyaltyTierBenefit ltb : ltbList) {
         // [Fix Bug A 2026-05-27] Promotion 적립 제외 정책 — PointTypeCode 매칭 시 SKIP
-        String pointTypeCode = (ltb.Benefit == null || ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r == null)
+        String pointTypeCode = (ltb.Benefit == null ||
+          ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r == null)
           ? null
           : ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c;
         if (String.isNotBlank(pointTypeCode) && excludedPointTypeCodeSet.contains(pointTypeCode.trim())) {
@@ -8117,14 +8146,23 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         continue;
       }
 
-      if (!netPointMap.containsKey(ll.AdditionalNotes)) {
-        netPointMap.put(ll.AdditionalNotes, 0);
+      String bucketKey = ll.AdditionalNotes;
+      // OPTC paradigm 변환 — v2 와 동일 보강
+      if (bucketKey.startsWith('OPTC_OLD_SALE')) {
+        bucketKey = convertOptcOldSaleNotesToCancelBucketKey(ll);
+        if (String.isBlank(bucketKey)) {
+          continue;
+        }
+      }
+
+      if (!netPointMap.containsKey(bucketKey)) {
+        netPointMap.put(bucketKey, 0);
       }
 
       if (ll.EventType == 'Credit') {
-        netPointMap.put(ll.AdditionalNotes, netPointMap.get(ll.AdditionalNotes) + ll.Points);
+        netPointMap.put(bucketKey, netPointMap.get(bucketKey) + ll.Points);
       } else if (ll.EventType == 'Debit') {
-        netPointMap.put(ll.AdditionalNotes, netPointMap.get(ll.AdditionalNotes) - ll.Points);
+        netPointMap.put(bucketKey, netPointMap.get(bucketKey) - ll.Points);
       }
     }
 
@@ -8513,6 +8551,11 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       Set<Id> creditLedgerIdsForLlt = new Set<Id>();
       for (LoyaltyLedger ll : llList) {
         String cancelBucketKey = ll.AdditionalNotes;
+        // OPTC paradigm: 'OPTC_OLD_SALE|origin=...|originSubtypeId=...|rate=...|redirectTo=...' →
+        // 표준 `Name|Id|rate` 형식으로 변환 (LL.LoyaltyPgmCrcySubtype = 실제 적립 subtype).
+        if (String.isNotBlank(cancelBucketKey) && cancelBucketKey.startsWith('OPTC_OLD_SALE')) {
+          cancelBucketKey = convertOptcOldSaleNotesToCancelBucketKey(ll);
+        }
         if (String.isBlank(cancelBucketKey) && usePurchaseFallbackNotes) {
           cancelBucketKey = buildFallbackPurchaseCancelBucketKey(ll, fallbackPurchaseAccrualBaseAmount);
         }
@@ -9641,6 +9684,43 @@ public with sharing class GdPointServiceImpl implements GdPointService {
     }
 
     return totalAmount;
+  }
+
+  // OPTC paradigm AdditionalNotes 변환 — 적립 시 'OPTC_OLD_SALE|origin=...|originSubtypeId=...|rate=...|redirectTo=...'
+  // 형식으로 저장된 audit trail 을 cancel netPointMap key 형식 `Name|Id|rate` 으로 정규화.
+  // 실제 적립된 Subtype 은 redirectTo (LL.LoyaltyPgmCrcySubtype) 이므로 cancel 도 동일 Subtype 대상.
+  // notes 의 rate 토큰을 사용해 분배 정확도 유지.
+  private static String convertOptcOldSaleNotesToCancelBucketKey(LoyaltyLedger ll) {
+    if (
+      ll == null ||
+      ll.LoyaltyPgmCrcySubtypeId == null ||
+      ll.LoyaltyPgmCrcySubtype == null ||
+      String.isBlank(ll.LoyaltyPgmCrcySubtype.Name) ||
+      String.isBlank(ll.AdditionalNotes)
+    ) {
+      return null;
+    }
+    if (!ll.AdditionalNotes.startsWith('OPTC_OLD_SALE')) {
+      return null;
+    }
+    String rateToken = '|rate=';
+    Integer ti = ll.AdditionalNotes.indexOf(rateToken);
+    if (ti < 0) {
+      return null;
+    }
+    Integer start = ti + rateToken.length();
+    Integer endIdx = ll.AdditionalNotes.indexOf('|', start);
+    String rateStr = endIdx < 0 ? ll.AdditionalNotes.substring(start) : ll.AdditionalNotes.substring(start, endIdx);
+    Decimal rate;
+    try {
+      rate = Decimal.valueOf(rateStr.trim());
+    } catch (Exception e) {
+      return null;
+    }
+    if (rate == null || rate <= 0) {
+      return null;
+    }
+    return ll.LoyaltyPgmCrcySubtype.Name + '|' + String.valueOf(ll.LoyaltyPgmCrcySubtypeId) + '|' + String.valueOf(rate);
   }
 
   @TestVisible

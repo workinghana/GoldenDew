@@ -2,6 +2,8 @@ import { LightningElement, api, wire, track } from "lwc";
 import { refreshApex } from "@salesforce/apex";
 import getMemberProfile from "@salesforce/apex/ContactUiController.getMemberProfile";
 import getMemebrInfo from "@salesforce/apex/MemberDetailUIController.getMemebrInfo";
+import validatePoints from "@salesforce/apex/LoyaltyPointValidationUIController.validatePoints";
+import rebuildAndValidate from "@salesforce/apex/LoyaltyPointValidationUIController.rebuildAndValidate";
 
 export default class ProgramMemberField extends LightningElement {
   @api recordId;
@@ -20,6 +22,11 @@ export default class ProgramMemberField extends LightningElement {
   @track isVerifyConfirmVisible = false;
   @track isVerifying = false;
   @track isFinalConfirmVisible = false;
+  @track isVerificationResultModalOpen = false;
+  @track verificationResult = null;
+  @track isRebuilding = false;
+  @track isRebuildResultModalOpen = false;
+  @track rebuildResult = null;
 
   wiredMemberResult;
   wiredMemberInfoResult;
@@ -389,6 +396,11 @@ export default class ProgramMemberField extends LightningElement {
     this.isVerifyConfirmVisible = false;
     this.isVerifying = false;
     this.isFinalConfirmVisible = false;
+    this.isVerificationResultModalOpen = false;
+    this.verificationResult = null;
+    this.isRebuilding = false;
+    this.isRebuildResultModalOpen = false;
+    this.rebuildResult = null;
   }
 
   handleCloseReconcile() {
@@ -396,16 +408,147 @@ export default class ProgramMemberField extends LightningElement {
     this.isVerifyConfirmVisible = false;
     this.isVerifying = false;
     this.isFinalConfirmVisible = false;
+    this.isVerificationResultModalOpen = false;
+    this.verificationResult = null;
+    this.isRebuilding = false;
+    this.isRebuildResultModalOpen = false;
+    this.rebuildResult = null;
   }
 
   handleStartVerify() {
     this.isVerifyConfirmVisible = true;
   }
 
-  handleConfirmVerify() {
+  handleCancelVerify() {
+    this.isVerifyConfirmVisible = false;
+  }
+
+  async handleConfirmVerify() {
     this.isVerifyConfirmVisible = false;
     this.isVerifying = true;
-    // TODO: 실제 포인트 검증 로직 호출 위치
+
+    try {
+      const memberNo = this.member?.memberNumber;
+      if (!memberNo) {
+        throw new Error("회원번호를 확인할 수 없습니다.");
+      }
+
+      const result = await validatePoints({ memberNo });
+      this.verificationResult = result;
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("포인트 검증 실패", error);
+      this.verificationResult = {
+        isValid: false,
+        summary: error?.body?.message || error?.message || "검증 중 오류가 발생했습니다."
+      };
+    } finally {
+      this.isVerifying = false;
+      this.isVerificationResultModalOpen = true;
+    }
+  }
+
+  handleCloseVerificationResult() {
+    this.isVerificationResultModalOpen = false;
+  }
+
+  /* 1차 검증 결과 모달에서 "계속 진행" 클릭 시 → 재정합 실행 */
+  async handleProceedToFinalReconcile() {
+    this.isVerificationResultModalOpen = false;
+    this.isRebuilding = true;
+
+    try {
+      const memberNo = this.member?.memberNumber;
+      if (!memberNo) {
+        throw new Error("회원번호를 확인할 수 없습니다.");
+      }
+
+      const result = await rebuildAndValidate({ memberNo });
+      this.rebuildResult = result;
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("포인트 재정합 실패", error);
+      this.rebuildResult = {
+        success: false,
+        message: error?.body?.message || error?.message || "재정합 중 오류가 발생했습니다.",
+        beforeResult: null,
+        afterResult: null
+      };
+    } finally {
+      this.isRebuilding = false;
+      this.isRebuildResultModalOpen = true;
+    }
+  }
+
+  /* 재정합 결과 모달에서 "계속 진행" 클릭 시 → 최종 반영 경고 다이얼로그 */
+  handleProceedToFinalApply() {
+    this.isRebuildResultModalOpen = false;
+    this.isFinalConfirmVisible = true;
+  }
+
+  /* 재정합 결과 모달에서 "취소" 클릭 → 결과 모달만 닫음 (재정합 모달은 유지) */
+  handleCancelRebuildResult() {
+    this.isRebuildResultModalOpen = false;
+  }
+
+  get isVerificationValid() {
+    return this.verificationResult?.isValid === true;
+  }
+
+  get verificationResultMessage() {
+    if (!this.verificationResult) return "";
+    if (this.verificationResult.isValid === true) {
+      return "회원 포인트 내역이 정상적으로 일치합니다.";
+    }
+    return "회원 포인트 내역이 일치하지 않습니다.\n포인트 재정합을 진행하시겠습니까?";
+  }
+
+  /* 검증 결과 상세 — 박스 안 3행 표시용 */
+  get lmcBalanceText() {
+    const n = this.verificationResult?.lmcBalance ?? 0;
+    return `${new Intl.NumberFormat("ko-KR").format(n)}P`;
+  }
+
+  get calculatedBalanceText() {
+    const n = this.verificationResult?.calculatedBalance ?? 0;
+    return `${new Intl.NumberFormat("ko-KR").format(n)}P`;
+  }
+
+  get differenceText() {
+    const n = this.verificationResult?.difference ?? 0;
+    return `${new Intl.NumberFormat("ko-KR").format(n)}P`;
+  }
+
+  get verificationResultIconName() {
+    return this.verificationResult?.isValid ? "utility:success" : "utility:warning";
+  }
+
+  get verificationResultIconWrapClass() {
+    return this.verificationResult?.isValid
+      ? "reconcile-result-dialog__icon-wrap reconcile-result-dialog__icon-wrap--success"
+      : "reconcile-result-dialog__icon-wrap reconcile-result-dialog__icon-wrap--warning";
+  }
+
+  get verificationResultIconClass() {
+    return this.verificationResult?.isValid ? "reconcile-result-dialog__icon--success" : "reconcile-result-dialog__icon--warning";
+  }
+
+  get hasVerificationDifference() {
+    if (!this.verificationResult || this.verificationResult.isValid === true) {
+      return false;
+    }
+    return (
+      this.verificationResult.difference !== undefined && this.verificationResult.difference !== null && this.verificationResult.difference !== 0
+    );
+  }
+
+  get verificationDifferenceDetail() {
+    if (!this.verificationResult) return "";
+    const lmc = this.verificationResult.lmcBalance ?? 0;
+    const calc = this.verificationResult.calculatedBalance ?? 0;
+    const diff = this.verificationResult.difference ?? 0;
+    const fmt = (n) => new Intl.NumberFormat("ko-KR").format(n);
+    return `시스템 잔액 ${fmt(lmc)}P · 계산 잔액 ${fmt(calc)}P · 차이 ${fmt(diff)}P`;
   }
 
   handleRequestFinalApply() {
@@ -416,10 +559,120 @@ export default class ProgramMemberField extends LightningElement {
     this.isFinalConfirmVisible = false;
   }
 
+  /* 최종 반영 — 재정합은 이미 완료된 상태이므로 모달 정리 + 회원 데이터 새로고침 */
   handleApplyFinal() {
-    // TODO: 실제 최종 반영(원복) 로직 호출 위치
     this.isFinalConfirmVisible = false;
+    this.isRebuildResultModalOpen = false;
     this.isReconcileOpen = false;
-    this.isVerifying = false;
+    this.verificationResult = null;
+    this.rebuildResult = null;
+    refreshApex(this.wiredMemberResult);
+    refreshApex(this.wiredMemberInfoResult);
+  }
+
+  handleCloseRebuildResult() {
+    this.isRebuildResultModalOpen = false;
+    this.isReconcileOpen = false;
+    this.rebuildResult = null;
+    this.verificationResult = null;
+    refreshApex(this.wiredMemberResult);
+    refreshApex(this.wiredMemberInfoResult);
+  }
+
+  /* ================= 진행 중 패널 — 검증/재정합 공용 ================= */
+  get isProgressing() {
+    return this.isVerifying || this.isRebuilding;
+  }
+
+  get progressingTitle() {
+    return this.isRebuilding ? "포인트 재정합을 진행하고 있습니다" : "포인트 정합성 검증을 진행하고 있습니다";
+  }
+
+  get progressingWarningText() {
+    return this.isRebuilding
+      ? "재정합 도중 다른 작업을 수행하시면 데이터 정합성에 오차가 발생할 수 있습니다.\n완료 알림이 표시될 때까지 잠시만 기다려 주십시오."
+      : "검증 도중 다른 작업을 수행하시면 데이터 정합성에 오차가 발생할 수 있습니다.\n완료 알림이 표시될 때까지 잠시만 기다려 주십시오.";
+  }
+
+  /* ================= 재정합 결과 표시 getter ================= */
+  get isRebuildSuccess() {
+    return this.rebuildResult?.success === true;
+  }
+
+  get rebuildResultTitle() {
+    return this.isRebuildSuccess ? "포인트 재정합이 완료되었습니다" : "포인트 재정합이 완료되지 않았습니다";
+  }
+
+  get rebuildResultMessage() {
+    if (!this.rebuildResult) return "";
+    if (this.isRebuildSuccess) {
+      return "재정합이 완료되었습니다.\n최종 반영을 하시겠습니까?";
+    }
+    return this.rebuildResult.message || "재정합 후에도 정합성 불일치가 남아 있습니다.\n별도 보정 작업이 필요합니다.";
+  }
+
+  get rebuildResultIconName() {
+    return this.isRebuildSuccess ? "utility:success" : "utility:warning";
+  }
+
+  get rebuildResultIconWrapClass() {
+    return this.isRebuildSuccess
+      ? "reconcile-result-dialog__icon-wrap reconcile-result-dialog__icon-wrap--success"
+      : "reconcile-result-dialog__icon-wrap reconcile-result-dialog__icon-wrap--warning";
+  }
+
+  get rebuildResultIconClass() {
+    return this.isRebuildSuccess ? "reconcile-result-dialog__icon--success" : "reconcile-result-dialog__icon--warning";
+  }
+
+  get hasRebuildComparison() {
+    return this.rebuildResult?.beforeResult && this.rebuildResult?.afterResult;
+  }
+
+  get rebuildBeforeBalanceText() {
+    const n = this.rebuildResult?.beforeResult?.lmcBalance ?? 0;
+    return `${new Intl.NumberFormat("ko-KR").format(n)}P`;
+  }
+
+  get rebuildAfterBalanceText() {
+    const n = this.rebuildResult?.afterResult?.lmcBalance ?? 0;
+    return `${new Intl.NumberFormat("ko-KR").format(n)}P`;
+  }
+
+  get rebuildBeforeDifferenceText() {
+    const n = this.rebuildResult?.beforeResult?.difference ?? 0;
+    return `${new Intl.NumberFormat("ko-KR").format(n)}P`;
+  }
+
+  get rebuildAfterDifferenceText() {
+    const n = this.rebuildResult?.afterResult?.difference ?? 0;
+    return `${new Intl.NumberFormat("ko-KR").format(n)}P`;
+  }
+
+  /* 재정합 결과 모달의 시스템/계산 잔액 (after 기준) */
+  get rebuildAfterSystemBalanceText() {
+    const n = this.rebuildResult?.afterResult?.lmcBalance ?? 0;
+    return `${new Intl.NumberFormat("ko-KR").format(n)}P`;
+  }
+
+  get rebuildAfterCalculatedBalanceText() {
+    const n = this.rebuildResult?.afterResult?.calculatedBalance ?? 0;
+    return `${new Intl.NumberFormat("ko-KR").format(n)}P`;
+  }
+
+  /* after 결과 존재 여부 */
+  get hasRebuildAfterResult() {
+    return !!this.rebuildResult?.afterResult;
+  }
+
+  /* 차이가 0이면 성공 강조 클래스 (초록 톤) */
+  get isRebuildDifferenceZero() {
+    return (this.rebuildResult?.afterResult?.difference ?? 0) === 0;
+  }
+
+  get rebuildDifferenceRowClass() {
+    return this.isRebuildDifferenceZero
+      ? "reconcile-result-dialog__detail-row reconcile-result-dialog__detail-row--diff reconcile-result-dialog__detail-row--diff-zero"
+      : "reconcile-result-dialog__detail-row reconcile-result-dialog__detail-row--diff";
   }
 }
