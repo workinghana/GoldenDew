@@ -2,24 +2,12 @@
 private class BirthdayCouponIssueSchedulerTest {
   private class MockSchedulableContext implements SchedulableContext {
     public Id getTriggerId() {
-      return UserInfo.getUserId();
-    }
-  }
-
-  private class ThrowingOnThirdCallSchedulableContext implements SchedulableContext {
-    private Integer callCount = 0;
-
-    public Id getTriggerId() {
-      callCount++;
-      if (callCount >= 3) {
-        Integer boom = 1 / 0;
-      }
-      return UserInfo.getUserId();
+      return null;
     }
   }
 
   private static String uniqueName(String prefix) {
-    return prefix + '_' + String.valueOf(Datetime.now().getTime());
+    return prefix + '_' + String.valueOf(Math.abs(Crypto.getRandomInteger()));
   }
 
   private static LoyaltyProgram createProgram() {
@@ -66,88 +54,78 @@ private class BirthdayCouponIssueSchedulerTest {
   }
 
   @IsTest
-  static void test_execute_withVoucherDefinition() {
+  static void execute_withVoucherDefinition_startsBatch() {
     ApexLogger.disableLogging();
     LoyaltyProgram lp = createProgram();
     VoucherCategory__c vc = createBirthdayCategory();
     createVoucherDefinition(lp.Id, vc.Id);
 
     Test.startTest();
-    try {
-      new BirthdayCouponIssueScheduler().execute(new MockSchedulableContext());
-    } catch (Exception e) {
-      System.assert(true);
-    }
+    new BirthdayCouponIssueScheduler().execute(new MockSchedulableContext());
     Test.stopTest();
 
-    System.assert(true);
+    List<AsyncApexJob> batchJobs = [
+      SELECT Id, Status, ApexClass.Name
+      FROM AsyncApexJob
+      WHERE ApexClass.Name = 'BirthdayCouponIssueBatch'
+      LIMIT 1
+    ];
+    System.assert(!batchJobs.isEmpty(), 'Scheduler should enqueue BirthdayCouponIssueBatch when birthday voucher definition exists.');
   }
 
   @IsTest
-  static void test_execute_withoutVoucherDefinition() {
+  static void execute_withoutVoucherDefinition_handlesCustomException() {
     ApexLogger.disableLogging();
     createProgram();
     createBirthdayCategory();
 
     Test.startTest();
-    try {
-      new BirthdayCouponIssueScheduler().execute(new MockSchedulableContext());
-    } catch (Exception e) {
-      System.assert(true);
-    }
+    new BirthdayCouponIssueScheduler().execute(new MockSchedulableContext());
     Test.stopTest();
 
-    System.assert(true);
+    List<AsyncApexJob> batchJobs = [
+      SELECT Id
+      FROM AsyncApexJob
+      WHERE ApexClass.Name = 'BirthdayCouponIssueBatch'
+      LIMIT 1
+    ];
+    System.assertEquals(0, batchJobs.size(), 'Scheduler should not enqueue the batch when no birthday voucher definition exists.');
   }
 
   @IsTest
-  static void test_execute_withNullContext_alwaysPass() {
+  static void execute_withNullContext_handlesMissingVoucherDefinition() {
     ApexLogger.disableLogging();
 
     Test.startTest();
-    try {
-      new BirthdayCouponIssueScheduler().execute(null);
-    } catch (Exception e) {
-      System.assert(true);
-    }
+    new BirthdayCouponIssueScheduler().execute(null);
     Test.stopTest();
 
-    System.assert(true);
+    System.assert(true, 'Null SchedulableContext should be handled without propagating an exception.');
   }
 
   @IsTest
-  static void test_schedule_invokesScheduler_alwaysPass() {
+  static void schedule_invokesScheduler() {
     ApexLogger.disableLogging();
     LoyaltyProgram lp = createProgram();
     VoucherCategory__c vc = createBirthdayCategory();
     createVoucherDefinition(lp.Id, vc.Id);
 
     Test.startTest();
-    try {
-      System.schedule(uniqueName('BirthdayScheduler'), '0 0 0 1 * ?', new BirthdayCouponIssueScheduler());
-    } catch (Exception e) {
-      System.assert(true);
-    }
+    String jobId = System.schedule(uniqueName('BirthdayScheduler'), '0 0 0 1 * ?', new BirthdayCouponIssueScheduler());
     Test.stopTest();
 
-    System.assert(true);
+    System.assertNotEquals(null, jobId, 'System.schedule should return the scheduled job Id.');
   }
 
   @IsTest
-  static void test_execute_generalExceptionPath_alwaysPass() {
+  static void execute_forceGenericException_handlesGenericCatch() {
     ApexLogger.disableLogging();
-    LoyaltyProgram lp = createProgram();
-    VoucherCategory__c vc = createBirthdayCategory();
-    createVoucherDefinition(lp.Id, vc.Id);
+    BirthdayCouponIssueScheduler.forceGenericException = true;
 
     Test.startTest();
-    try {
-      new BirthdayCouponIssueScheduler().execute(new ThrowingOnThirdCallSchedulableContext());
-    } catch (Exception e) {
-      System.assert(true);
-    }
+    new BirthdayCouponIssueScheduler().execute(null);
     Test.stopTest();
 
-    System.assert(true);
+    System.assertEquals(false, BirthdayCouponIssueScheduler.forceGenericException, 'Test hook should reset itself after forcing the generic exception path.');
   }
 }

@@ -53,6 +53,19 @@ public with sharing class GdPointServiceImpl implements GdPointService {
   private static final String OPTION_C_RETURN_DEPOSIT_DELETE_FORCE_CREDIT_MARKER = 'OPTC_RETURN_DEPOSIT_DELETE_FORCE_CREDIT';
   private static final String OPTION_C_RETURN_ORDER_ID_KEY = 'returnOrderId=';
   private static final String RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE = '반품 입금 삭제로 인한 "포인트 사용" 내역 복구';
+  // [2026-06-01] PATCH /order 의 포인트 사용 취소 흐름에서 원본 Debit TJ 에 박히는 마커.
+  //   GdOrderDepositServiceImpl 의 ORDER_UPDATE_POINT_REDEEM_CANCEL_NOTE 와 동일 리터럴.
+  //   다른 클래스의 상수를 직접 참조하지 않기 위해 로컬에 정의.
+  private static final String ORDER_UPDATE_POINT_REDEEM_CANCEL_NOTE = '주문 수정 포인트 사용 취소 완료';
+
+  // [2026-06-01] Cancel Credit 이 후속 재소비된 Debit LLT 의 마커 화이트리스트.
+  //   - RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE : 반품 입금 삭제로 사용 상태 복구
+  //   - ORDER_UPDATE_POINT_REDEEM_CANCEL_NOTE    : PATCH /order 로 사용 취소된 원본 Debit
+  //   둘 모두 "이미 취소된 사용" 으로 paradigm 정합상 lltList 에서 제외 + consumed 차감 대상.
+  private static final Set<String> CANCEL_CREDIT_RECONSUMED_NOTES = new Set<String>{
+    RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE,
+    ORDER_UPDATE_POINT_REDEEM_CANCEL_NOTE
+  };
 
   /**
    * 삭제 보조 LL 식별용 마커 노트 모음. (반품 삭제/판매 삭제로 추가 발생한 LL)
@@ -7018,7 +7031,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       //     creditRecoverList.add(creditRecover);
       //   }
 
-      //   // [추가] 2026-04-03: 적립 포인트 회수 실행 (debitPoints 호출)
+      //   // [추가] 2026-04-03: 적립 ��인트 회수 실행 (debitPoints 호출)
       //   if (!creditRecoverReqList.isEmpty()) {
       //     System.debug('적립 포인트 회수 실행 - 개수: ' + creditRecoverReqList.size());
 
@@ -7374,7 +7387,6 @@ public with sharing class GdPointServiceImpl implements GdPointService {
    * Feature Flag: 'PointCancel_PreserveTrace'
    */
   public Map<String, Object> cancelPointRedemption_v3(TransactionJournal tj) {
-    System.debug('cancelPointRedemption_v3 진입');
     Map<String, Object> response = new Map<String, Object>();
 
     try {
@@ -7391,9 +7403,7 @@ public with sharing class GdPointServiceImpl implements GdPointService {
       tj.JournalSubTypeId = jstId;
       tj.Status = 'Pending';
 
-      System.debug('cancelPointRedemption_v3 진입22');
       insert tj;
-      System.debug('cancelPointRedemption_v3 진입33');
 
       Id loyaltyProgramCurrencyId = SObjectUtil.findIdByName(LoyaltyProgramCurrency.SObjectType, LOYALTY_PROGRAM_CURRENCY_NAME, true);
 
@@ -7420,8 +7430,10 @@ public with sharing class GdPointServiceImpl implements GdPointService {
           LoyaltyProgramMemberId = :tj.MemberId
           AND DebitLoyaltyLedger.TransactionJournal.OrderId = :tj.OrderId
           AND ActionType = 'Debit'
+          // [2026-06-01] RESTORE_NOTE 단일 제외 → CANCEL_CREDIT_RECONSUMED_NOTES 화이트리스트 제외.
+          //   ORDER_UPDATE_POINT_REDEEM_CANCEL_NOTE 마킹된 LLT 도 "이미 취소된 사용" 이므로 활성 사용에서 제외.
           AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
-          OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
+          OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c NOT IN :CANCEL_CREDIT_RECONSUMED_NOTES)
           AND Points > 0
         ORDER BY CreatedDate ASC
         LIMIT 100
@@ -7471,7 +7483,9 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         WHERE
           LoyaltyProgramMemberId = :tj.MemberId
           AND ActionType = 'Debit'
-          AND DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE
+          // [2026-06-01] RESTORE_NOTE 단일 매칭 → CANCEL_CREDIT_RECONSUMED_NOTES 화이트리스트로 확장.
+          //   ORDER_UPDATE_POINT_REDEEM_CANCEL_NOTE 로 마킹된 재소비 Debit 도 outstanding refund 차감 대상.
+          AND DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c IN :CANCEL_CREDIT_RECONSUMED_NOTES
           AND CreditLoyaltyLedgerId != NULL
       ]) {
         Decimal pts = rLlt.Points == null ? 0 : rLlt.Points;
@@ -9879,8 +9893,10 @@ public with sharing class GdPointServiceImpl implements GdPointService {
         AND (DebitLoyaltyLedger.TransactionJournal.OrderId IN :relatedOrderIds
         OR DebitLoyaltyLedger.TransactionJournal.SaleId__c IN :relatedOrderIds)
         AND ActionType = 'Debit'
+        // [2026-06-01] 주 lltList 와 동일 paradigm — CANCEL_CREDIT_RECONSUMED_NOTES 화이트리스트 제외.
+        //   lltList 가 비면 호출되는 fallback 이므로 같이 보강하지 않으면 결함 재발.
         AND (DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c = NULL
-        OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c != :RETURN_DEPOSIT_DELETE_POINT_RESTORE_NOTE)
+        OR DebitLoyaltyLedger.TransactionJournal.AdditionalNotes__c NOT IN :CANCEL_CREDIT_RECONSUMED_NOTES)
         AND Points > 0
       LIMIT 100
     ];

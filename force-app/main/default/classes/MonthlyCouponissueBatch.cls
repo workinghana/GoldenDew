@@ -7,37 +7,50 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
 
   private final String VOUCHER_CATEGORY_NAME_MONTHLY_COUPON = 'MonthlyCoupon';
   private final String VOUCHER_LIMIT_TYPE_NAME_GRADE_INCLUDE_LIST = 'GradeIncludeList'; // 쿠폰 한도 Type__c 값 (사용 가능 회원 등급)
+  private final Integer MAX_MONTHLY_VOUCHER_DEFINITION_SIZE = 200;
+  private final Integer MAX_ISSUE_VOUCHER_REQUEST_SIZE = 200;
 
   public Database.QueryLocator start(Database.BatchableContext bc) {
     String soql =
-      'SELECT LoyaltyMember.Contact.MemberNo__c, LoyaltyTierId, LoyaltyMemberId, LoyaltyMember.ProgramId, LoyaltyMember.Program.Name ' +
-      'FROM LoyaltyMemberTier ' +
-      'WHERE LoyaltyMemberId != NULL AND LoyaltyMember.Contact.MemberNo__c != NULL AND LoyaltyMember.MemberStatus = \'Active\'';
+      'SELECT Id, Contact.MemberNo__c, ProgramId, Program.Name ' +
+      'FROM LoyaltyProgramMember ' +
+      'WHERE Contact.MemberNo__c != NULL AND MemberStatus = \'Active\' ' +
+      'ORDER BY Id';
 
     return Database.getQueryLocator(soql);
   }
 
-  public void execute(Database.BatchableContext bc, List<LoyaltyMemberTier> lmtList) {
+  public void execute(Database.BatchableContext bc, List<LoyaltyProgramMember> memberList) {
     ApexLogger logger = new ApexLogger(ApexLogger.JobType.ASYNCHRONOUS, bc.getJobId(), null);
     logger.logging(MonthlyCouponIssueBatch.class.getName());
     logger.setRequestDatetime(Datetime.now());
 
     Set<String> successIds = new Set<String>();
     Set<String> failIds = new Set<String>();
+    Set<String> scopedMemberIds = new Set<String>();
     List<String> failMsgs = new List<String>();
+    Boolean shouldWriteExecuteLog = false;
 
     try {
-      if (lmtList == null || lmtList.isEmpty()) {
+      if (memberList == null || memberList.isEmpty()) {
         logger.setStatus('SUCCESS');
         logger.setDescription('scope is empty');
         return;
       }
 
-      Set<String> lpmIdSet = new Set<String>();
-      for (LoyaltyMemberTier lmt : lmtList) {
-        lpmIdSet.add((String) lmt.LoyaltyMemberId);
+      List<Id> orderedMemberIds = new List<Id>();
+      Map<Id, String> memberNoByMemberId = new Map<Id, String>();
+      Map<Id, Id> programIdByMemberId = new Map<Id, Id>();
+      Map<Id, String> programNameByMemberId = new Map<Id, String>();
+
+      for (LoyaltyProgramMember member : memberList) {
+        scopedMemberIds.add((String) member.Id);
+        orderedMemberIds.add(member.Id);
+        memberNoByMemberId.put(member.Id, member.Contact.MemberNo__c);
+        programIdByMemberId.put(member.Id, member.ProgramId);
+        programNameByMemberId.put(member.Id, member.Program.Name);
       }
-      logger.setScopedIds(lpmIdSet);
+      logger.setScopedIds(scopedMemberIds);
 
       // 쿠폰 카테고리 조회
       List<VoucherCategory__c> vcList = [
@@ -47,9 +60,7 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
         LIMIT 1
       ];
       if (vcList.isEmpty()) {
-        for (LoyaltyMemberTier lmt : lmtList) {
-          failIds.add((String) lmt.LoyaltyMemberId);
-        }
+        failIds.addAll(scopedMemberIds);
 
         logger.setStatus('ERROR');
         logger.setErrorCode('NOT_FOUND');
@@ -62,12 +73,11 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
         SELECT Id, CouponManNo__c, Name, IsUpgrade__c
         FROM VoucherDefinition
         WHERE IsActive = TRUE AND VoucherCategoryId__c = :vcList[0].Id
-        LIMIT 10
+        ORDER BY Name, Id
+        LIMIT :MAX_MONTHLY_VOUCHER_DEFINITION_SIZE
       ];
       if (vdList.isEmpty()) {
-        for (LoyaltyMemberTier lmt : lmtList) {
-          failIds.add((String) lmt.LoyaltyMemberId);
-        }
+        failIds.addAll(scopedMemberIds);
 
         logger.setStatus('ERROR');
         logger.setErrorCode('NOT_FOUND');
@@ -75,21 +85,34 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
         return;
       }
 
-      Map<Id, Id> tierIdByMemberId = new Map<Id, Id>(); // LoyaltyProgramMemberId : LoyaltyTierId
-      Map<Id, String> memberNoByMemberId = new Map<Id, String>(); // LoyaltyProgramMemberId : MemberNo__c
+      // 26.06.01 GD 로직 수정
+      // 멤버 등급 조회
+      List<LoyaltyTier> tierList = [
+        SELECT Id, Name, Grade__c
+        FROM LoyaltyTier
+      ];
 
-      for (LoyaltyMemberTier lmt : lmtList) {
-        if (lmt.LoyaltyMemberId == null || lmt.LoyaltyTierId == null) {
+      Map<String, Id> tierGradesById = new Map<String, Id>();
+      for (LoyaltyTier tier : tierList) {
+        tierGradesById.put(tier.Grade__c, tier.Id);
+      }
+      //
+
+      Map<Id, Id> tierIdByMemberId = new Map<Id, Id>(); // LoyaltyProgramMemberId : LoyaltyTierId
+      for (LoyaltyMemberTier lmt : [
+        SELECT LoyaltyMemberId, LoyaltyTierId, EffectiveDate, CreatedDate
+        FROM LoyaltyMemberTier
+        WHERE LoyaltyMemberId IN :orderedMemberIds AND LoyaltyTierId != NULL
+        ORDER BY LoyaltyMemberId, EffectiveDate DESC NULLS LAST, CreatedDate DESC, Id DESC
+      ]) {
+        if (tierIdByMemberId.containsKey(lmt.LoyaltyMemberId)) {
           continue;
         }
         tierIdByMemberId.put(lmt.LoyaltyMemberId, lmt.LoyaltyTierId);
-        memberNoByMemberId.put(lmt.LoyaltyMemberId, lmt.LoyaltyMember.Contact.MemberNo__c);
       }
 
       if (tierIdByMemberId.isEmpty()) {
-        for (LoyaltyMemberTier lmt : lmtList) {
-          failIds.add((String) lmt.LoyaltyMemberId);
-        }
+        failIds.addAll(scopedMemberIds);
         logger.setStatus('ERROR');
         logger.setErrorCode('NO_TARGET');
         logger.setErrorMessage('No valid LoyaltyMemberTier in scope.');
@@ -120,8 +143,14 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
       for (VoucherLimit__c vl : vlList) {
         Id tierId;
         try {
-          tierId = (Id) vl.Value__c;
+          // 기존
+          // tierId = (Id) vl.Value__c;
+
+          tierId = isSalesforceId(vl.Value__c) ? (Id) vl.Value__c : tierGradesById.get(vl.Value__c);
         } catch (Exception ignore) {
+          continue;
+        }
+        if (tierId == null) {
           continue;
         }
 
@@ -135,8 +164,10 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
       // - 한도(허용등급 리스트)가 없는 쿠폰은 모두에게 지급
       // - 한도가 있는 쿠폰은 해당 tierId인 회원에게만 지급
       Map<Id, TransactionJournal> tjByMemberId = new Map<Id, TransactionJournal>();
+      Id journalTypeId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_ACCRUAL, true);
+      Id journalSubTypeId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_COUPON_ISSUE, true);
 
-      for (Id memberId : tierIdByMemberId.keySet()) {
+      for (Id memberId : orderedMemberIds) {
         Id memberTierId = tierIdByMemberId.get(memberId);
         String memberNo = memberNoByMemberId.get(memberId);
 
@@ -149,10 +180,10 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
         TransactionJournal tj = new TransactionJournal();
         tj.ActivityDate = Datetime.now();
         tj.JournalDate = Datetime.now();
-        tj.LoyaltyProgramId = lmtList[0].LoyaltyMember.ProgramId;
+        tj.LoyaltyProgramId = programIdByMemberId.get(memberId);
         tj.MemberId = memberId;
-        tj.JournalTypeId = SObjectUtil.findIdByName(JournalType.SObjectType, JOURNAL_TYPE_NAME_ACCRUAL, true);
-        tj.JournalSubTypeId = SObjectUtil.findIdByName(JournalSubType.SObjectType, JOURNAL_SUB_TYPE_NAME_COUPON_ISSUE, true);
+        tj.JournalTypeId = journalTypeId;
+        tj.JournalSubTypeId = journalSubTypeId;
         tj.Status = 'Processed';
 
         Boolean hasEligible = false;
@@ -194,8 +225,12 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
 
       // 성공한 트랜잭선 저널만 로열티 쿠폰 지급
       List<Map<String, Object>> voucherIssueReqList = new List<Map<String, Object>>();
+      Set<String> voucherIssueRequestKeys = new Set<String>();
 
-      for (Id memberId : successMemberIdSet) {
+      for (Id memberId : orderedMemberIds) {
+        if (!successMemberIdSet.contains(memberId)) {
+          continue;
+        }
         Id memberTierId = tierIdByMemberId.get(memberId);
         String memberNo = memberNoByMemberId.get(memberId);
         TransactionJournal tj = tjByMemberId.get(memberId);
@@ -206,15 +241,17 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
           Boolean eligible = (allowedTierIds == null || allowedTierIds.isEmpty()) || allowedTierIds.contains(memberTierId);
           // 등급 조건이 없는 쿠폰이거나 해당 멤버의 등급이 쿠폰 등급 조건에 해당하는 쿠폰이 존재할 경우 True
 
-          if (!eligible) {
+          String requestKey = String.valueOf(memberId) + ':' + String.valueOf(vd.Id);
+          if (!eligible || voucherIssueRequestKeys.contains(requestKey)) {
             // 지급 할 쿠폰이 없을 경우 continue
             continue;
           }
 
+          voucherIssueRequestKeys.add(requestKey);
           voucherIssueReqList.add(
             new Map<String, Object>{
               'loyaltyProgramMemberId' => memberId,
-              'programName' => lmtList[0].LoyaltyMember.Program.Name,
+              'programName' => programNameByMemberId.get(memberId),
               'voucherDefinitionName' => vd.Name,
               'journalId' => tj.Id
             }
@@ -224,28 +261,66 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
 
       Integer loyaltyFailCnt = 0;
 
-      if (!voucherIssueReqList.isEmpty()) {
+      if (voucherIssueReqList.size() > MAX_ISSUE_VOUCHER_REQUEST_SIZE) {
+        loyaltyFailCnt += voucherIssueReqList.size();
+        for (Map<String, Object> req : voucherIssueReqList) {
+          failIds.add(String.valueOf(req.get('loyaltyProgramMemberId')));
+        }
+        failMsgs.add('Voucher issue request count exceeds limit. request=' + voucherIssueReqList.size() + ', max=' + MAX_ISSUE_VOUCHER_REQUEST_SIZE);
+      } else if (!voucherIssueReqList.isEmpty()) {
         // 로열티 쿠폰 지급
         List<LoyaltyManagement.IssueVoucherOutput> resList = LoyaltyVoucherService.issueVoucherV2(voucherIssueReqList);
 
         Set<Id> issuedVoucherIdSet = new Set<Id>();
 
-        for (LoyaltyManagement.IssueVoucherOutput res : resList) {
+        if (resList == null) {
+          loyaltyFailCnt += voucherIssueReqList.size();
+          for (Map<String, Object> req : voucherIssueReqList) {
+            failIds.add(String.valueOf(req.get('loyaltyProgramMemberId')));
+          }
+          failMsgs.add('Voucher issue failed. Loyalty service returned no result.');
+        }
+
+        Integer resultCount = resList == null ? 0 : resList.size();
+        if (resultCount < voucherIssueReqList.size()) {
+          loyaltyFailCnt += voucherIssueReqList.size() - resultCount;
+          for (Integer i = resultCount; i < voucherIssueReqList.size(); i++) {
+            failIds.add(String.valueOf(voucherIssueReqList[i].get('loyaltyProgramMemberId')));
+          }
+          failMsgs.add('Voucher issue result count mismatch. request=' + voucherIssueReqList.size() + ', result=' + resultCount);
+        }
+
+        for (Integer i = 0; i < resultCount; i++) {
+          LoyaltyManagement.IssueVoucherOutput res = resList[i];
+          Map<String, Object> voucherIssueReq = i < voucherIssueReqList.size() ? voucherIssueReqList[i] : null;
+          String requestMemberId = voucherIssueReq == null ? null : String.valueOf(voucherIssueReq.get('loyaltyProgramMemberId'));
+
           // 로열티 쿠폰 지급 실패 케이스
           if (!res.isSuccess()) {
             loyaltyFailCnt++;
+            if (!String.isBlank(requestMemberId)) {
+              failIds.add(requestMemberId);
+            }
 
             String errMsg = 'Voucher issue failed.';
 
-            if (!String.isBlank(res.getErrors().get(0).getCode())) {
-              errMsg += ', errorCode=' + res.getErrors().get(0).getCode();
-            }
-            if (!String.isBlank(res.getErrors().get(0).getMessage())) {
-              errMsg += ', errorMessage=' + res.getErrors().get(0).getMessage();
+            if (res.getErrors() != null && !res.getErrors().isEmpty()) {
+              if (!String.isBlank(res.getErrors()[0].getCode())) {
+                errMsg += ', errorCode=' + res.getErrors()[0].getCode();
+              }
+              if (!String.isBlank(res.getErrors()[0].getMessage())) {
+                errMsg += ', errorMessage=' + res.getErrors()[0].getMessage();
+              }
+            } else {
+              errMsg += ', errorMessage=No error detail returned.';
             }
             failMsgs.add(errMsg);
 
             continue; // 실패 건은 ERP 지급 X
+          }
+
+          if (!String.isBlank(requestMemberId)) {
+            successIds.add(requestMemberId);
           }
 
           // 로열티 쿠폰 발급 성공한 건들 담기
@@ -311,22 +386,33 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
 
       logger.setDescription(
         'chunkSize=' +
-          lmtList.size() +
+          memberList.size() +
+          ', voucherDefinitionCount=' +
+          vdList.size() +
+          ', journalCount=' +
+          tjList.size() +
           ', journalSuccess=' +
           journalSuccessMemberIdSet.size() +
+          ', voucherIssueRequest=' +
+          voucherIssueReqList.size() +
+          ', maxIssueRequestSize=' +
+          MAX_ISSUE_VOUCHER_REQUEST_SIZE +
           ', voucherSuccess=' +
           successIds.size() +
-          ', journalFail=' +
+          ', failMemberCount=' +
           failIds.size() +
           ', loyaltyFailCnt=' +
           loyaltyFailCnt
       );
     } catch (Exception e) {
+      shouldWriteExecuteLog = true;
+      failIds.addAll(scopedMemberIds);
       logger.createExceptionLog(e);
       logger.setStatus('ERROR');
     } finally {
       totalSuccess.addAll(successIds);
       totalFail.addAll(failIds);
+      shouldWriteExecuteLog = shouldWriteExecuteLog || !failIds.isEmpty() || !failMsgs.isEmpty();
 
       if (!successIds.isEmpty()) {
         logger.setSuccessRecordIds(successIds);
@@ -339,9 +425,10 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
       }
 
       logger.setResponseDatetime(Datetime.now());
-      logger.addLog();
-
-      ApexLogger.insertLogs();
+      if (shouldWriteExecuteLog) {
+        logger.addLog();
+        ApexLogger.insertLogs();
+      }
     }
   }
 
@@ -395,5 +482,9 @@ public with sharing class MonthlyCouponIssueBatch implements Database.Batchable<
     if (!upgradeVoucherList.isEmpty()) {
       update upgradeVoucherList;
     }
+  }
+
+  private static Boolean isSalesforceId(String value) {
+    return !String.isBlank(value) && Pattern.matches('^[a-zA-Z0-9]{15}([a-zA-Z0-9]{3})?$', value);
   }
 }
