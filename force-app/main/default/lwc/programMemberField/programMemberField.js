@@ -4,6 +4,7 @@ import getMemberProfile from "@salesforce/apex/ContactUiController.getMemberProf
 import getMemebrInfo from "@salesforce/apex/MemberDetailUIController.getMemebrInfo";
 import validatePoints from "@salesforce/apex/LoyaltyPointValidationUIController.validatePoints";
 import rebuildAndValidate from "@salesforce/apex/LoyaltyPointValidationUIController.rebuildAndValidate";
+import validateIntegrity from "@salesforce/apex/LoyaltyPointValidationUIController.validateIntegrity";
 
 export default class ProgramMemberField extends LightningElement {
   @api recordId;
@@ -27,6 +28,12 @@ export default class ProgramMemberField extends LightningElement {
   @track isRebuilding = false;
   @track isRebuildResultModalOpen = false;
   @track rebuildResult = null;
+
+  // 심층 검증(3차) 흐름
+  @track isDeepConfirmVisible = false;
+  @track isIntegrityVerifying = false;
+  @track isIntegrityResultModalOpen = false;
+  @track integrityResult = null;
 
   wiredMemberResult;
   wiredMemberInfoResult;
@@ -401,6 +408,10 @@ export default class ProgramMemberField extends LightningElement {
     this.isRebuilding = false;
     this.isRebuildResultModalOpen = false;
     this.rebuildResult = null;
+    this.isDeepConfirmVisible = false;
+    this.isIntegrityVerifying = false;
+    this.isIntegrityResultModalOpen = false;
+    this.integrityResult = null;
   }
 
   handleCloseReconcile() {
@@ -413,6 +424,10 @@ export default class ProgramMemberField extends LightningElement {
     this.isRebuilding = false;
     this.isRebuildResultModalOpen = false;
     this.rebuildResult = null;
+    this.isDeepConfirmVisible = false;
+    this.isIntegrityVerifying = false;
+    this.isIntegrityResultModalOpen = false;
+    this.integrityResult = null;
   }
 
   handleStartVerify() {
@@ -489,6 +504,132 @@ export default class ProgramMemberField extends LightningElement {
   /* 재정합 결과 모달에서 "취소" 클릭 → 결과 모달만 닫음 (재정합 모달은 유지) */
   handleCancelRebuildResult() {
     this.isRebuildResultModalOpen = false;
+  }
+
+  /* ================= 포인트 검증 → 2차(재정합) 즉시 실행 ================= */
+  async handlePointVerify() {
+    this.isRebuilding = true;
+    this.isRebuildResultModalOpen = false;
+
+    try {
+      const memberNo = this.member?.memberNumber;
+      if (!memberNo) {
+        throw new Error("회원번호를 확인할 수 없습니다.");
+      }
+
+      this.rebuildResult = await rebuildAndValidate({ memberNo });
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("포인트 재정합 실패", error);
+      this.rebuildResult = {
+        success: false,
+        message: error?.body?.message || error?.message || "재정합 중 오류가 발생했습니다.",
+        beforeResult: null,
+        afterResult: null
+      };
+    } finally {
+      this.isRebuilding = false;
+      this.isRebuildResultModalOpen = true;
+    }
+  }
+
+  /* ================= 심층 검증(3차) 흐름 ================= */
+  /* 2차 결과 모달 → [심층 검증] → 확인 다이얼로그 */
+  handleStartDeepVerify() {
+    this.isDeepConfirmVisible = true;
+  }
+
+  handleCancelDeepVerify() {
+    this.isDeepConfirmVisible = false;
+  }
+
+  /* 확인 다이얼로그 [확인] → 3차(validateIntegrity) 실행 */
+  async handleConfirmDeepVerify() {
+    this.isDeepConfirmVisible = false;
+    this.isRebuildResultModalOpen = false;
+    this.isIntegrityVerifying = true;
+
+    try {
+      const memberNo = this.member?.memberNumber;
+      if (!memberNo) {
+        throw new Error("회원번호를 확인할 수 없습니다.");
+      }
+
+      this.integrityResult = await validateIntegrity({ memberNo });
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error("심층 검증 실패", error);
+      this.integrityResult = {
+        isValid: false,
+        summary: error?.body?.message || error?.message || "심층 검증 중 오류가 발생했습니다."
+      };
+    } finally {
+      this.isIntegrityVerifying = false;
+      this.isIntegrityResultModalOpen = true;
+    }
+  }
+
+  handleCloseIntegrityResult() {
+    this.isIntegrityResultModalOpen = false;
+    this.isReconcileOpen = false;
+    this.integrityResult = null;
+    this.rebuildResult = null;
+    refreshApex(this.wiredMemberResult);
+    refreshApex(this.wiredMemberInfoResult);
+  }
+
+  /* ===== 3차(심층 검증) 결과 표시 getter ===== */
+  get isIntegrityValid() {
+    return this.integrityResult?.isValid === true;
+  }
+
+  get integrityResultTitle() {
+    return this.isIntegrityValid ? "거래 이력 검증을 통과했습니다" : "거래 이력에서 불일치가 발견되었습니다";
+  }
+
+  get integritySummary() {
+    if (!this.integrityResult) return "";
+    if (this.isIntegrityValid) {
+      return "거래 이력과 회원 포인트가 모두 일치합니다.";
+    }
+    return "거래 이력을 다시 계산한 결과,\n회원 포인트와 맞지 않는 부분이 있습니다.\n아래 차이 내역을 확인하고\n담당자에게 보정을 요청해 주세요.";
+  }
+
+  get integrityIconName() {
+    return this.isIntegrityValid ? "utility:success" : "utility:warning";
+  }
+
+  get integrityIconWrapClass() {
+    return this.isIntegrityValid
+      ? "reconcile-result-dialog__icon-wrap reconcile-result-dialog__icon-wrap--success"
+      : "reconcile-result-dialog__icon-wrap reconcile-result-dialog__icon-wrap--warning";
+  }
+
+  get integrityIconClass() {
+    return this.isIntegrityValid ? "reconcile-result-dialog__icon--success" : "reconcile-result-dialog__icon--warning";
+  }
+
+  get hasIntegrityDifference() {
+    return !this.isIntegrityValid;
+  }
+
+  get integrityExpectedText() {
+    const n = this.integrityResult?.finalExpectedBalance ?? 0;
+    return `${new Intl.NumberFormat("ko-KR").format(n)}P`;
+  }
+
+  get integrityActualText() {
+    const n = this.integrityResult?.finalActualBalance ?? 0;
+    return `${new Intl.NumberFormat("ko-KR").format(n)}P`;
+  }
+
+  get integrityDiffText() {
+    const n = this.integrityResult?.finalBalanceDifference ?? 0;
+    return `${new Intl.NumberFormat("ko-KR").format(n)}P`;
+  }
+
+  get integrityMismatchCountText() {
+    return `${this.integrityResult?.mismatchCount ?? 0}건`;
   }
 
   get isVerificationValid() {
@@ -581,11 +722,11 @@ export default class ProgramMemberField extends LightningElement {
 
   /* ================= 진행 중 패널 — 검증/재정합 공용 ================= */
   get isProgressing() {
-    return this.isVerifying || this.isRebuilding;
+    return this.isRebuilding || this.isIntegrityVerifying;
   }
 
   get progressingTitle() {
-    return this.isRebuilding ? "포인트 재정합을 진행하고 있습니다" : "포인트 정합성 검증을 진행하고 있습니다";
+    return this.isIntegrityVerifying ? "거래 이력 기반 정합성 검증을 진행하고 있습니다" : "포인트 재정합을 진행하고 있습니다";
   }
 
   get progressingWarningText() {
@@ -606,9 +747,9 @@ export default class ProgramMemberField extends LightningElement {
   get rebuildResultMessage() {
     if (!this.rebuildResult) return "";
     if (this.isRebuildSuccess) {
-      return "재정합이 완료되었습니다.\n최종 반영을 하시겠습니까?";
+      return "회원 포인트 내역이 정상적으로 정리되었습니다.";
     }
-    return this.rebuildResult.message || "재정합 후에도 정합성 불일치가 남아 있습니다.\n별도 보정 작업이 필요합니다.";
+    return "포인트를 다시 정리했지만,\n아직 맞지 않는 내역이 남아 있습니다.\n아래 [심층 검증]으로\n거래 이력을 확인해 주세요.";
   }
 
   get rebuildResultIconName() {

@@ -214,7 +214,7 @@
         <div class="slds-modal__content slds-p-around_large reconcile-modal__content">
           <template if:false={isProgressing}>
             <div class="reconcile-verify-area">
-              <button type="button" class="reconcile-verify-btn" onclick={handleStartVerify}>포인트 검증</button>
+              <button type="button" class="reconcile-verify-btn" onclick={handlePointVerify}>포인트 검증</button>
             </div>
           </template>
 
@@ -396,22 +396,114 @@
                 </div>
               </template>
 
-              <!-- 최종 반영 + 취소 2버튼 (성공/실패 무관) -->
-              <div class="reconcile-result-dialog__actions">
+              <!-- 정합(차이 0): 확인 1개 -->
+              <template if:true={isRebuildDifferenceZero}>
                 <lightning-button
                   variant="brand"
-                  label="최종 반영"
-                  onclick={handleApplyFinal}
+                  label="확인"
+                  onclick={handleCloseRebuildResult}
                   class="reconcile-confirm-dialog__btn"
+                ></lightning-button>
+              </template>
+
+              <!-- 차이 있음: 심층 검증 + 취소 2개 -->
+              <template if:false={isRebuildDifferenceZero}>
+                <div class="reconcile-result-dialog__actions">
+                  <lightning-button
+                    variant="brand"
+                    label="심층 검증"
+                    onclick={handleStartDeepVerify}
+                    class="reconcile-confirm-dialog__btn"
+                  ></lightning-button>
+
+                  <lightning-button
+                    variant="neutral"
+                    label="취소"
+                    onclick={handleCancelRebuildResult}
+                    class="reconcile-confirm-dialog__btn"
+                  ></lightning-button>
+                </div>
+              </template>
+            </div>
+          </div>
+        </template>
+
+        <!-- 심층 검증 확인 다이얼로그 (3차 진입 전 경고) -->
+        <template if:true={isDeepConfirmVisible}>
+          <div class="reconcile-confirm-overlay reconcile-final-overlay" role="alertdialog" aria-modal="true">
+            <div class="reconcile-final-dialog">
+              <div class="reconcile-final-dialog__icon-wrap">
+                <lightning-icon icon-name="utility:warning" size="medium" class="reconcile-final-dialog__icon"></lightning-icon>
+              </div>
+
+              <h3 class="reconcile-final-dialog__title">거래 이력 기반 심층 검증</h3>
+
+              <p class="reconcile-final-dialog__message">
+                회원의 <strong>모든 거래 이력(판매·반품·사용·취소 등)</strong>을<br />
+                시간순으로 다시 검증합니다.<br />
+                거래량에 따라 다소 시간이 걸릴 수 있습니다.
+              </p>
+
+              <p class="reconcile-final-dialog__caution">정말 진행하시겠습니까?</p>
+
+              <div class="reconcile-final-dialog__actions">
+                <lightning-button
+                  variant="brand"
+                  label="확인"
+                  onclick={handleConfirmDeepVerify}
+                  class="reconcile-final-dialog__btn reconcile-final-dialog__btn--apply"
                 ></lightning-button>
 
                 <lightning-button
                   variant="neutral"
                   label="취소"
-                  onclick={handleCancelRebuildResult}
-                  class="reconcile-confirm-dialog__btn"
+                  onclick={handleCancelDeepVerify}
+                  class="reconcile-final-dialog__btn reconcile-final-dialog__btn--cancel"
                 ></lightning-button>
               </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- 심층 검증(3차) 결과 다이얼로그 -->
+        <template if:true={isIntegrityResultModalOpen}>
+          <div class="reconcile-confirm-overlay" role="dialog" aria-modal="true">
+            <div class="reconcile-confirm-dialog">
+              <div class={integrityIconWrapClass}>
+                <lightning-icon icon-name={integrityIconName} size="medium" class={integrityIconClass}></lightning-icon>
+              </div>
+
+              <h3 class="reconcile-result-dialog__title">{integrityResultTitle}</h3>
+
+              <p class="reconcile-confirm-dialog__message">{integritySummary}</p>
+
+              <template if:true={hasIntegrityDifference}>
+                <div class="reconcile-result-dialog__detail">
+                  <div class="reconcile-result-dialog__detail-row">
+                    <span class="reconcile-result-dialog__detail-label">기대 잔액</span>
+                    <span class="reconcile-result-dialog__detail-value">{integrityExpectedText}</span>
+                  </div>
+                  <div class="reconcile-result-dialog__detail-row">
+                    <span class="reconcile-result-dialog__detail-label">실제 잔액</span>
+                    <span class="reconcile-result-dialog__detail-value">{integrityActualText}</span>
+                  </div>
+                  <div class="reconcile-result-dialog__detail-row reconcile-result-dialog__detail-row--diff">
+                    <span class="reconcile-result-dialog__detail-label">차이</span>
+                    <span class="reconcile-result-dialog__detail-value">{integrityDiffText}</span>
+                  </div>
+                  <div class="reconcile-result-dialog__detail-row">
+                    <span class="reconcile-result-dialog__detail-label">결함 이벤트</span>
+                    <span class="reconcile-result-dialog__detail-value">{integrityMismatchCountText}</span>
+                  </div>
+                </div>
+              </template>
+
+              <lightning-button
+                variant="brand"
+                label="확인"
+                onclick={handleCloseIntegrityResult}
+                class="reconcile-confirm-dialog__btn"
+              ></lightning-button>
             </div>
           </div>
         </template>
