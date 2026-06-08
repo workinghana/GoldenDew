@@ -441,6 +441,7 @@
 /* 최종 반영 경고 다이얼로그 (위험 액션) */
 .reconcile-final-overlay {
   background: rgba(31, 41, 55, 0.22);
+  z-index: 20;
 }
 
 .reconcile-final-dialog {
@@ -690,4 +691,14 @@
 .email-text {
   white-space: pre-line;
   margin-left: 4px;
+}
+
+/* 포인트 재정합 결과 메시지 색상 (일치 = 파랑 / 불일치 = 빨강) */
+.reconcile-result-msg--match {
+  color: #1565c0;
+  font-weight: 700;
+}
+.reconcile-result-msg--mismatch {
+  color: #c62828;
+  font-weight: 700;
 }

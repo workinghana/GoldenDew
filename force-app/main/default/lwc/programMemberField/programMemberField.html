@@ -214,7 +214,7 @@
         <div class="slds-modal__content slds-p-around_large reconcile-modal__content">
           <template if:false={isProgressing}>
             <div class="reconcile-verify-area">
-              <button type="button" class="reconcile-verify-btn" onclick={handlePointVerify}>포인트 검증</button>
+              <button type="button" class="reconcile-verify-btn" onclick={handleStartVerify}>포인트 검증</button>
             </div>
           </template>
 
@@ -245,9 +245,9 @@
           <div class="reconcile-confirm-overlay" role="dialog" aria-modal="true">
             <div class="reconcile-confirm-dialog">
               <p class="reconcile-confirm-dialog__message">
-                해당 회원의 포인트 적립·사용·차감 내역이<br />
-                정확하게 기록되어 있는지 확인합니다.<br />
-                진행하시겠습니까?
+                회원의 포인트 적립·사용·차감 내역을 다시 계산하여<br />
+                정확하게 일치하는지 확인합니다.<br />
+                포인트 재정합을 진행하시겠습니까?
               </p>
 
               <div class="reconcile-result-dialog__actions">
@@ -338,12 +338,11 @@
                 <lightning-icon icon-name="utility:warning" size="medium" class="reconcile-final-dialog__icon"></lightning-icon>
               </div>
 
-              <h3 id="final-confirm-heading" class="reconcile-final-dialog__title">최종 반영 전 확인이 필요합니다</h3>
+              <h3 id="final-confirm-heading" class="reconcile-final-dialog__title">포인트 복구 전 확인이 필요합니다</h3>
 
               <p class="reconcile-final-dialog__message">
-                검증된 포인트 값으로 회원의 포인트를 <strong>최종 반영</strong>합니다.<br />
-                반영 이후에는 이전 포인트 상태로 <strong>복원할 수 없으며</strong>,<br />
-                본 작업은 즉시 적용됩니다.
+                포인트 복구를 실행하면 <strong>이전 포인트 이력은 되돌릴 수 없습니다.</strong><br />
+                정말 진행하시려면 아래 <strong>[최종 반영]</strong> 버튼을 눌러 주세요.
               </p>
 
               <p class="reconcile-final-dialog__caution">신중히 확인하신 후 진행해 주십시오.</p>
@@ -351,7 +350,7 @@
               <div class="reconcile-final-dialog__actions">
                 <lightning-button
                   variant="brand"
-                  label="계속 진행"
+                  label="최종 반영"
                   onclick={handleApplyFinal}
                   class="reconcile-final-dialog__btn reconcile-final-dialog__btn--apply"
                 ></lightning-button>
@@ -377,52 +376,52 @@
 
               <h3 class="reconcile-result-dialog__title">{rebuildResultTitle}</h3>
 
-              <p class="reconcile-confirm-dialog__message">{rebuildResultMessage}</p>
+              <p class={rebuildResultMessageClass}>{rebuildResultMessage}</p>
 
-              <template if:true={hasRebuildAfterResult}>
-                <div class="reconcile-result-dialog__detail">
-                  <div class="reconcile-result-dialog__detail-row">
-                    <span class="reconcile-result-dialog__detail-label">시스템 잔액</span>
-                    <span class="reconcile-result-dialog__detail-value">{rebuildAfterSystemBalanceText}</span>
+              <!-- 불일치: 차이 금액 + 포인트 복구/취소 -->
+              <template if:false={isRebuildSuccess}>
+                <template if:true={hasRebuildAfterResult}>
+                  <div class="reconcile-result-dialog__detail">
+                    <div class="reconcile-result-dialog__detail-row">
+                      <span class="reconcile-result-dialog__detail-label">시스템 잔액</span>
+                      <span class="reconcile-result-dialog__detail-value">{rebuildAfterSystemBalanceText}</span>
+                    </div>
+                    <div class="reconcile-result-dialog__detail-row">
+                      <span class="reconcile-result-dialog__detail-label">계산 잔액</span>
+                      <span class="reconcile-result-dialog__detail-value">{rebuildAfterCalculatedBalanceText}</span>
+                    </div>
+                    <div class="reconcile-result-dialog__detail-row reconcile-result-dialog__detail-row--diff">
+                      <span class="reconcile-result-dialog__detail-label">차이</span>
+                      <span class="reconcile-result-dialog__detail-value">{rebuildAfterDifferenceText}</span>
+                    </div>
                   </div>
-                  <div class="reconcile-result-dialog__detail-row">
-                    <span class="reconcile-result-dialog__detail-label">계산 잔액</span>
-                    <span class="reconcile-result-dialog__detail-value">{rebuildAfterCalculatedBalanceText}</span>
-                  </div>
-                  <div class={rebuildDifferenceRowClass}>
-                    <span class="reconcile-result-dialog__detail-label">차이</span>
-                    <span class="reconcile-result-dialog__detail-value">{rebuildAfterDifferenceText}</span>
-                  </div>
-                </div>
-              </template>
+                </template>
 
-              <!-- 정합(차이 0): 확인 1개 -->
-              <template if:true={isRebuildDifferenceZero}>
-                <lightning-button
-                  variant="brand"
-                  label="확인"
-                  onclick={handleCloseRebuildResult}
-                  class="reconcile-confirm-dialog__btn"
-                ></lightning-button>
-              </template>
-
-              <!-- 차이 있음: 심층 검증 + 취소 2개 -->
-              <template if:false={isRebuildDifferenceZero}>
                 <div class="reconcile-result-dialog__actions">
                   <lightning-button
                     variant="brand"
-                    label="심층 검증"
-                    onclick={handleStartDeepVerify}
+                    label="포인트 복구"
+                    onclick={handleRequestFinalApply}
                     class="reconcile-confirm-dialog__btn"
                   ></lightning-button>
 
                   <lightning-button
                     variant="neutral"
                     label="취소"
-                    onclick={handleCancelRebuildResult}
+                    onclick={handleCloseRebuildResult}
                     class="reconcile-confirm-dialog__btn"
                   ></lightning-button>
                 </div>
+              </template>
+
+              <!-- 일치: 확인 1개 -->
+              <template if:true={isRebuildSuccess}>
+                <lightning-button
+                  variant="brand"
+                  label="확인"
+                  onclick={handleCloseRebuildResult}
+                  class="reconcile-confirm-dialog__btn"
+                ></lightning-button>
               </template>
             </div>
           </div>

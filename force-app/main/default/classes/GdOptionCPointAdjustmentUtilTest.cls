@@ -522,4 +522,96 @@ private class GdOptionCPointAdjustmentUtilTest {
     insert lpm;
     return lpm.Id;
   }
+
+  // ============================================================
+  // C. [Fix 결함 ① 2026-06-06] OPTC_FORCE_CREDIT prefix 가드
+  //    AdditionalNotes__c 가 'OPTC_FORCE_CREDIT:' prefix 인 Credit LL 은
+  //    filterCancelableOptionCCreditLedgers 에서 제외되어 회수 대상에서 빠짐.
+  // ============================================================
+  @IsTest
+  static void testCancel_OptcForceCreditLedger_FilteredOut() {
+    // 기존 헬퍼로 일반 Credit LL 시드 (subtype PT='04', 100P)
+    PointGraph graph = seedCancelablePointGraph(100, 0, false, false);
+
+    // 추가 force-credit Credit LL 발행 (AdditionalNotes='OPTC_FORCE_CREDIT:..')
+    Id accrualJtId = ensureJournalType('Accrual');
+    Id purchaseAccrualJstId = ensureJournalSubType('Purchase Accrual', accrualJtId);
+
+    TransactionJournal forceCreditTj = new TransactionJournal(
+      JournalDate = Datetime.now(),
+      ActivityDate = Datetime.now(),
+      LoyaltyProgramId = graph.loyaltyProgramId,
+      MemberId = graph.memberId,
+      OrderId = graph.originalOrderId,
+      SaleId__c = graph.originalOrderId,
+      JournalTypeId = accrualJtId,
+      JournalSubTypeId = purchaseAccrualJstId,
+      TransactionAmount = 50,
+      Status = 'Processed',
+      AdditionalNotes__c = 'OPTC_FORCE_CREDIT: usage restore test'
+    );
+    insert forceCreditTj;
+
+    LoyaltyLedger forceCreditLedger = new LoyaltyLedger(
+      LoyaltyProgramMemberId = graph.memberId,
+      LoyaltyProgramCurrencyId = graph.currencyId,
+      LoyaltyPgmCrcySubtypeId = graph.subtypeId,
+      TransactionJournalId = forceCreditTj.Id,
+      ActivityDate = Datetime.now(),
+      Points = 50,
+      ExpiryDate = Date.today().addDays(30),
+      EventType = 'Credit'
+    );
+    insert forceCreditLedger;
+
+    // cancel 요청 (정상 LL 100P + force-credit LL 50P 가 시드되어 있지만 force-credit 은 필터됨)
+    Test.startTest();
+    GdOptionCPointAdjustmentUtil.AccrualCancelResult result = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
+      graph.memberId,
+      graph.loyaltyProgramId,
+      graph.originalOrderId,
+      null,
+      150, // 150P 요청 — force-credit 까지 빨려들면 다 회수 가능했어야 함
+      'unit-test: OPTC_FORCE_CREDIT filter'
+    );
+    Test.stopTest();
+
+    // 정상 LL 100P 만 회수 가능 → actual=100, loss=50 (force-credit 50P 는 가드로 인해 제외됨)
+    System.assertEquals(true, result.success, '정상 LL 100P 회수 성공');
+    System.assertEquals(100, result.actualPoints, 'force-credit LL 가드 작동 → 일반 LL 만 회수');
+    System.assertEquals(50, result.loss, 'force-credit LL 50P 는 회수 대상에서 제외 → loss=50');
+
+    // force-credit LL 에 CreditCancellation LLT 가 생기지 않았는지 확인
+    Integer cancelLLTOnForceCredit = [
+      SELECT COUNT()
+      FROM LoyaltyLedgerTraceability
+      WHERE CreditLoyaltyLedgerId = :forceCreditLedger.Id AND ActionType = 'CreditCancellation'
+    ];
+    System.assertEquals(0, cancelLLTOnForceCredit, 'force-credit LL 에는 CreditCancellation LLT 생성되지 않음');
+  }
+
+  // ============================================================
+  // D. [Fix 결함 ① 2026-06-06] AdditionalNotes__c 가 blank 인 경우 정상 회수 진행
+  // ============================================================
+  @IsTest
+  static void testCancel_BlankAdditionalNotes_NotFiltered() {
+    // 일반 Credit LL 시드 (AdditionalNotes blank — 기본 동작)
+    PointGraph graph = seedCancelablePointGraph(100, 0, false, false);
+
+    Test.startTest();
+    GdOptionCPointAdjustmentUtil.AccrualCancelResult result = GdOptionCPointAdjustmentUtil.cancelOldSaleEtcAccrualSafe(
+      graph.memberId,
+      graph.loyaltyProgramId,
+      graph.originalOrderId,
+      null,
+      50,
+      'unit-test: blank additional notes not filtered'
+    );
+    Test.stopTest();
+
+    // AdditionalNotes blank → 가드 통과 → 정상 회수
+    System.assertEquals(true, result.success);
+    System.assertEquals(50, result.actualPoints, 'AdditionalNotes blank LL 은 정상 회수');
+    System.assertEquals(0, result.loss);
+  }
 }

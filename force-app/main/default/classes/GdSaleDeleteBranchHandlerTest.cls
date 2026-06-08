@@ -611,4 +611,137 @@ private class GdSaleDeleteBranchHandlerTest {
     Test.stopTest();
     System.assertNotEquals(null, results, 'results 반환');
   }
+
+  // ============================================================
+  // K. [Fix 결함 ③⑤ 2026-06-08] 보강 ② — 비대상 PM (20/81/90/93) 결제 TJ 가 있을 때
+  //    saleAmount 가 baseAmount - nonAccrual 로 정확히 차감되는지 검증
+  // ============================================================
+  @IsTest
+  static void wrap_nonAccrualPmTjsPresent_saleAmountReducedByNonAccrual() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SAL-SD-OLD' LIMIT 1];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-SD-TEST' LIMIT 1];
+
+    // 비대상 PM TJ 다양한 케이스 (20/81/90/93) - 3 가지 매칭 키로 분산
+    insert new List<TransactionJournal>{
+      new TransactionJournal(
+        MemberId = lpm.Id,
+        LoyaltyProgramId = lpm.ProgramId,
+        OrderId = o.Id,
+        DepositNo__c = 'DEP-SD-NA-81',
+        DeposiSeqNo__c = '01',
+        DepositType__c = '01',
+        PaymentMethod = '81',
+        TransactionAmount = 20000,
+        ActivityDate = Date.newInstance(2026, 3, 1),
+        Status = 'Processed',
+        InsertId__c = 'MIG_OPTC_CREDIT'
+      ),
+      new TransactionJournal(
+        MemberId = lpm.Id,
+        LoyaltyProgramId = lpm.ProgramId,
+        SaleId__c = o.Id,
+        DepositNo__c = 'DEP-SD-NA-90',
+        DeposiSeqNo__c = '01',
+        DepositType__c = '01',
+        PaymentMethod = '90',
+        TransactionAmount = 10000,
+        ActivityDate = Date.newInstance(2026, 3, 1),
+        Status = 'Processed',
+        InsertId__c = 'MIG_OPTC_CREDIT'
+      ),
+      new TransactionJournal(
+        MemberId = lpm.Id,
+        LoyaltyProgramId = lpm.ProgramId,
+        OrderId__c = o.Id,
+        DepositNo__c = 'DEP-SD-NA-20',
+        DeposiSeqNo__c = '01',
+        DepositType__c = '01',
+        PaymentMethod = '20',
+        TransactionAmount = 5000,
+        ActivityDate = Date.newInstance(2026, 3, 1),
+        Status = 'Processed',
+        InsertId__c = 'MIG_OPTC_CREDIT'
+      )
+    };
+
+    Map<String, Object> standardData = new Map<String, Object>();
+    ApiResult standardResult = ApiResult.ok(200, '판매 전체 삭제 완료', standardData);
+
+    Test.startTest();
+    ApiResult result = GdSaleDeleteBranchHandler.wrapResponseForOldSale(standardResult, 'SAL-SD-OLD', null);
+    Test.stopTest();
+
+    // baseAmount(100,000) - nonAccrual(35,000) = 65,000 → 음수가 아니므로 force-debit 진행 (Tier 미시드라 requested=0)
+    System.assertEquals(true, result.data.get('option_c_branch'));
+    System.assert(result.data.containsKey('option_c_force_debit_requested'), '보강 ② 진입 후 force-debit 시도');
+  }
+
+  // ============================================================
+  // L. [Fix 결함 ②④ 2026-06-08] 'del_%' prefix 확장 검증
+  //    checkUsageRestoreRequired 가 'del_DEP_*' (point_ 없음) prefix 도 차단
+  // ============================================================
+  @IsTest
+  static void checkUsageRestoreRequired_delDepPrefix_filteredAsRestored() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SAL-SD-OLD' LIMIT 1];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-SD-TEST' LIMIT 1];
+
+    // 이미 환원된 TJ — del_DEP_* (point_ 없음) prefix
+    TransactionJournal restoredPm81 = new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = o.Id,
+      DepositNo__c = 'del_DEP-SD-RESTORED',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      PaymentMethod = '81',
+      TransactionAmount = 5000,
+      ActivityDate = Date.newInstance(2026, 3, 1),
+      Status = 'Processed',
+      InsertId__c = 'MIG_OPTC_CREDIT'
+    );
+    insert restoredPm81;
+
+    Test.startTest();
+    Boolean result = GdSaleDeleteBranchHandler.checkUsageRestoreRequired(o.Id);
+    Test.stopTest();
+
+    // del_% prefix 차단 → 환원 필요 없음
+    System.assertEquals(false, result, 'del_DEP_* prefix → 이미 환원된 것으로 간주 → false');
+  }
+
+  // ============================================================
+  // M. [Fix 결함 ② 2026-06-06] tryAutoRestorePointUsage 의 'del_%' 확장 검증
+  //    'del_DEP_*' prefix TJ 가 중복 환원 대상에서 제외됨
+  // ============================================================
+  @IsTest
+  static void tryAutoRestorePointUsage_delDepPrefix_excludedFromRestore() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SAL-SD-OLD' LIMIT 1];
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-SD-TEST' LIMIT 1];
+
+    // 이미 환원된 TJ — del_DEP_* prefix
+    TransactionJournal restoredPm81 = new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = o.Id,
+      DepositNo__c = 'del_DEP-SD-AUTORESTORED',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      PaymentMethod = '81',
+      TransactionAmount = 4000,
+      ActivityDate = Date.newInstance(2026, 3, 1),
+      Status = 'Processed',
+      InsertId__c = 'MIG_OPTC_CREDIT'
+    );
+    insert restoredPm81;
+
+    Test.startTest();
+    List<Map<String, Object>> results = GdSaleDeleteBranchHandler.tryAutoRestorePointUsage('SAL-SD-OLD');
+    Test.stopTest();
+
+    // del_% prefix 차단 → idempotency 가드 작동 → 환원 대상 0건
+    System.assertEquals(0, results.size(), 'del_DEP_* prefix → 환원 대상에서 제외');
+  }
 }

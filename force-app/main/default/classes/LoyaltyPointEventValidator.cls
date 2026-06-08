@@ -47,6 +47,10 @@ public without sharing class LoyaltyPointEventValidator {
     public Decimal actualPurchaseAccrual = 0;
     public Decimal expectedPromotionAccrual = 0;
     public Decimal actualPromotionAccrual = 0;
+    // [Fix 결함 ①~⑥ 2026-06-08] 옛 판매 OPTC paradigm 검증 결과
+    //   true 면 OPTC force-debit paradigm 으로 검증 (Purchase Accrual LL 회수 paradigm 이 아니라
+    //   ActualPaymentAmount 기반 추정 + OPTC ACCRUAL_CANCEL 마커 TJ 합 비교)
+    public Boolean isOldSale = false;
     public String summary;
   }
 
@@ -794,6 +798,26 @@ public without sharing class LoyaltyPointEventValidator {
     }
 
     ValidationResult result = baseResult('SALE_DELETE', saleOrder);
+
+    // [Fix 결함 ①③④⑤ 2026-06-08] 옛 판매 OPTC paradigm 분기
+    //   옛 판매 (마이그레이션 cutoff 이전) 는 적립 LL 자체가 없고
+    //   OPTC force-debit (OPTC_OLD_SALE_ETC_ACCRUAL_CANCEL) 으로 회수가 발생함.
+    //   따라서 일반 Purchase Accrual LL ↔ CreditCancellation LLT 비교가 무의미.
+    //   대신 ActualPaymentAmount - 비대상 PM 합 → 구매포인트 적립률 × 금액 추정 vs OPTC 마커 TJ 합 비교.
+    if (isOldSaleByOrder(saleOrder)) {
+      result.isOldSale = true;
+      Decimal expected = 0;
+      if (!isOriginalOrderNonAccrualStoreById(saleOrder.Id)) {
+        Decimal eligibleAmount = calculateOldSaleEligibleAmount(saleOrder);
+        expected = estimateOldSalePurchasePointAccrual(result.memberId, eligibleAmount);
+      }
+      // 옛 적립은 마이그레이션 시 PT='04' 기타포인트 lump 로 통합됨
+      result.expectedCreditCancelByType.put('04', expected);
+      result.actualCreditCancelByType.put('04', sumOldSaleOptcAccrualCancelActual(saleOrder.Id));
+      finalizeResult(result);
+      return result;
+    }
+
     result.expectedCreditCancelByType = sumEffectiveAccrualPointsByType(saleOrder.Id);
     result.actualCreditCancelByType = sumCreditCancellationByOriginOrderByType(saleOrder.Id);
     finalizeResult(result);
@@ -965,12 +989,29 @@ public without sharing class LoyaltyPointEventValidator {
     } else if ('SALE_DEPOSIT_DELETE'.equals(eventType)
                && deletedDeposit.PaymentMethod != PAYMENT_METHOD_POINT
                && ('01'.equals(deletedDeposit.DepositType__c) || '02'.equals(deletedDeposit.DepositType__c))) {
-      // 보강 #4 — 일반 결제 판매 입금 삭제 (§ 8 line 418)
-      //   기대: 삭제 입금 TJ 가 만든 적립 Credit LL 합계 (= 취소되어야 할 적립)
-      //   실제: 그 Credit LL 들을 가리키는 CreditCancellation LLT 합계
-      //   불일치 시 = 적립이 정상 취소되지 않음
-      result.expectedCreditCancelByType = sumAccrualPointsByDepositTJ(deletedDeposit.Id);
-      result.actualCreditCancelByType = sumCreditCancellationByDepositTJ(deletedDeposit.Id);
+      // [Fix 결함 ⑥ 2026-06-08] 옛 판매 입금 단건 삭제 OPTC paradigm 분기
+      //   옛 판매 입금 (carry-over 포함) 은 적립 LL 자체가 없고
+      //   OPTC force-debit (OPTC_SALE_DEPOSIT_DELETE_ETC_ACCRUAL_CANCEL) 으로 회수가 발생함.
+      //   carry-over (OrderId__c != null) 케이스도 동일 paradigm 적용 (수정 ③ 효과 검증).
+      if (isOldDepositNo(deletedDeposit.DepositNo__c)) {
+        result.isOldSale = true;
+        Decimal expected = 0;
+        if (!isOriginalOrderNonAccrualStoreById(result.orderId)
+            && !ACCRUAL_EXCLUDED_PAYMENT_METHODS.contains(deletedDeposit.PaymentMethod)) {
+          Decimal eligibleAmount = absDecimal(deletedDeposit.TransactionAmount);
+          expected = estimateOldSalePurchasePointAccrual(result.memberId, eligibleAmount);
+        }
+        result.expectedCreditCancelByType.put('04', expected);
+        result.actualCreditCancelByType.put('04',
+          sumOldDepositOptcAccrualCancelActual(result.orderId, deletedDeposit.DepositNo__c));
+      } else {
+        // 보강 #4 — 일반 결제 판매 입금 삭제 (§ 8 line 418)
+        //   기대: 삭제 입금 TJ 가 만든 적립 Credit LL 합계 (= 취소되어야 할 적립)
+        //   실제: 그 Credit LL 들을 가리키는 CreditCancellation LLT 합계
+        //   불일치 시 = 적립이 정상 취소되지 않음
+        result.expectedCreditCancelByType = sumAccrualPointsByDepositTJ(deletedDeposit.Id);
+        result.actualCreditCancelByType = sumCreditCancellationByDepositTJ(deletedDeposit.Id);
+      }
     }
 
     finalizeResult(result);
@@ -1716,6 +1757,191 @@ public without sharing class LoyaltyPointEventValidator {
 
   private static Decimal absDecimal(Decimal value) {
     return value == null ? 0 : value.abs();
+  }
+
+  // ============================================================
+  // [Fix 결함 ①~⑥ 2026-06-08] 옛 판매 OPTC paradigm 검증 헬퍼
+  //
+  // paradigm 정의:
+  //   - 옛 판매 (마이그레이션 cutoff 이전) 는 적립 LL 자체가 없음.
+  //     마이그레이션 시 모든 적립이 PT='04' 기타포인트 lump 로 통합됨 (Option C residual lump).
+  //   - 옛 판매 삭제 / 입금 단건 삭제 시 OPTC force-debit (회수 추정 + 기타포인트 lump 차감) 실행.
+  //   - 검증 paradigm:
+  //       expected = (ActualPaymentAmount - 비대상 PM 합) × 회원 등급의 PT='01' 구매포인트 적립률
+  //       actual = OPTC_..._ACCRUAL_CANCEL 마커 TJ 의 TransactionAmount 합
+  //   - 적립 불가 매장 (StoreType 20/25/33) 은 expected=0 (안전 skip).
+  // ============================================================
+
+  /**
+   * 옛 판매 여부 — saleNo 기준 (cutoff 이전 + 마이그레이션 import 흔적).
+   */
+  private static Boolean isOldSaleByOrder(Order saleOrder) {
+    if (saleOrder == null || String.isBlank(saleOrder.SaleNo__c)) {
+      return false;
+    }
+    try {
+      return GdMigrationUtil.shouldApplyOptionCBranchBySaleNo(saleOrder.SaleNo__c);
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /**
+   * 옛 입금 여부 — depositNo 기준.
+   */
+  private static Boolean isOldDepositNo(String depositNo) {
+    if (String.isBlank(depositNo)) {
+      return false;
+    }
+    // 'del_' prefix 가 붙어 있어도 원본 depositNo 로 판정 가능하도록 분기
+    String testDepositNo = depositNo.startsWith('del_') ? depositNo.substring(4) : depositNo;
+    try {
+      return GdMigrationUtil.shouldApplyOptionCBranchByDepositNo(testDepositNo);
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  /**
+   * 원판매 매장이 적립 불가 매장(StoreType 20/25/33)인지 검사.
+   * OPTC force-debit 의 Non-Accrual Store Guard paradigm 과 동일.
+   */
+  private static Boolean isOriginalOrderNonAccrualStoreById(Id orderId) {
+    if (orderId == null) {
+      return false;
+    }
+    try {
+      for (Order o : [
+        SELECT StoreCode__r.StoreType__c
+        FROM Order
+        WHERE Id = :orderId
+        LIMIT 1
+      ]) {
+        String storeType = o.StoreCode__r != null ? o.StoreCode__r.StoreType__c : null;
+        if (String.isBlank(storeType)) {
+          return false;
+        }
+        return storeType == '20' || storeType == '25' || storeType == '33';
+      }
+    } catch (Exception e) {
+      return false;
+    }
+    return false;
+  }
+
+  /**
+   * 옛 판매 적립 가능 금액 = ActualPaymentAmount - 비대상 PM 합.
+   * 핸들러의 보강 ② 와 동일 paradigm. 3 매칭 키 (SaleId__c / OrderId__c / OrderId) 로 SAL Order 와 연결.
+   */
+  private static Decimal calculateOldSaleEligibleAmount(Order saleOrder) {
+    if (saleOrder == null || saleOrder.ActualPaymentAmount__c == null) {
+      return 0;
+    }
+    Decimal baseAmount = absDecimal(saleOrder.ActualPaymentAmount__c);
+    if (baseAmount <= 0) {
+      return 0;
+    }
+    Decimal nonAccrual = 0;
+    Id orderId = saleOrder.Id;
+    String orderIdText = String.valueOf(orderId);
+    for (TransactionJournal tj : [
+      SELECT TransactionAmount
+      FROM TransactionJournal
+      WHERE (SaleId__c = :orderIdText OR OrderId__c = :orderId OR OrderId = :orderId)
+        AND PaymentMethod IN :ACCRUAL_EXCLUDED_PAYMENT_METHODS
+    ]) {
+      if (tj.TransactionAmount != null) {
+        nonAccrual += absDecimal(tj.TransactionAmount);
+      }
+    }
+    Decimal result = baseAmount - nonAccrual;
+    return result <= 0 ? 0 : result;
+  }
+
+  /**
+   * 회원 등급의 PT='01' (구매포인트) 적립률 × 금액 → OPTC 추정 회수액.
+   * GdMigrationUtil.calculateAccrualForOldOrder 와 동일 paradigm (PT='01' 만 사용).
+   */
+  private static Decimal estimateOldSalePurchasePointAccrual(Id memberId, Decimal eligibleAmount) {
+    if (memberId == null || eligibleAmount == null || eligibleAmount <= 0) {
+      return 0;
+    }
+    Decimal total = 0;
+    for (LoyaltyTierBenefit ltb : [
+      SELECT Benefit.PurchasePointRate__c,
+             Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c
+      FROM LoyaltyTierBenefit
+      WHERE LoyaltyTierId IN (SELECT LoyaltyTierId FROM LoyaltyMemberTier WHERE LoyaltyMemberId = :memberId)
+    ]) {
+      if (ltb.Benefit == null || ltb.Benefit.PurchasePointRate__c == null) {
+        continue;
+      }
+      String pt = ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r != null
+        ? ltb.Benefit.LoyaltyPgmCurrencySubtypeId__r.PointTypeCode__c
+        : null;
+      // 옛 판매 paradigm: 구매포인트 비율(PT='01') 만 사용 (사은포인트 PT='06' 등 제외)
+      if (!'01'.equals(pt)) {
+        continue;
+      }
+      Decimal rate = ltb.Benefit.PurchasePointRate__c;
+      total += (eligibleAmount * rate / 100).setScale(0, RoundingMode.HALF_UP);
+    }
+    return total;
+  }
+
+  /**
+   * 옛 판매 전체 삭제 OPTC ACCRUAL_CANCEL 마커 TJ 의 TransactionAmount 합.
+   * 운영 기존 마커 (OPTC_OLD_SALE_ETC_ACCRUAL_CANCEL) + 새 핸들러 마커 (OPTC_SALE_DELETE_ETC_ACCRUAL_CANCEL) 모두 인식.
+   */
+  private static Decimal sumOldSaleOptcAccrualCancelActual(Id orderId) {
+    if (orderId == null) {
+      return 0;
+    }
+    Decimal total = 0;
+    for (TransactionJournal tj : [
+      SELECT TransactionAmount
+      FROM TransactionJournal
+      WHERE OrderId = :orderId
+        AND IsDeleted__c = FALSE
+        AND (AdditionalNotes__c LIKE 'OPTC_OLD_SALE_ETC_ACCRUAL_CANCEL%'
+             OR AdditionalNotes__c LIKE 'OPTC_SALE_DELETE_ETC_ACCRUAL_CANCEL%')
+    ]) {
+      if (tj.TransactionAmount != null) {
+        total += absDecimal(tj.TransactionAmount);
+      }
+    }
+    return total;
+  }
+
+  /**
+   * 옛 판매 입금 단건 삭제 OPTC ACCRUAL_CANCEL 마커 TJ 합.
+   * 새 핸들러 마커: OPTC_SALE_DEPOSIT_DELETE_ETC_ACCRUAL_CANCEL
+   * depositNo 가 AdditionalNotes 안에 포함된 케이스만 카운트 (정확 매칭).
+   */
+  private static Decimal sumOldDepositOptcAccrualCancelActual(Id orderId, String depositNo) {
+    if (orderId == null) {
+      return 0;
+    }
+    String origDepositNo = (String.isNotBlank(depositNo) && depositNo.startsWith('del_'))
+      ? depositNo.substring(4)
+      : depositNo;
+    Decimal total = 0;
+    for (TransactionJournal tj : [
+      SELECT TransactionAmount, AdditionalNotes__c
+      FROM TransactionJournal
+      WHERE OrderId = :orderId
+        AND IsDeleted__c = FALSE
+        AND AdditionalNotes__c LIKE 'OPTC_SALE_DEPOSIT_DELETE_ETC_ACCRUAL_CANCEL%'
+    ]) {
+      if (String.isBlank(origDepositNo)
+          || tj.AdditionalNotes__c == null
+          || tj.AdditionalNotes__c.contains(origDepositNo)) {
+        if (tj.TransactionAmount != null) {
+          total += absDecimal(tj.TransactionAmount);
+        }
+      }
+    }
+    return total;
   }
 
   private static Decimal sumMap(Map<String, Decimal> valuesByKey) {

@@ -66,6 +66,21 @@ public with sharing class MemberDeleteBatch implements Database.Batchable<SObjec
         memberIds.add(m.Id);
       }
 
+      /* ================= LoyaltyLedgerTraceability (LL보다 먼저) ================= */
+
+      if (!memberIds.isEmpty()) {
+        List<LoyaltyLedgerTraceability> llts = [
+          SELECT Id
+          FROM LoyaltyLedgerTraceability
+          WHERE DebitLoyaltyLedger.LoyaltyProgramMemberId IN :memberIds OR CreditLoyaltyLedger.LoyaltyProgramMemberId IN :memberIds
+        ];
+
+        if (!llts.isEmpty()) {
+          delete llts;
+          System.debug('LoyaltyLedgerTraceability 삭제 완료');
+        }
+      }
+
       /* ================= LoyaltyLedger ================= */
 
       if (!memberIds.isEmpty()) {
@@ -94,6 +109,21 @@ public with sharing class MemberDeleteBatch implements Database.Batchable<SObjec
         System.debug('Voucher 삭제 완료');
       }
 
+      /* ================= TransactionJournal (Order보다 먼저) ================= */
+
+      if (!memberIds.isEmpty()) {
+        List<TransactionJournal> journals = [
+          SELECT Id
+          FROM TransactionJournal
+          WHERE MemberId IN :memberIds
+        ];
+
+        if (!journals.isEmpty()) {
+          delete journals;
+          System.debug('TransactionJournal 삭제 완료');
+        }
+      }
+
       /* ================= Order ================= */
 
       List<Order> orders = new List<Order>();
@@ -111,18 +141,48 @@ public with sharing class MemberDeleteBatch implements Database.Batchable<SObjec
         System.debug('Order 삭제 완료');
       }
 
-      /* ================= TransactionJournal ================= */
+      /* ================= LoyaltyAggrSubPointExprLedger__c ================= */
 
       if (!memberIds.isEmpty()) {
-        List<TransactionJournal> journals = [
+        List<LoyaltyAggrSubPointExprLedger__c> aggrs = [
           SELECT Id
-          FROM TransactionJournal
-          WHERE MemberId IN :memberIds
+          FROM LoyaltyAggrSubPointExprLedger__c
+          WHERE LoyaltyProgramMemberId__c IN :memberIds
         ];
 
-        if (!journals.isEmpty()) {
-          delete journals;
-          System.debug('TransactionJournal 삭제 완료');
+        if (!aggrs.isEmpty()) {
+          delete aggrs;
+          System.debug('LoyaltyAggrSubPointExprLedger__c 삭제 완료');
+        }
+      }
+
+      /* ================= LoyaltyMemberCurrency ================= */
+
+      if (!memberIds.isEmpty()) {
+        List<LoyaltyMemberCurrency> currencies = [
+          SELECT Id
+          FROM LoyaltyMemberCurrency
+          WHERE LoyaltyMemberId IN :memberIds
+        ];
+
+        if (!currencies.isEmpty()) {
+          delete currencies;
+          System.debug('LoyaltyMemberCurrency 삭제 완료');
+        }
+      }
+
+      /* ================= LoyaltyMemberTier ================= */
+
+      if (!memberIds.isEmpty()) {
+        List<LoyaltyMemberTier> tiers = [
+          SELECT Id
+          FROM LoyaltyMemberTier
+          WHERE LoyaltyMemberId IN :memberIds
+        ];
+
+        if (!tiers.isEmpty()) {
+          delete tiers;
+          System.debug('LoyaltyMemberTier 삭제 완료');
         }
       }
 

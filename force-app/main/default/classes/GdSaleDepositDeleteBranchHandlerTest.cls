@@ -489,4 +489,88 @@ private class GdSaleDepositDeleteBranchHandlerTest {
 
     System.assertEquals(true, called, 'tier 셋업 + deep force-debit 실행');
   }
+
+  // ============================================================
+  // R. [Fix 결함 ⑥ 2026-06-08] carry-over skip 조건 제거 검증
+  //    OrderId__c != null (주문→판매 carry-over) TJ 도 force-debit 진행
+  //    수정 전: L231 skip → 적립 회수 0
+  //    수정 후: skip 제거 → 정상 회수 진행
+  // ============================================================
+  @IsTest
+  static void wrap_carryOverDeposit_proceedsForceDebit() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-SDD-TEST' LIMIT 1];
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SAL-SDD-OLD' LIMIT 1];
+
+    // carry-over 입금 TJ (OrderId__c != null — SOR Order 로부터 끌어옴)
+    TransactionJournal carryOverTj = new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = o.Id,
+      OrderId__c = o.Id, // carry-over 마커
+      SaleId__c = o.Id,
+      DepositNo__c = 'DEP-SDD-CARRYOVER',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      PaymentMethod = '03',
+      TransactionAmount = 70000,
+      ActivityDate = Date.newInstance(2026, 3, 1),
+      Status = 'Processed',
+      InsertId__c = 'MIG_OPTC_CREDIT'
+    );
+    insert carryOverTj;
+
+    Map<String, Object> standardData = new Map<String, Object>();
+    ApiResult standardResult = ApiResult.ok(200, '판매 입금 삭제 완료', standardData);
+
+    Test.startTest();
+    ApiResult result = GdSaleDepositDeleteBranchHandler.wrapResponseForOldDeposit(standardResult, 'DEP-SDD-CARRYOVER', null);
+    Test.stopTest();
+
+    // 수정 전이면 carry-over skip 으로 eligibleAmount=0, force_debit_requested=0 이었음.
+    // 수정 후: carry-over 도 진입하여 eligibleAmount > 0 확인.
+    System.assertEquals(true, result.data.get('option_c_branch'));
+    Decimal eligibleAmount = (Decimal) result.data.get('option_c_eligible_amount');
+    System.assert(eligibleAmount != null && eligibleAmount > 0, 'carry-over TJ skip 안 됨 → eligibleAmount > 0 (실제: ' + eligibleAmount + ')');
+  }
+
+  // ============================================================
+  // S. carry-over (OrderId__c != null) TJ 의 eligibleAmount 정확성 검증
+  //    수정 전: carry-over skip → eligibleAmount=0
+  //    수정 후: carry-over 진입 → eligibleAmount = TransactionAmount
+  // ============================================================
+  @IsTest
+  static void wrap_carryOverDeposit_eligibleAmountEqualsTxAmount() {
+    Test.setMock(HttpCalloutMock.class, new SuccessCalloutMock());
+    LoyaltyProgramMember lpm = [SELECT Id, ProgramId FROM LoyaltyProgramMember WHERE MembershipNumber = 'M-SDD-TEST' LIMIT 1];
+    Order o = [SELECT Id FROM Order WHERE SaleNo__c = 'SAL-SDD-OLD' LIMIT 1];
+
+    TransactionJournal carryTj = new TransactionJournal(
+      MemberId = lpm.Id,
+      LoyaltyProgramId = lpm.ProgramId,
+      OrderId = o.Id,
+      OrderId__c = o.Id,
+      DepositNo__c = 'DEP-SDD-CARRYOVER-C',
+      DeposiSeqNo__c = '01',
+      DepositType__c = '01',
+      PaymentMethod = '03',
+      TransactionAmount = 30000,
+      ActivityDate = Date.newInstance(2026, 3, 1),
+      Status = 'Processed',
+      InsertId__c = 'MIG_OPTC_CREDIT'
+    );
+    insert carryTj;
+
+    Map<String, Object> standardData = new Map<String, Object>();
+    ApiResult standardResult = ApiResult.ok(200, '판매 입금 삭제 완료', standardData);
+
+    Test.startTest();
+    ApiResult result = GdSaleDepositDeleteBranchHandler.wrapResponseForOldDeposit(standardResult, 'DEP-SDD-CARRYOVER-C', null);
+    Test.stopTest();
+
+    // 수정 전: carry-over skip → eligibleAmount=0
+    // 수정 후: carry-over 도 진입 → eligibleAmount=30000
+    Decimal eligibleAmount = (Decimal) result.data.get('option_c_eligible_amount');
+    System.assertEquals(30000, eligibleAmount, 'carry-over TJ 도 eligibleAmount 산출 진행 (skip 안 됨)');
+  }
 }

@@ -67,7 +67,8 @@ public with sharing class GdOptionCPointAdjustmentUtil {
           CreatedDate,
           TransactionJournal.OrderId,
           TransactionJournal.SaleId__c,
-          TransactionJournal.JournalSubType.Name
+          TransactionJournal.JournalSubType.Name,
+          TransactionJournal.AdditionalNotes__c
         FROM LoyaltyLedger
         WHERE
           LoyaltyProgramMemberId = :memberId
@@ -254,6 +255,17 @@ public with sharing class GdOptionCPointAdjustmentUtil {
       if (isPointRedeemCancel && !isCurrentReturnRestore) {
         continue;
       }
+
+      // [Fix 결함 ① 2026-06-06]
+      //   USE_RESTORE Credit LL 보호 — 입금 단건 삭제로 발행된 사용 환원 LL 이
+      //   ACCRUAL_CANCEL 회수 대상에 잡혀 회수 우선순위 결함으로
+      //   residual lump 가 부족 회수되는 결함 차단.
+      //   TJ.AdditionalNotes__c 가 'OPTC_FORCE_CREDIT:' prefix 면 force-credit 흐름이므로 제외.
+      String addNotes = credit.TransactionJournal != null ? credit.TransactionJournal.AdditionalNotes__c : null;
+      if (String.isNotBlank(addNotes) && addNotes.startsWith('OPTC_FORCE_CREDIT:')) {
+        continue;
+      }
+
       result.add(credit);
     }
     return result;

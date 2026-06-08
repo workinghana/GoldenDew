@@ -203,7 +203,36 @@ public with sharing class GdSaleDeleteBranchHandler {
       }
       Id contactId = orders[0].MemberNo__c;
       Id orderId = orders[0].Id;
-      Decimal saleAmount = orders[0].ActualPaymentAmount__c;
+
+      // [Fix 결함 ③⑤ 2026-06-08 — 보강 ② 적용]
+      //   ActualPaymentAmount 기반 + 적립 비대상 결제(PM=20/81/90/93) 차감
+      //   배경:
+      //     - 이전 Fix ③ (Sale Deposit SOQL 기반) 은 SOR→SAL 흐름의 입금이
+      //       SOR Order 에 연결되어 SAL Order Id 기준 검색 시 0건 → 회수 skip 부작용
+      //     - 본 정정은 전체 결제금액에서 적립 비대상 결제만 차감
+      //     - 3 매칭 키 (SaleId__c / OrderId__c / OrderId) 로 SAL Order 와 연결된
+      //       모든 PM 결제 TJ 추적 (IsDel 무관)
+      //   효과:
+      //     - SAL 자체 입금 회원: 정상 동작 유지
+      //     - SOR→SAL 흐름 회원: 추정 정확 + 안전망 회수 정상
+      Decimal baseAmount = orders[0].ActualPaymentAmount__c;
+      if (baseAmount == null || baseAmount <= 0) {
+        out.error = 'sale amount missing or non-positive';
+        return out;
+      }
+
+      List<TransactionJournal> nonAccrualPmTjs = [
+        SELECT TransactionAmount
+        FROM TransactionJournal
+        WHERE (SaleId__c = :orderId OR OrderId__c = :orderId OR OrderId = :orderId) AND PaymentMethod IN ('20', '81', '90', '93')
+      ];
+      Decimal nonAccrualAmount = 0;
+      for (TransactionJournal tj : nonAccrualPmTjs) {
+        if (tj.TransactionAmount != null) {
+          nonAccrualAmount += tj.TransactionAmount;
+        }
+      }
+      Decimal saleAmount = baseAmount - nonAccrualAmount;
       if (saleAmount == null || saleAmount <= 0) {
         out.error = 'sale amount missing or non-positive';
         return out;
@@ -323,10 +352,16 @@ public with sharing class GdSaleDeleteBranchHandler {
       //         환원이 필요한데도 시그널이 false 가 되어 safety net 자체 trigger 안 됨.
       //   해결: IsDel 필터 제거. 단 del_point_ prefix 로 이미 환원된 TJ 는 idempotency
       //         차원에서 제외 (중복 환원 방지).
+      // [Fix 결함 ④ 2026-06-08] L343 의 검사 조건을 L391 과 일관되게 'del_%' 로 확장
+      //   배경: L391 (tryAutoRestorePointUsage) 은 이미 'del_%' 로 수정됐는데
+      //         L343 (checkUsageRestoreRequired) 만 'del_point_%' 그대로라 paradigm 비대칭
+      //   영향: 입금 단건 삭제 + 판매 삭제 시 'del_DEP_*' prefix 가 통과되어
+      //         운영자에게 false positive "사용 환원 필요" 알림 발동
+      //   해결: 'del_%' 로 확장 → 모든 환원된 입금 차단
       List<TransactionJournal> pointPaymentTjs = [
         SELECT Id, DepositNo__c
         FROM TransactionJournal
-        WHERE OrderId = :orderId AND PaymentMethod = '81' AND (DepositNo__c = NULL OR (NOT DepositNo__c LIKE 'del_point_%'))
+        WHERE OrderId = :orderId AND PaymentMethod = '81' AND (DepositNo__c = NULL OR (NOT DepositNo__c LIKE 'del_%'))
         LIMIT 1
       ];
       return !pointPaymentTjs.isEmpty();
@@ -365,10 +400,15 @@ public with sharing class GdSaleDeleteBranchHandler {
       //   배경: 입금 단건 삭제로 IsDel=true 된 PM=81 TJ 가 SOQL 에서 빠져
       //         safety net 의 환원 대상이 0건이 되어 사용 포인트 영구 손실.
       //   해결: IsDel 필터 제거. del_point_ prefix 환원 TJ 는 idempotency 차원 제외.
+      // [Fix 결함 ② 2026-06-06]
+      //   prefix 'del_point_' → 'del_' 로 확장.
+      //   배경: 입금 단건 삭제 시 PM=81 TJ 의 DepositNo 가 'del_DEP*' 로 update 되는데
+      //         기존 'del_point_%' 가드는 이를 막지 못해 USE_RESTORE 가 중복 발행됨
+      //   해결: 'del_%' prefix 로 확장하여 모든 환원 TJ 를 idempotency 가드에 포함.
       List<TransactionJournal> pm81Tjs = [
         SELECT Id, DepositNo__c, MemberId, OrderId, LoyaltyProgramId, PaymentMethod, TransactionAmount, IsDeleted__c
         FROM TransactionJournal
-        WHERE OrderId = :orderId AND PaymentMethod = '81' AND (DepositNo__c = NULL OR (NOT DepositNo__c LIKE 'del_point_%'))
+        WHERE OrderId = :orderId AND PaymentMethod = '81' AND (DepositNo__c = NULL OR (NOT DepositNo__c LIKE 'del_%'))
       ];
 
       for (TransactionJournal pm81Tj : pm81Tjs) {

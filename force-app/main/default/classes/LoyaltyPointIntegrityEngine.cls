@@ -75,6 +75,36 @@ public without sharing class LoyaltyPointIntegrityEngine {
     result.isMigratedMember = ctx.isMigratedMember == true;
     result.migrationCutoffDate = ctx.migrationCutoffDate;
 
+    // ============================================================
+    // [paradigm 정확성 강화 2026-06-15] 운영 paradigm (GdPointRefreshPreviewService) 호출
+    //   운영 코드의 paradigm 정의를 100% 그대로 사용 — paradigm 정확성 보장
+    //   실패 시 내 엔진 fallback (paradigm 위반 회원도 처리 가능)
+    //
+    // [paradigm 보강 2026-06-15 #2] OpeningPointBalance__c 누락 시 OPTC LL.Points fallback
+    //   마이그레이션 paradigm:
+    //     ① 사용가능 덩어리 (OPTC LL "Option C residual lump") + OpeningPointBalance__c 저장
+    //     ② 사용 덩어리 (paradigm 시뮬레이션용)
+    //   OpeningPointBalance__c 가 null 이면 OPTC LL.Points 로 자동 전달 → paradigm 정확
+    // ============================================================
+    try {
+      Date opOpenDate = resolveOperationalOpenDate(ctx);
+      Map<String, Decimal> opOpeningPoints = resolveOperationalOpeningPoints(ctx);
+      // useCreatedDateCutoff=false: cutoff 이전 sale 의 OPTC_OLD_SALE_ETC_ACCRUAL 재시뮬레이션 비활성화
+      //   마이그레이션 paradigm 상 cutoff 이전 거래는 OPTC lump / OpeningPointBalance__c 에 이미 통합되어 있음
+      GdPointRefreshPreviewService.PreviewResult opPreview =
+        new GdPointRefreshPreviewService().simulateMember(memberNo, opOpenDate, opOpeningPoints, false, null);
+      result.operationalSuccess = true;
+      result.operationalExpectedBalance = opPreview.totalRemaining;
+      result.operationalEventCount = opPreview.eventCount;
+      result.operationalBucketCount = opPreview.bucketCount;
+      result.operationalRemainingByPointType = opPreview.remainingByPointType;
+      result.operationalOpenDate = opOpenDate;
+    } catch (Exception opEx) {
+      result.operationalSuccess = false;
+      result.operationalError = opEx.getMessage();
+      // 운영 paradigm 실패 회원 — 내 엔진 fallback 진행
+    }
+
     // 2. Timeline 로드 (이벤트 시간순)
     List<TimelineEvent> timeline = loadTimeline(ctx);
     result.eventCount = timeline.size();
@@ -124,13 +154,41 @@ public without sharing class LoyaltyPointIntegrityEngine {
     result.returnsCount = countByType(timeline, EventType.RETURN_CANCEL);
     result.mismatchCount = result.eventMismatches.size();
 
-    result.isValid = (result.mismatchCount == 0 && result.finalBalanceDifference == 0);
+    // [운영 paradigm 결합] operationalDifference 계산
+    if (result.operationalSuccess == true && result.operationalExpectedBalance != null) {
+      result.operationalDifference = result.operationalExpectedBalance - finalActualBalance;
+    }
+
+    // 정합 판정 paradigm:
+    //   1순위: 운영 paradigm 결과 (paradigm 정확성)
+    //   2순위: 내 엔진 결과 (paradigm 위반 식별)
+    Boolean operationalValid = result.operationalSuccess == true
+      && result.operationalDifference != null
+      && result.operationalDifference == 0;
+    Boolean myEngineValid = (result.mismatchCount == 0 && result.finalBalanceDifference == 0);
+    result.isValid = operationalValid || (result.operationalSuccess != true && myEngineValid);
+
     if (result.isValid) {
-      result.summary = 'Event Replay 통과 (' + timeline.size() + ' 이벤트, 최종 잔액 정합)';
+      if (operationalValid) {
+        result.summary = '✅ 운영 paradigm 정합 (가상 ' + result.operationalExpectedBalance + 'P = 실제 LMC)';
+      } else {
+        result.summary = '✅ Event Replay 통과 (' + timeline.size() + ' 이벤트)';
+      }
     } else {
-      result.summary = 'Event Replay — ' + result.mismatchCount + ' 이벤트 결함'
-        + ' / 최종 잔액 차이 ' + result.finalBalanceDifference + 'P'
-        + ' (가상 ' + finalExpectedBalance + ' vs 실제 ' + finalActualBalance + ')';
+      List<String> issues = new List<String>();
+      if (result.operationalSuccess == true && result.operationalDifference != 0) {
+        issues.add('운영 paradigm 차이 ' + result.operationalDifference + 'P');
+      }
+      if (result.operationalSuccess == false) {
+        issues.add('운영 paradigm 실패: ' + result.operationalError);
+      }
+      if (result.mismatchCount > 0) {
+        issues.add('내 엔진 mismatch ' + result.mismatchCount + '건');
+      }
+      if (result.finalBalanceDifference != 0) {
+        issues.add('내 엔진 LMC 차이 ' + result.finalBalanceDifference + 'P');
+      }
+      result.summary = '⚠️ 결함 — ' + String.join(issues, ' / ');
     }
 
     // 호환 — 이벤트 mismatch 를 mismatchDetails 문자열로 요약
@@ -537,6 +595,77 @@ public without sharing class LoyaltyPointIntegrityEngine {
       bucket.put(pt, (bucket.containsKey(pt) ? bucket.get(pt) : 0) + pts);
       rctx.manualEventTypeByTjId.put(tjId, ll.EventType);
     }
+  }
+
+  /**
+   * 운영 paradigm 호출용 openDate 자동 결정
+   *   - 마이그레이션 회원: migrationCutoffDate
+   *   - 신규 회원: 회원의 첫 거래 일 (또는 default 2020-01-01)
+   *   - default fallback: 2020-01-01
+   */
+  private static Date resolveOperationalOpenDate(MemberContext ctx) {
+    if (ctx.migrationCutoffDate != null) {
+      return ctx.migrationCutoffDate.date();
+    }
+    Set<String> memberRefs = new Set<String>();
+    if (ctx.member.Contact != null && String.isNotBlank(ctx.member.Contact.MemberNo__c)) {
+      memberRefs.add(ctx.member.Contact.MemberNo__c);
+    }
+    if (ctx.member.ContactId != null) {
+      memberRefs.add(String.valueOf(ctx.member.ContactId));
+    }
+    if (memberRefs.isEmpty()) return Date.newInstance(2020, 1, 1);
+    for (Order o : [
+      SELECT EffectiveDate FROM Order
+      WHERE MemberNo__c IN :memberRefs
+        AND IsDeleted__c = FALSE
+        AND EffectiveDate != NULL
+      ORDER BY EffectiveDate ASC
+      LIMIT 1
+    ]) {
+      if (o.EffectiveDate != null) return o.EffectiveDate;
+    }
+    return Date.newInstance(2020, 1, 1);
+  }
+
+  /**
+   * 운영 paradigm 호출용 openingPoint 결정
+   *   1순위: LoyaltyProgramMember.OpeningPointBalance__c (마이그레이션 paradigm 표준)
+   *   2순위: OPTC LL.Points (Option C residual lump) — sandbox/누락 회원 fallback
+   *   3순위: 빈 map (운영 paradigm 의 default 사용)
+   *
+   *   paradigm 의도:
+   *     마이그레이션 paradigm: 사용가능 덩어리 양을 OpeningPointBalance__c 에 저장
+   *     운영 paradigm: openingPointByType['04'] 로 사용
+   *     누락 시 OPTC LL.Points 가 동일한 paradigm (사용가능 덩어리)
+   */
+  private static Map<String, Decimal> resolveOperationalOpeningPoints(MemberContext ctx) {
+    Map<String, Decimal> result = new Map<String, Decimal>();
+    // 1순위: OpeningPointBalance__c (운영 paradigm 표준)
+    for (LoyaltyProgramMember m : [
+      SELECT OpeningPointBalance__c FROM LoyaltyProgramMember WHERE Id = :ctx.member.Id LIMIT 1
+    ]) {
+      if (m.OpeningPointBalance__c != null && m.OpeningPointBalance__c > 0) {
+        result.put('04', m.OpeningPointBalance__c);
+        return result;
+      }
+    }
+    // 2순위: OPTC LL.Points (Option C residual lump) — 마이그레이션 회원의 사용가능 덩어리
+    Decimal optcSum = 0;
+    for (LoyaltyLedger ll : [
+      SELECT Points FROM LoyaltyLedger
+      WHERE LoyaltyProgramMemberId = :ctx.member.Id
+        AND IsDeleted = FALSE
+        AND TransactionJournal.IsDeleted__c = FALSE
+        AND AdditionalNotes LIKE 'Option C residual lump%'
+        AND TransactionJournal.JournalSubType.Name = 'Api Forced Credit'
+    ]) {
+      if (ll.Points != null) optcSum += ll.Points;
+    }
+    if (optcSum > 0) {
+      result.put('04', optcSum);
+    }
+    return result;
   }
 
   private static Id tryParseId(String value) {
@@ -1386,6 +1515,15 @@ public without sharing class LoyaltyPointIntegrityEngine {
     @AuraEnabled public List<String> mismatchDetails;
     @AuraEnabled public Boolean isMigratedMember;
     @AuraEnabled public Datetime migrationCutoffDate;
+    // [운영 paradigm 결합 2026-06-15] GdPointRefreshPreviewService 호출 결과
+    @AuraEnabled public Boolean operationalSuccess;
+    @AuraEnabled public String operationalError;
+    @AuraEnabled public Decimal operationalExpectedBalance;
+    @AuraEnabled public Integer operationalEventCount;
+    @AuraEnabled public Integer operationalBucketCount;
+    @AuraEnabled public Map<String, Decimal> operationalRemainingByPointType;
+    @AuraEnabled public Date operationalOpenDate;
+    @AuraEnabled public Decimal operationalDifference;  // 운영 paradigm 가상 - 실제 LMC
   }
 
   public class EventMismatch {

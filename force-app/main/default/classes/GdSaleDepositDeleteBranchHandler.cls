@@ -223,18 +223,26 @@ public with sharing class GdSaleDepositDeleteBranchHandler {
         return out;
       }
 
-      // [carry-over 이중 차감 방지 fix]
+      // [기존: carry-over 이중 차감 방지 fix]
       // Fix #1 (GdSaleDepositServiceImpl.cls:1846) 적용 후 carry-over 케이스는
       // 표준 cancelPointsCreditedOnPurchase 가 실제 적립 LL 을 정상 cancel 한다.
       // 옵션 C force-debit 이 추가 실행되면 추정값만큼 OPTC_RESIDUAL 기타포인트
       // 가 부당 차감 → 이중 차감. carry-over (OrderId__c != null) 검출 시 skip.
-      if (targetTj.OrderId__c != null) {
-        out.success = true; // 정상 종료 (모니터링 FAILED 집계 방지)
-        out.actual = 0;
-        out.loss = 0;
-        out.error = 'skipped: carry-over deposit (standard cancel handled)';
-        return out;
-      }
+      //
+      // [Fix 결함 ⑥ 2026-06-08 — carry-over skip 조건 제거]
+      //   배경: 위 가정 ("표준 cancel 이 처리") 은 옛 판매 (OPTC) 케이스에서는 적용 안 됨.
+      //         옛 판매는 마이그레이션 시 모든 적립이 PT='04' lump (Option C residual lump) 로
+      //         통합되어 'Purchase Accrual' SubType LL 자체가 존재하지 않음 →
+      //         표준 cancel 결과 0 회수.
+      //   영향: carry-over (주문→판매) 입금이 단건 삭제될 때 적립 회수가 누락됨
+      //         (SOR Order 입금 단건 삭제 시 ACCRUAL_CANCEL 0건).
+      //   해결: 본 함수 (computeAndForceDebitForDepositDelete) 자체가 OPTC 분기 안에서만
+      //         호출됨 (shouldApplyOptionCBranchByDepositNo = true). 즉 옛 판매 케이스에서만
+      //         진입하므로 carry-over skip 자체가 부정확. 제거하여 OPTC 추가 처리 진행.
+      //   안전성:
+      //     - 옛 판매에는 'Purchase Accrual' LL 없음 → 표준 cancel 0 회수 → 이중 차감 위험 없음
+      //     - 정상 판매: OPTC 분기 자체 진입 안 함 (shouldApplyOptionCBranchByDepositNo = false)
+      //     - 옛 판매 + 일반 (carry-over 아님): 이전 동작 그대로
       // * 신규 로직 (26.05.20 CS) End.
 
       // 1. 적립 가능 금액 (PM 적립 비대상 제외 + 환불 음수 처리)

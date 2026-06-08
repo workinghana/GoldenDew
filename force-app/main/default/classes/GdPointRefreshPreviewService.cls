@@ -1677,7 +1677,12 @@ public without sharing class GdPointRefreshPreviewService {
       ? ll.TransactionJournal.JournalSubType.Name
       : null;
     String notes = ((ll.TransactionJournal == null ? '' : String.valueOf(ll.TransactionJournal.AdditionalNotes__c)) + ';' + String.valueOf(ll.AdditionalNotes)).toUpperCase();
-    if (notes.contains('OPTC') || notes.contains('RETURN_DEPOSIT_DELETE') || notes.contains('RESTORE') || notes.contains('ORIGIN_CREDIT_LL')) {
+    if (notes.contains('OPTC')
+        || notes.contains('OPTION C RESIDUAL LUMP')
+        || notes.contains('OPTION C OPENING')
+        || notes.contains('RETURN_DEPOSIT_DELETE')
+        || notes.contains('RESTORE')
+        || notes.contains('ORIGIN_CREDIT_LL')) {
       return false;
     }
     if (subTypeName == 'Api Forced Credit') {
