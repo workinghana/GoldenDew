@@ -66,7 +66,7 @@ public with sharing class MemberDeleteBatch implements Database.Batchable<SObjec
         memberIds.add(m.Id);
       }
 
-      /* ================= LoyaltyLedgerTraceability (LL보다 먼저) ================= */
+      /* ================= LoyaltyLedgerTraceability  ================= */
 
       if (!memberIds.isEmpty()) {
         List<LoyaltyLedgerTraceability> llts = [
@@ -76,8 +76,14 @@ public with sharing class MemberDeleteBatch implements Database.Batchable<SObjec
         ];
 
         if (!llts.isEmpty()) {
-          delete llts;
-          System.debug('LoyaltyLedgerTraceability 삭제 완료');
+          Database.DeleteResult[] lltResults = Database.delete(llts, false);
+          for (Integer i = 0; i < lltResults.size(); i++) {
+            if (!lltResults[i].isSuccess()) {
+              for (Database.Error err : lltResults[i].getErrors()) {
+                failMsgs.add('LoyaltyLedgerTraceability 삭제 실패: Id=' + llts[i].Id + ', msg=' + err.getMessage());
+              }
+            }
+          }
         }
       }
 
@@ -91,8 +97,14 @@ public with sharing class MemberDeleteBatch implements Database.Batchable<SObjec
         ];
 
         if (!ledgers.isEmpty()) {
-          delete ledgers;
-          System.debug('LoyaltyLedger 삭제 완료');
+          Database.DeleteResult[] ledgerResults = Database.delete(ledgers, false);
+          for (Integer i = 0; i < ledgerResults.size(); i++) {
+            if (!ledgerResults[i].isSuccess()) {
+              for (Database.Error err : ledgerResults[i].getErrors()) {
+                failMsgs.add('LoyaltyLedger 삭제 실패: Id=' + ledgers[i].Id + ', msg=' + err.getMessage());
+              }
+            }
+          }
         }
       }
 
@@ -105,11 +117,17 @@ public with sharing class MemberDeleteBatch implements Database.Batchable<SObjec
       ];
 
       if (!vouchers.isEmpty()) {
-        delete vouchers;
-        System.debug('Voucher 삭제 완료');
+        Database.DeleteResult[] voucherResults = Database.delete(vouchers, false);
+        for (Integer i = 0; i < voucherResults.size(); i++) {
+          if (!voucherResults[i].isSuccess()) {
+            for (Database.Error err : voucherResults[i].getErrors()) {
+              failMsgs.add('Voucher 삭제 실패: Id=' + vouchers[i].Id + ', msg=' + err.getMessage());
+            }
+          }
+        }
       }
 
-      /* ================= TransactionJournal (Order보다 먼저) ================= */
+      /* ================= TransactionJournal ================= */
 
       if (!memberIds.isEmpty()) {
         List<TransactionJournal> journals = [
@@ -119,8 +137,14 @@ public with sharing class MemberDeleteBatch implements Database.Batchable<SObjec
         ];
 
         if (!journals.isEmpty()) {
-          delete journals;
-          System.debug('TransactionJournal 삭제 완료');
+          Database.DeleteResult[] journalResults = Database.delete(journals, false);
+          for (Integer i = 0; i < journalResults.size(); i++) {
+            if (!journalResults[i].isSuccess()) {
+              for (Database.Error err : journalResults[i].getErrors()) {
+                failMsgs.add('TransactionJournal 삭제 실패: Id=' + journals[i].Id + ', msg=' + err.getMessage());
+              }
+            }
+          }
         }
       }
 
@@ -137,8 +161,14 @@ public with sharing class MemberDeleteBatch implements Database.Batchable<SObjec
       }
 
       if (!orders.isEmpty()) {
-        delete orders;
-        System.debug('Order 삭제 완료');
+        Database.DeleteResult[] orderResults = Database.delete(orders, false);
+        for (Integer i = 0; i < orderResults.size(); i++) {
+          if (!orderResults[i].isSuccess()) {
+            for (Database.Error err : orderResults[i].getErrors()) {
+              failMsgs.add('Order 삭제 실패: Id=' + orders[i].Id + ', msg=' + err.getMessage());
+            }
+          }
+        }
       }
 
       /* ================= LoyaltyAggrSubPointExprLedger__c ================= */
@@ -151,8 +181,14 @@ public with sharing class MemberDeleteBatch implements Database.Batchable<SObjec
         ];
 
         if (!aggrs.isEmpty()) {
-          delete aggrs;
-          System.debug('LoyaltyAggrSubPointExprLedger__c 삭제 완료');
+          Database.DeleteResult[] aggrResults = Database.delete(aggrs, false);
+          for (Integer i = 0; i < aggrResults.size(); i++) {
+            if (!aggrResults[i].isSuccess()) {
+              for (Database.Error err : aggrResults[i].getErrors()) {
+                failMsgs.add('LoyaltyAggrSubPointExprLedger__c 삭제 실패: Id=' + aggrs[i].Id + ', msg=' + err.getMessage());
+              }
+            }
+          }
         }
       }
 
@@ -166,8 +202,14 @@ public with sharing class MemberDeleteBatch implements Database.Batchable<SObjec
         ];
 
         if (!currencies.isEmpty()) {
-          delete currencies;
-          System.debug('LoyaltyMemberCurrency 삭제 완료');
+          Database.DeleteResult[] currencyResults = Database.delete(currencies, false);
+          for (Integer i = 0; i < currencyResults.size(); i++) {
+            if (!currencyResults[i].isSuccess()) {
+              for (Database.Error err : currencyResults[i].getErrors()) {
+                failMsgs.add('LoyaltyMemberCurrency 삭제 실패: Id=' + currencies[i].Id + ', msg=' + err.getMessage());
+              }
+            }
+          }
         }
       }
 
@@ -181,16 +223,28 @@ public with sharing class MemberDeleteBatch implements Database.Batchable<SObjec
         ];
 
         if (!tiers.isEmpty()) {
-          delete tiers;
-          System.debug('LoyaltyMemberTier 삭제 완료');
+          Database.DeleteResult[] tierResults = Database.delete(tiers, false);
+          for (Integer i = 0; i < tierResults.size(); i++) {
+            if (!tierResults[i].isSuccess()) {
+              for (Database.Error err : tierResults[i].getErrors()) {
+                failMsgs.add('LoyaltyMemberTier 삭제 실패: Id=' + tiers[i].Id + ', msg=' + err.getMessage());
+              }
+            }
+          }
         }
       }
 
       /* ================= LoyaltyProgramMember ================= */
 
       if (!members.isEmpty()) {
-        delete members;
-        System.debug('LoyaltyProgramMember 삭제 완료');
+        Database.DeleteResult[] memberResults = Database.delete(members, false);
+        for (Integer i = 0; i < memberResults.size(); i++) {
+          if (!memberResults[i].isSuccess()) {
+            for (Database.Error err : memberResults[i].getErrors()) {
+              failMsgs.add('LoyaltyProgramMember 삭제 실패: Id=' + members[i].Id + ', msg=' + err.getMessage());
+            }
+          }
+        }
       }
 
       /* ================= Contact ================= */
@@ -233,26 +287,24 @@ public with sharing class MemberDeleteBatch implements Database.Batchable<SObjec
 
       logger.createExceptionLog(e);
       logger.setStatus('ERROR');
+      failMsgs.add('Exception: ' + e.getMessage());
     } finally {
       totalSuccess.addAll(successIds);
       totalFail.addAll(failIds);
 
-      if (!successIds.isEmpty()) {
-        logger.setSuccessRecordIds(successIds);
+      Boolean hasFailure = !failIds.isEmpty() || !failMsgs.isEmpty();
+
+      if (hasFailure) {
+        if (!failIds.isEmpty()) {
+          logger.setFailedRecordIds(failIds);
+        }
+        if (!failMsgs.isEmpty()) {
+          logger.setErrorMessage(String.join(failMsgs, ' | '));
+        }
+        logger.setResponseDatetime(Datetime.now());
+        logger.addLog();
+        ApexLogger.insertLogs();
       }
-
-      if (!failIds.isEmpty()) {
-        logger.setFailedRecordIds(failIds);
-      }
-
-      if (!failMsgs.isEmpty()) {
-        logger.setErrorMessage(String.join(failMsgs, ' | '));
-      }
-
-      logger.setResponseDatetime(Datetime.now());
-      logger.addLog();
-
-      ApexLogger.insertLogs();
 
       System.debug('EXECUTE 종료');
     }
