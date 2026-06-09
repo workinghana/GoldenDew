@@ -13,7 +13,7 @@
  *
  * LWC 호환을 위해 결과는 @AuraEnabled DTO 로 wrapping.
  */
-public with sharing class ExpirationPeriodUnit {
+public with sharing class LoyaltyPointValidationUIController {
   // ============================================================
   // Public API — LWC 호출 진입점
   // ============================================================
