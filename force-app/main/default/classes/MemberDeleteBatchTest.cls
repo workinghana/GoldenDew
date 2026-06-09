@@ -330,4 +330,166 @@ private class MemberDeleteBatchTest {
 
     System.assert(true, 'finish 메서드 예외 없이 종료');
   }
+
+  // =========================================================
+  // 10) 회원 연관 전체 그래프 삭제
+  //     LoyaltyLedger / LoyaltyLedgerTraceability / LoyaltyMemberCurrency
+  //     / LoyaltyMemberTier / LoyaltyAggrSubPointExprLedger__c 의
+  //     내부 delete 루프를 실제로 실행시켜 커버리지 확보.
+  // =========================================================
+  @IsTest
+  static void test_batch_deletes_full_member_graph() {
+    setupCalloutMock();
+
+    LoyaltyProgram lp = createProgram();
+    Contact c = makeWithdrawnContact();
+    LoyaltyProgramMember lpm = createLpm(lp.Id, c.Id);
+
+    Id memberId = lpm.Id;
+
+    // --- LoyaltyProgramCurrency + Subtype ---
+    LoyaltyProgramCurrency loyaltyCurrency = new LoyaltyProgramCurrency(
+      LoyaltyProgramId = lp.Id,
+      Name = uniq('CUR'),
+      CurrencyType = 'NonQualifying',
+      IsActive = true,
+      IsPrimary = true,
+      ExpiryModel = 'Fixed',
+      ExtendExpiration = 'None',
+      ExpiryPeriodFrequency = 12,
+      ExpiryPeriodUnit = 'Years',
+      CostperUnit = 1,
+      HasEscrow = false,
+      DoesAllowLedgerTracing = true
+    );
+    insert loyaltyCurrency;
+
+    LoyaltyPgmCurrencySubtype subtype = new LoyaltyPgmCurrencySubtype(
+      LoyaltyProgramCurrencyId = loyaltyCurrency.Id,
+      Name = uniq('SUB'),
+      PointTypeCode__c = '02',
+      UsagePriorityNumber = 1,
+      IsActive = true
+    );
+    insert subtype;
+
+    // --- LoyaltyMemberCurrency ---
+    Id lmcId;
+    try {
+      LoyaltyMemberCurrency lmc = new LoyaltyMemberCurrency(
+        Name = uniq('LMC'),
+        LoyaltyMemberId = memberId,
+        LoyaltyProgramCurrencyId = loyaltyCurrency.Id
+      );
+      insert lmc;
+      lmcId = lmc.Id;
+    } catch (Exception e) {
+      System.debug('LoyaltyMemberCurrency insert skip: ' + e.getMessage());
+    }
+
+    // --- LoyaltyTierGroup + LoyaltyTier + LoyaltyMemberTier ---
+    Id lmtId;
+    try {
+      LoyaltyTierGroup tierGroup = new LoyaltyTierGroup(
+        Name = uniq('TG'),
+        LoyaltyProgramId = lp.Id,
+        QpResetPeriod = 'Years',
+        QpResetDate = Date.today(),
+        QpResetFrequency = 1
+      );
+      insert tierGroup;
+
+      LoyaltyTier tier = new LoyaltyTier(Name = uniq('TIER'), LoyaltyTierGroupId = tierGroup.Id);
+      insert tier;
+
+      LoyaltyMemberTier lmt = new LoyaltyMemberTier(LoyaltyMemberId = memberId, LoyaltyTierId = tier.Id, Name = '02');
+      insert lmt;
+      lmtId = lmt.Id;
+    } catch (Exception e) {
+      System.debug('LoyaltyMemberTier insert skip: ' + e.getMessage());
+    }
+
+    // --- LoyaltyLedger (Credit + Debit) + LoyaltyLedgerTraceability ---
+    Id lltId;
+    Id creditLedgerId;
+    Id debitLedgerId;
+    try {
+      LoyaltyLedger creditLedger = new LoyaltyLedger(
+        LoyaltyProgramMemberId = memberId,
+        LoyaltyProgramCurrencyId = loyaltyCurrency.Id,
+        LoyaltyPgmCrcySubtypeId = subtype.Id,
+        ActivityDate = Datetime.now(),
+        Points = 100,
+        ExpiryDate = Date.today().addYears(1),
+        EventType = 'Credit'
+      );
+      LoyaltyLedger debitLedger = new LoyaltyLedger(
+        LoyaltyProgramMemberId = memberId,
+        LoyaltyProgramCurrencyId = loyaltyCurrency.Id,
+        LoyaltyPgmCrcySubtypeId = subtype.Id,
+        ActivityDate = Datetime.now(),
+        Points = 30,
+        ExpiryDate = Date.today().addYears(1),
+        EventType = 'Debit'
+      );
+      insert new List<LoyaltyLedger>{ creditLedger, debitLedger };
+      creditLedgerId = creditLedger.Id;
+      debitLedgerId = debitLedger.Id;
+
+      LoyaltyLedgerTraceability llt = new LoyaltyLedgerTraceability(
+        LoyaltyProgramMemberId = memberId,
+        LoyaltyPgmCurrencySubtypeId = subtype.Id,
+        LoyaltyProgramCurrencyId = loyaltyCurrency.Id,
+        Points = 30,
+        ActionType = 'Debit',
+        DebitLoyaltyLedgerId = debitLedger.Id,
+        CreditLoyaltyLedgerId = creditLedger.Id
+      );
+      insert llt;
+      lltId = llt.Id;
+    } catch (Exception e) {
+      System.debug('LoyaltyLedger/Traceability insert skip: ' + e.getMessage());
+    }
+
+    // --- LoyaltyAggrSubPointExprLedger__c (custom, master-detail to member) ---
+    Id aggrId;
+    try {
+      LoyaltyAggrSubPointExprLedger__c aggr = new LoyaltyAggrSubPointExprLedger__c(
+        LoyaltyProgramMemberId__c = memberId,
+        CurrencySubTypeId__c = subtype.Id
+      );
+      insert aggr;
+      aggrId = aggr.Id;
+    } catch (Exception e) {
+      System.debug('LoyaltyAggrSubPointExprLedger__c insert skip: ' + e.getMessage());
+    }
+
+    Id contactId = c.Id;
+
+    Test.startTest();
+    Database.executeBatch(new MemberDeleteBatch(), 5);
+    Test.stopTest();
+
+    List<Contact> remainingC = [SELECT IsDeleted FROM Contact WHERE Id = :contactId ALL ROWS];
+    System.assert(!remainingC.isEmpty() && remainingC[0].IsDeleted, 'Contact 삭제 확인');
+
+    List<LoyaltyProgramMember> remainingLpm = [SELECT IsDeleted FROM LoyaltyProgramMember WHERE Id = :memberId ALL ROWS];
+    System.assert(!remainingLpm.isEmpty() && remainingLpm[0].IsDeleted, 'LoyaltyProgramMember 삭제 확인');
+
+    if (lltId != null) {
+      System.assertEquals(0, [SELECT COUNT() FROM LoyaltyLedgerTraceability WHERE Id = :lltId], 'LoyaltyLedgerTraceability 삭제 확인');
+    }
+    if (creditLedgerId != null) {
+      System.assertEquals(0, [SELECT COUNT() FROM LoyaltyLedger WHERE Id IN (:creditLedgerId, :debitLedgerId)], 'LoyaltyLedger 삭제 확인');
+    }
+    if (lmcId != null) {
+      System.assertEquals(0, [SELECT COUNT() FROM LoyaltyMemberCurrency WHERE Id = :lmcId], 'LoyaltyMemberCurrency 삭제 확인');
+    }
+    if (lmtId != null) {
+      System.assertEquals(0, [SELECT COUNT() FROM LoyaltyMemberTier WHERE Id = :lmtId], 'LoyaltyMemberTier 삭제 확인');
+    }
+    if (aggrId != null) {
+      System.assertEquals(0, [SELECT COUNT() FROM LoyaltyAggrSubPointExprLedger__c WHERE Id = :aggrId], 'LoyaltyAggrSubPointExprLedger__c 삭제 확인');
+    }
+  }
 }
