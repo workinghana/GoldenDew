@@ -1,9 +1,11 @@
+// 만료된 Voucher 레코드를 삭제하는 배치 클래스
+
 public with sharing class ExpiredVoucherDeleteBatch implements Database.Batchable<SObject>, Database.Stateful {
   private Set<String> totalSuccess = new Set<String>();
   private Set<String> totalFail = new Set<String>();
 
   /* ================= START ================= */
-
+  //시작
   public Database.QueryLocator start(Database.BatchableContext bc) {
     // 만료일(ExpirationDate, Date 타입)이 오늘 기준 1년 이전인 Voucher = 만료 후 2년 경과
     Date targetDate = Date.today().addYears(-1);
@@ -22,7 +24,7 @@ public with sharing class ExpiredVoucherDeleteBatch implements Database.Batchabl
   }
 
   /* ================= EXECUTE ================= */
-
+  //실행
   public void execute(Database.BatchableContext bc, List<Voucher> scope) {
     System.debug('================ EXECUTE START =================');
     System.debug('scope size = ' + scope.size());
